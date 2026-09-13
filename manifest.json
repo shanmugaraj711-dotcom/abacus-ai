@@ -1,0 +1,10 @@
+{
+  "name":"Abacus Adventure",
+  "short_name":"Abacus",
+  "start_url":"./",
+  "display":"standalone",
+  "background_color":"#f5f7ff",
+  "theme_color":"#5b5ce2",
+  "description":"Offline-first abacus practice for kids.",
+  "icons":[]
+}
