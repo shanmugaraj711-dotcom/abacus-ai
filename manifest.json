@@ -1,10 +1,13 @@
 {
-  "name":"Abacus Adventure",
-  "short_name":"Abacus",
-  "start_url":"./",
-  "display":"standalone",
-  "background_color":"#f5f7ff",
-  "theme_color":"#5b5ce2",
-  "description":"Offline-first abacus practice for kids.",
-  "icons":[]
+  "name": "Abacus Adventure",
+  "short_name": "Abacus",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f7ff",
+  "theme_color": "#5b5ce2",
+  "description": "Offline-first abacus practice for kids.",
+  "icons": [
+    {"src":"./icons/icon-192.svg","sizes":"192x192","type":"image/svg+xml","purpose":"any maskable"},
+    {"src":"./icons/icon-512.svg","sizes":"512x512","type":"image/svg+xml","purpose":"any maskable"}
+  ]
 }
