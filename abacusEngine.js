@@ -1,11 +1,11 @@
 const LEVELS = Object.freeze({
   1:{op:'add',rule:'direct',maxA:4,maxB:4},
   2:{op:'add',rule:'direct',maxA:5,maxB:4},
-  3:{op:'sub',rule:'direct',maxA:9,maxB:4},
+  3:{op:'sub',rule:'direct',maxA:9,maxB:5},
   4:{op:'sub',rule:'direct',maxA:9,maxB:5},
-  5:{op:'add',rule:'small',maxA:4,maxB:4},
+  5:{op:'add',rule:'small',maxA:5,maxB:4},
   6:{op:'add',rule:'small',maxA:5,maxB:4},
-  7:{op:'sub',rule:'small',maxA:9,maxB:4},
+  7:{op:'sub',rule:'small',maxA:9,maxB:5},
   8:{op:'sub',rule:'small',maxA:9,maxB:5},
   9:{op:'add',rule:'big',maxA:9,maxB:9},
   10:{op:'add',rule:'big',maxA:9,maxB:9},
@@ -27,11 +27,12 @@ export function createAbacus(){
 }
 
 export function valueOf(abacus){
-  return abacus.rods.reduce((sum,r,i)=>sum+(r.upper?5:0)+r.lower*Math.pow(10,i),0);
+  if(!abacus||!Array.isArray(abacus.rods))return 0;
+  return abacus.rods.reduce((sum,r,i)=>sum+(r?.upper?5:0)+(Number(r?.lower)||0)*Math.pow(10,i),0);
 }
 
 export function setValue(abacus,value){
-  let n=Math.max(0,Math.floor(value));
+  let n=Math.max(0,Math.floor(Number(value)||0));
   abacus.rods=abacus.rods.map((_,i)=>{
     const d=Math.floor(n/Math.pow(10,i))%10;
     return {upper:d>=5,lower:d%5};
@@ -39,102 +40,84 @@ export function setValue(abacus,value){
   return abacus;
 }
 
-function rand(min,max){
-  return Math.floor(Math.random()*(max-min+1))+min;
-}
+function rand(min,max){return Math.floor(Math.random()*(max-min+1))+min;}
 
-// The curriculum is rule-driven. For addition, direct movement means the
-// lower-bead group still has room; otherwise a small friend is needed before
-// crossing 10, and a big friend is needed when the sum carries to the next rod.
-// Direct subtraction keeps the v1 curriculum's single-digit direct range
-// (including the spec's 5-2 example).
+// The v1 curriculum intentionally keeps the direct-subtraction examples
+// defined by the product spec (including 5-2 as a direct example).
 function valid(a,b,op,rule){
   const result=op==='add'?a+b:a-b;
   if(result<0)return false;
-
   if(rule==='direct'){
-    if(op==='add') return (a%5)+b<=4;
-    return a<=5;
+    return op==='add' ? (a%5)+b<=4 : a<=5;
   }
-
   if(rule==='small'){
-    if(op==='add') return a+b<10 && (a%5)+b>4;
-    return a<10 && a%5<b;
+    return op==='add' ? a+b<10 && (a%5)+b>4 : a<10 && a%5<b;
   }
-
   if(rule==='big'){
-    if(op==='add') return a+b>=10;
-    return a>=10 && b>a%10;
+    return op==='add' ? a+b>=10 : a>=10 && b>a%10;
   }
-
   return false;
 }
 
-export function generateProblem(level){
-  const cfg=LEVELS[level]||LEVELS[1];
-  const op=cfg.op==='sub'?'sub':'add';
+function choicesFor(level){
+  if(level===13)return ['direct','small'];
+  if(level===14)return ['small','big'];
+  if(level===15)return ['direct','small','big'];
+  return null;
+}
 
-  for(let i=0;i<500;i++){
+function buildProblem(a,b,operation,rule){
+  return {
+    operands:[a,b],
+    operation,
+    expectedRule:rule,
+    answer:operation==='add'?a+b:a-b
+  };
+}
+
+export function generateProblem(level){
+  const safeLevel=Math.min(15,Math.max(1,Math.floor(Number(level)||1)));
+  const cfg=LEVELS[safeLevel];
+  const operation=cfg.op.startsWith('sub')||cfg.op==='mixedSub' ? 'sub' : (cfg.op==='mixed' || cfg.op==='mixedSmall' || cfg.op==='mixedBig' ? (safeLevel>=11?'sub':'add') : cfg.op);
+  const mixedChoices=choicesFor(safeLevel);
+
+  for(let i=0;i<1000;i++){
     const a=rand(1,cfg.maxA);
     const b=rand(1,cfg.maxB);
-
-    if(cfg.op==='mixedSmall'||cfg.op==='mixedBig'||cfg.op==='mixed'){
-      const choices=cfg.op==='mixedSmall'
-        ? ['direct','small']
-        : cfg.op==='mixedBig'
-          ? ['small','big']
-          : ['direct','small','big'];
-      const rule=choices[rand(0,choices.length-1)];
-      if(valid(a,b,op,rule)){
-        return {
-          operands:[a,b],
-          operation:op,
-          expectedRule:rule,
-          answer:op==='add'?a+b:a-b
-        };
-      }
-    }else if(valid(a,b,op,cfg.rule)){
-      return {
-        operands:[a,b],
-        operation:op,
-        expectedRule:cfg.rule,
-        answer:op==='add'?a+b:a-b
-      };
-    }
+    const rule=mixedChoices ? mixedChoices[rand(0,mixedChoices.length-1)] : cfg.rule;
+    if(valid(a,b,operation,rule))return buildProblem(a,b,operation,rule);
   }
 
-  // Deterministic fallback that is valid for the requested level.
   const fallbacks={
-    1:[2,3,'direct'],
-    2:[5,4,'direct'],
-    3:[5,2,'direct'],
-    4:[9,4,'direct'],
-    5:[3,4,'small'],
-    6:[2,4,'small'],
-    7:[6,3,'small'],
-    8:[7,5,'small'],
-    9:[7,8,'big'],
-    10:[6,9,'big'],
-    11:[12,5,'big'],
-    12:[15,8,'big']
+    1:[2,3,'add','direct'],
+    2:[5,4,'add','direct'],
+    3:[5,2,'sub','direct'],
+    4:[9,4,'sub','direct'],
+    5:[3,4,'add','small'],
+    6:[2,4,'add','small'],
+    7:[6,3,'sub','small'],
+    8:[7,5,'sub','small'],
+    9:[7,8,'add','big'],
+    10:[6,9,'add','big'],
+    11:[12,5,'sub','big'],
+    12:[15,8,'sub','big'],
+    13:[3,4,'add','small'],
+    14:[7,5,'sub','small'],
+    15:[7,8,'add','big']
   };
-  const fallback=fallbacks[level]||[2,3,'direct'];
-  return {
-    operands:[fallback[0],fallback[1]],
-    operation:op,
-    expectedRule:fallback[2],
-    answer:op==='add'?fallback[0]+fallback[1]:fallback[0]-fallback[1]
-  };
+  const fallback=fallbacks[safeLevel];
+  return buildProblem(fallback[0],fallback[1],fallback[2],fallback[3]);
 }
 
 export function checkAnswer(problem,childAnswer){
   const n=typeof childAnswer==='number'?childAnswer:valueOf(childAnswer);
-  const correct=n===problem.answer;
+  const correct=Number.isFinite(n)&&n===problem.answer;
   return {correct,ruleUsed:problem.expectedRule};
 }
 
 export function getNextLevel(currentLevel,streak,wrongCount=0){
-  if(streak>=3)return Math.min(15,currentLevel+1);
-  if(wrongCount>=2)return Math.max(1,currentLevel-1);
-  return currentLevel;
+  const level=Math.min(15,Math.max(1,Math.floor(Number(currentLevel)||1)));
+  if(streak>=3)return Math.min(15,level+1);
+  if(wrongCount>=2)return Math.max(1,level-1);
+  return level;
 }
