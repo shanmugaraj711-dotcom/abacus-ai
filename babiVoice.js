@@ -1,5 +1,5 @@
-// Babi voice: child-friendly Tamil + English, offline/PWA safe.
-// Uses the device's SpeechSynthesis voices. Persona is an original playful bear/ cartoon style;
+// Babi voice: child-friendly Tamil OR English, offline/PWA safe.
+// Uses device SpeechSynthesis voices. Persona is an original playful bear/cartoon style;
 // it does not imitate any specific copyrighted character voice.
 (function(){
   const T={
@@ -14,51 +14,42 @@
     again:'Take your time. Try one more time.', againTa:'அவசரம் வேண்டாம். இன்னொரு முறை முயற்சி செய்!',
     great:'Great job! You figured it out!', greatTa:'சூப்பர்! நீயே கண்டுபிடித்துவிட்டாய்!'
   };
-  let lang=localStorage.getItem('abacus-ai-language')||'ta-en';
+
+  // IMPORTANT: Babi is intentionally single-language now.
+  // Older builds used "ta-en" bilingual mode. Normalize that legacy value to Tamil.
+  let stored=localStorage.getItem('abacus-ai-language');
+  let lang=stored==='en'?'en':'ta';
   let speaking=false;
 
   function voices(){return ('speechSynthesis' in window&&speechSynthesis.getVoices)?speechSynthesis.getVoices():[]}
   function pickVoice(code){
-    const vs=voices(), base=code.split('-')[0];
+    const vs=voices(),base=code.split('-')[0];
     const exact=vs.filter(v=>v.lang?.toLowerCase()===code.toLowerCase());
     const same=vs.filter(v=>v.lang?.toLowerCase().startsWith(base));
     const pool=exact.length?exact:same;
-    // Prefer natural/mobile voices. For Tamil, a real Tamil voice is always preferred over an English fallback.
     return pool.find(v=>/natural|neural|enhanced|premium|female|woman|girl/i.test(v.name))||pool[0]||null;
   }
-  function styleFor(code){
-    // Original playful character direction: Tamil = warm, slightly deep "uncle/bear" feel;
-    // English = bright, cheerful cartoon-like feel. These are voice settings, not character imitation.
-    return code.startsWith('ta')?{rate:.78,pitch:.88}:{rate:.86,pitch:1.28};
-  }
-  function splitText(text){
-    return String(text).replace(/\s+/g,' ').trim().match(/[^.!?。！？]+[.!?。！？]?/g)||[String(text)];
-  }
+  function styleFor(code){return code.startsWith('ta')?{rate:.78,pitch:.88}:{rate:.86,pitch:1.28}}
+  function splitText(text){return String(text).replace(/\s+/g,' ').trim().match(/[^.!?。！？]+[.!?。！？]?/g)||[String(text)]}
+
   function speak(text,code){
     if(!('speechSynthesis' in window))return false;
     try{
       speechSynthesis.cancel();
-      const parts=splitText(text); let i=0; speaking=true;
-      const next=()=>{
-        if(i>=parts.length){speaking=false;return}
-        const u=new SpeechSynthesisUtterance(parts[i++]);
-        u.lang=code||'en-IN'; u.voice=pickVoice(u.lang);
-        const s=styleFor(u.lang); u.rate=s.rate;u.pitch=s.pitch;u.volume=1;
-        u.onend=next;u.onerror=next;speechSynthesis.speak(u);
-      };
-      next(); return true;
+      const parts=splitText(text);let i=0;speaking=true;
+      const next=()=>{if(i>=parts.length){speaking=false;return}const u=new SpeechSynthesisUtterance(parts[i++]);u.lang=code;u.voice=pickVoice(code);const s=styleFor(code);u.rate=s.rate;u.pitch=s.pitch;u.volume=1;u.onend=next;u.onerror=next;speechSynthesis.speak(u)};
+      next();return true;
     }catch(e){speaking=false;return false}
   }
-  function say(en,ta){
-    if(lang==='en')return speak(en,'en-IN');
-    if(lang==='ta')return speak(ta,'ta-IN');
-    // Bilingual mode: finish Tamil first, then English. Never cancel the first sentence.
-    const taParts=splitText(ta), enParts=splitText(en); speechSynthesis.cancel(); speaking=true;
-    let queue=taParts.map(x=>[x,'ta-IN']).concat(enParts.map(x=>[x,'en-IN'])),i=0;
-    const next=()=>{if(i>=queue.length){speaking=false;return}const [text,code]=queue[i++];const u=new SpeechSynthesisUtterance(text);u.lang=code;u.voice=pickVoice(code);const s=styleFor(code);u.rate=s.rate;u.pitch=s.pitch;u.volume=1;u.onend=next;u.onerror=next;speechSynthesis.speak(u)}; next(); return true;
+
+  // The public say() API keeps both strings for compatibility, but speaks ONLY the selected language.
+  function say(en,ta){return lang==='en'?speak(en,'en-IN'):speak(ta,'ta-IN')}
+  function greeting(name){return lang==='en'?speak(T.greeting(name),'en-IN'):speak(T.greetingTa(name),'ta-IN')}
+  function setLanguage(value){
+    lang=value==='en'?'en':'ta';
+    localStorage.setItem('abacus-ai-language',lang);
+    document.querySelectorAll('[data-voice-lang]').forEach(b=>b.classList.toggle('selected',b.dataset.voiceLang===lang));
   }
-  function greeting(name){return say(T.greeting(name),T.greetingTa(name))}
-  function setLanguage(value){lang=value;localStorage.setItem('abacus-ai-language',value);document.querySelectorAll('[data-voice-lang]').forEach(b=>b.classList.toggle('selected',b.dataset.voiceLang===value));}
   function current(){return lang}
   function getName(){try{return JSON.parse(localStorage.getItem('abacus-ai-profile-v2')||'null')?.name||'friend'}catch(e){return 'friend'}}
 
@@ -72,11 +63,15 @@
   }
 
   function addVoiceChoice(){
-    const ob=document.querySelector('.onboarding'); if(!ob||ob.querySelector('#voiceChoice'))return;
+    const ob=document.querySelector('.onboarding');if(!ob||ob.querySelector('#voiceChoice'))return;
     const box=document.createElement('section');box.id='voiceChoice';box.className='voice-choice';
-    box.innerHTML=`<div class="voice-choice-title">🔊 Choose Babi's voice</div><div class="voice-choice-sub">Pick the language you like. Babi will speak simply.</div><div class="voice-choice-buttons"><button type="button" data-voice-lang="ta">🇮🇳 தமிழ்</button><button type="button" data-voice-lang="en">🇬🇧 English</button></div>`;
-    const brand=ob.querySelector('.ob-card'); if(brand)brand.prepend(box); else ob.appendChild(box);
-    ob.querySelectorAll('[data-voice-lang]').forEach(b=>b.addEventListener('click',()=>{setLanguage(b.dataset.voiceLang);say(b.dataset.voiceLang==='ta'?'ஹாய்! நான் பாபி. தமிழில் பேசலாமா?':'Hi! I am Babi. Shall we learn together?','ஹாய்! நான் பாபி. தமிழில் பேசலாமா?')}));
+    box.innerHTML=`<div class="voice-choice-title">🔊 Choose Babi's voice</div><div class="voice-choice-sub">Pick one language. Babi will speak only that language.</div><div class="voice-choice-buttons"><button type="button" data-voice-lang="ta">🇮🇳 தமிழ்</button><button type="button" data-voice-lang="en">🇬🇧 English</button></div>`;
+    const brand=ob.querySelector('.ob-card');if(brand)brand.prepend(box);else ob.appendChild(box);
+    ob.querySelectorAll('[data-voice-lang]').forEach(b=>b.addEventListener('click',()=>{
+      setLanguage(b.dataset.voiceLang);
+      if(b.dataset.voiceLang==='ta')speak('ஹாய்! நான் பாபி. தமிழில் பேசலாமா?','ta-IN');
+      else speak('Hi! I am Babi. Shall we learn together?','en-IN');
+    }));
     setLanguage(localStorage.getItem('abacus-ai-language')==='en'?'en':'ta');
   }
 
@@ -90,14 +85,14 @@
     `;document.head.appendChild(style);
     const b=document.createElement('button');b.id='babi-global-helper';b.type='button';b.innerHTML='<span class="face">🐻</span><span>Babi AI • Help</span>';b.setAttribute('aria-label','Ask Babi for help');
     const bubble=document.createElement('div');bubble.id='babi-helper-bubble';document.body.appendChild(bubble);document.body.appendChild(b);
-    b.addEventListener('click',()=>{const [en,ta]=context();bubble.textContent=lang==='ta'?ta:lang==='en'?en:`${ta} ${en}`;bubble.classList.add('show');say(en,ta);setTimeout(()=>bubble.classList.remove('show'),7000)});
+    b.addEventListener('click',()=>{const [en,ta]=context();bubble.textContent=lang==='ta'?ta:en;bubble.classList.add('show');say(en,ta);setTimeout(()=>bubble.classList.remove('show'),7000)});
   }
   function hintMessage(){say(T.hint,T.hintTa)}
   document.addEventListener('click',function(e){
     const el=e.target?.closest?.('.babi-component');if(el){const now=Date.now();if(now-(window.__lastBabiVoice||0)>700){window.__lastBabiVoice=now;greeting(getName())}}
     const hint=e.target?.closest?.('#hint,.hint-btn,[data-hint]');if(hint)setTimeout(hintMessage,80);
   },{passive:true});
-  if('speechSynthesis' in window) speechSynthesis.onvoiceschanged=()=>{};
+  if('speechSynthesis' in window)speechSynthesis.onvoiceschanged=()=>{};
   window.BabiVoice={say,greeting,setLanguage,current,hint:hintMessage,supported:('speechSynthesis' in window),stop:()=>speechSynthesis?.cancel()};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject);else inject();
   new MutationObserver(inject).observe(document.documentElement,{childList:true,subtree:true});
