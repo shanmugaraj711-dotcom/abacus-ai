@@ -26,7 +26,7 @@ export function createAbacus(){return {rods:[{upper:false,lower:0},{upper:false,
 
 export function valueOf(abacus){
   if(!abacus||!Array.isArray(abacus.rods))return 0;
-  return abacus.rods.reduce((sum,r,i)=>sum+(r?.upper?5:0)+(Number(r?.lower)||0)*Math.pow(10,i),0);
+  return abacus.rods.reduce((sum,r,i)=>sum+((r?.upper?5:0)+(Number(r?.lower)||0))*Math.pow(10,i),0);
 }
 
 export function setValue(abacus,value){
