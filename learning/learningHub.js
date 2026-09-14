@@ -36,6 +36,7 @@ function addStyle(){
   .learning-group-head{display:flex;gap:10px;align-items:center;margin-bottom:10px}.learning-group-icon{font-size:30px}.learning-group-head h2{margin:0;font-size:20px}.learning-group-head p{margin:3px 0 0;font-size:13px;opacity:.72}
   .learning-lesson-list{display:grid;gap:9px}.learning-lesson{width:100%;text-align:left;border:0;border-radius:16px;padding:13px 14px;background:#FAF6EE;color:#4B2C18;cursor:pointer}.learning-lesson b{display:block;font-size:16px}.learning-lesson small{display:block;margin-top:3px;opacity:.7}
   .learning-ready{margin-top:14px;padding:16px;border-radius:20px;background:#fff3c9;border:2px solid rgba(107,66,38,.12);text-align:center}.learning-ready h2{margin:4px 0}.learning-ready p{margin:5px 0 12px}.learning-lesson-card{max-width:620px;margin:0 auto;text-align:center}.learning-lesson-card .learning-target{background:#f3dfb5;border-radius:18px;padding:12px;margin:12px 0}.learning-target small{display:block}.learning-target strong{font-size:48px}.learning-note{font-weight:800;opacity:.8}.learning-current{font-size:19px;font-weight:900;margin:10px}.learning-status{min-height:30px;font-weight:900;margin:7px}.learning-status.ok{color:#176b2c}.learning-status.bad{color:#9b4d26}.learning-check{min-width:190px}.learning-check:disabled{opacity:.75}.learning-next{animation:learningPulse .9s ease-in-out infinite alternate}@keyframes learningPulse{from{transform:scale(1)}to{transform:scale(1.03)}}
+  .learning-abacus .bead{touch-action:manipulation;-webkit-tap-highlight-color:transparent;cursor:pointer}
   `; document.head.appendChild(s);
 }
 function backToWorld(){ location.hash=''; location.reload(); }
@@ -55,11 +56,29 @@ function openLesson(id){
   bindLesson();
 }
 function bindLesson(){
-  const host=app.querySelector('.learning-abacus'); const current=document.getElementById('learningCurrent'); const status=document.getElementById('learningStatus'); const check=document.getElementById('learningCheck');
+  const current=document.getElementById('learningCurrent');
+  const status=document.getElementById('learningStatus');
+  const check=document.getElementById('learningCheck');
   const draw=()=>{
-    host.outerHTML=abacusHtml(activeAbacus); const h=app.querySelector('.learning-abacus'); current.textContent=String(valueOf(activeAbacus));
-    h.querySelectorAll('[data-learning-upper]').forEach(b=>b.onclick=()=>{if(lessonLocked)return; const r=Number(b.dataset.learningUpper); activeAbacus.rods[r].upper=!activeAbacus.rods[r].upper; draw();});
-    h.querySelectorAll('[data-learning-lower]').forEach(b=>b.onclick=()=>{if(lessonLocked)return; const r=Number(b.dataset.learningLower), i=Number(b.dataset.index), c=activeAbacus.rods[r].lower; activeAbacus.rods[r].lower=i<c?i:Math.min(4,i+1); draw();});
+    // IMPORTANT: always query the current DOM node. The previous renderer replaced
+    // the abacus element, leaving a stale reference that made beads move invisibly.
+    const host=app.querySelector('.learning-abacus');
+    if(!host) return;
+    host.outerHTML=abacusHtml(activeAbacus);
+    const h=app.querySelector('.learning-abacus');
+    current.textContent=String(valueOf(activeAbacus));
+    h.querySelectorAll('[data-learning-upper]').forEach(b=>b.onclick=()=>{
+      if(lessonLocked)return;
+      const r=Number(b.dataset.learningUpper);
+      activeAbacus.rods[r].upper=!activeAbacus.rods[r].upper;
+      draw();
+    });
+    h.querySelectorAll('[data-learning-lower]').forEach(b=>b.onclick=()=>{
+      if(lessonLocked)return;
+      const r=Number(b.dataset.learningLower), i=Number(b.dataset.index), c=activeAbacus.rods[r].lower;
+      activeAbacus.rods[r].lower=i<c?i:Math.min(4,i+1);
+      draw();
+    });
   };
   draw();
   check.onclick=()=>{
@@ -67,7 +86,6 @@ function bindLesson(){
     const actual=valueOf(activeAbacus);
     if(actual!==activeLesson.target){ status.className='learning-status bad'; status.textContent=`Not yet — you made ${actual}. Try the beads again! 💛`; window.abacusSound?.wrong?.(); return; }
     lessonLocked=true; check.disabled=true; check.textContent='Awesome! 🎉'; check.classList.add('learning-next'); status.className='learning-status ok'; status.textContent=`${sayCorrect()} Babi is cheering for you!`; window.abacusSound?.correct?.();
-    // Kids need a moment to see the win before the next lesson appears.
     setTimeout(()=>{
       const nextId=activeLesson.id+1;
       if(nextId<=5){ openLesson(nextId); }
