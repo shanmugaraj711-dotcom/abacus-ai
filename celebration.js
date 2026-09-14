@@ -1,4 +1,4 @@
-// Universal child encouragement layer: every correct task gets a visual + Babi reaction.
+// Universal child encouragement layer — event driven so it never loops on its own DOM updates.
 (function(){
   const style=document.createElement('style');
   style.textContent=`
@@ -16,50 +16,38 @@
   let lastKey='';
   function speak(){
     try{
-      const lang=window.BabiVoice?.current?.()||'en';
-      const en='Super job! You did it! Let’s try the next one!';
-      const ta='சூப்பர்! நீ செய்துவிட்டாய்! அடுத்ததை முயற்சி செய்வோமா?';
+      const [en,ta]=window.BabiVoice?.context?.()||['Super job! You did it!','சூப்பர்! நீ செய்துவிட்டாய்!'];
       window.BabiVoice?.say?.(en,ta);
     }catch(e){}
   }
   function dance(){
     document.querySelectorAll('.babi,.babi-component').forEach(el=>{el.classList.remove('babi-buddy-dance','babi-celebrate');void el.offsetWidth;el.classList.add('babi-buddy-dance','babi-celebrate')});
   }
-  function celebrate(label){
+  function celebrate(label,key){
     const host=document.querySelector('.lesson-card,.assessment,.content')||document.querySelector('#app');
     if(!host)return;
-    const key=(location.href.split('?')[0]||'')+'|'+(host.textContent||'').slice(0,180);
-    if(key===lastKey)return; lastKey=key;
+    const safeKey=String(key||label||host.textContent||'').slice(0,240);
+    if(safeKey===lastKey)return;lastKey=safeKey;
     const box=document.createElement('div');box.className='babi-correct-celebration';box.setAttribute('role','status');box.innerHTML=`<svg class="babi-mini babi" viewBox="0 0 160 160" aria-label="Babi celebrating"><use href="./assets/mascot/babi.svg#celebrate"></use></svg><div><strong>Correct! 🎉</strong><span>${label||'Great job! Babi is proud of you!'}</span></div><div class="babi-confetti"><i></i><i></i><i></i><i></i><i></i></div>`;
     const anchor=host.querySelector('.actions,.answer-card,.lesson-target,.lesson-current')||host.firstElementChild;
     if(anchor?.parentNode)anchor.parentNode.insertBefore(box,anchor.nextSibling);else host.appendChild(box);
     host.classList.add('babi-correct-flash');dance();speak();window.abacusSound?.correct?.();
     setTimeout(()=>{box.remove();host.classList.remove('babi-correct-flash')},2400);
   }
-  function checkLesson(){
-    const card=document.querySelector('.lesson-card');
-    const target=Number(card?.querySelector('.lesson-target strong')?.textContent||NaN);
-    const current=Number(card?.querySelector('#lessonCurrent')?.textContent||NaN);
-    if(Number.isFinite(target)&&current===target&&target>=0)celebrate(`You made ${target}! Keep going! 🌟`);
-  }
-  function checkResult(){
+  function resultCelebration(){
     const title=document.querySelector('.result-title.coral');
-    if(title)celebrate('You got it right! Babi is dancing with you! 💃🕺');
+    const problem=document.querySelector('.result-problem');
+    if(title&&problem)celebrate('You got it right! Babi is dancing with you! 💃🕺',`result:${problem.textContent}`);
   }
-  function checkMemory(){
-    const matched=document.querySelectorAll('.memory-card.matched').length;
-    if(matched>0&&matched%2===0)celebrate('Perfect match! Your abacus brain is growing! 🧠✨');
-  }
-  function checkBuilder(){
+  function builderCelebration(){
     const h=document.querySelector('.lesson-card h1');
     if(!h)return;
-    const m=h.textContent.match(/Make\s+(\d+)/i);const n=Number(document.querySelector('.answer-card strong')?.textContent||NaN);
-    if(m&&Number.isFinite(n)&&n===Number(m[1]))celebrate(`You built ${n}! Amazing bead work! 🧮`);
+    const m=h.textContent.match(/Make\s+(\d+)/i),n=Number(document.querySelector('.answer-card strong')?.textContent||NaN);
+    if(m&&Number.isFinite(n)&&n===Number(m[1]))celebrate(`You built ${n}! Amazing bead work! 🧮`,`builder:${m[1]}`);
   }
+  // Practice result is rendered after #check. Preview/locked screens never trigger this.
   document.addEventListener('click',e=>{
-    const el=e.target?.closest?.('#builderCheck,#assessCheck,[data-choice]');
-    if(el)setTimeout(()=>{checkBuilder();},80);
+    const el=e.target?.closest?.('#check,#builderCheck');if(!el)return;
+    setTimeout(()=>{if(el.id==='check')resultCelebration();else builderCelebration()},100);
   },true);
-  const observer=new MutationObserver(()=>{checkLesson();checkResult();checkMemory()});
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>observer.observe(document.body,{childList:true,subtree:true}));else observer.observe(document.body,{childList:true,subtree:true});
 })();
