@@ -14,8 +14,6 @@
   <main id="app" aria-live="polite"></main>
   <noscript>Please enable JavaScript to use Abacus AI for Kids.</noscript>
   <script>
-    // Never leave a child staring at a blank screen. If the app module fails
-    // to load/execute, show a recoverable screen instead of a silent failure.
     window.__abacusBootFailed = function (message) {
       const app = document.getElementById('app');
       if (!app || app.dataset.bootShown === '1') return;
@@ -34,11 +32,12 @@
     }, 6000);
   </script>
   <script type="module">
-    import('./challengeApp.js?v=20260914-boot10').catch(function (err) {
+    import('./challengeApp.js?v=20260914-boot11').catch(function (err) {
       window.__abacusBootFailed(err && err.message ? err.message : 'Module failed to load');
     });
   </script>
-  <script src="interactionFix.js?v=20260914-boot10"></script>
-  <script type="module" src="sound.js?v=20260914-boot10"></script>
+  <script type="module" src="lessonFix.js?v=20260914-lesson1"></script>
+  <script src="interactionFix.js?v=20260914-boot11"></script>
+  <script type="module" src="sound.js?v=20260914-boot11"></script>
 </body>
 </html>
