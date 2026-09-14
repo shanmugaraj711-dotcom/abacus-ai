@@ -6,7 +6,7 @@ const assert=(condition,message)=>{if(!condition)throw new Error(message)};
 function isRuleValid(a,b,operation,rule){
   const result=operation==='add'?a+b:a-b;
   if(result<0)return false;
-  if(rule==='direct')return operation==='add'?(a%5)+b<=4:a<=5;
+  if(rule==='direct')return operation==='add'?(a%5)+b<=4:(a%5)>=b;
   if(rule==='small')return operation==='add'?a+b<10&&(a%5)+b>4:a<10&&a%5<b;
   if(rule==='big')return operation==='add'?a+b>=10:a>=10&&b>a%10;
   return false;
@@ -36,7 +36,10 @@ tests.push(()=>{
   assert(!isRuleValid(4,2,'add','direct'),'4+2 must not be direct');
   assert(isRuleValid(3,4,'add','small'),'3+4 should be small friend');
   assert(isRuleValid(6,4,'add','small'),'6+4 should be small friend');
-  assert(isRuleValid(5,2,'sub','direct'),'Level 3 curriculum example 5-2 should be direct');
+  assert(isRuleValid(5,2,'sub','direct'),'5-2 should be direct');
+  assert(isRuleValid(9,4,'sub','direct'),'9-4 should be direct');
+  assert(isRuleValid(8,3,'sub','direct'),'8-3 should be direct');
+  assert(!isRuleValid(8,4,'sub','direct'),'8-4 should require a small friend');
 });
 
 tests.push(()=>{
