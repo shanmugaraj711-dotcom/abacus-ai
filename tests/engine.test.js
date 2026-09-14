@@ -14,9 +14,7 @@ function isRuleValid(a,b,operation,rule){
 
 tests.push(()=>{
   const a=createAbacus();
-  setValue(a,0); assert(valueOf(a)===0,'0 representation failed');
-  setValue(a,9); assert(valueOf(a)===9,'9 representation failed');
-  setValue(a,18); assert(valueOf(a)===18,'18 representation failed');
+  for(const n of [0,9,18,50,99]){setValue(a,n);assert(valueOf(a)===n,`${n} representation failed`)}
 });
 
 tests.push(()=>{
