@@ -1,5 +1,6 @@
 const KEY='abacus-ai-sound-v1';
-let enabled=localStorage.getItem(KEY)!=='off';
+let enabled=true;
+try{enabled=localStorage.getItem(KEY)!=='off'}catch{}
 let audio=null;
 
 function ctx(){
@@ -24,7 +25,7 @@ function correct(){[523,659,784].forEach((f,i)=>tone(f,.18,'triangle',.075,i*.07
 function wrong(){tone(260,.16,'sine',.055);tone(190,.2,'sine',.045,.1)}
 function levelup(){[523,659,784,1047,1319].forEach((f,i)=>tone(f,.2,'triangle',.08,i*.09))}
 function cheer(){tone(880,.12,'triangle',.07);tone(1175,.18,'triangle',.06,.09)}
-function setEnabled(v){enabled=v;localStorage.setItem(KEY,v?'on':'off');renderButton();if(v)correct()}
+function setEnabled(v){enabled=v;try{localStorage.setItem(KEY,v?'on':'off')}catch{}renderButton();if(v)correct()}
 function renderButton(){
   let b=document.querySelector('#sound-toggle');
   if(!b){
@@ -42,19 +43,21 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('button');
   if(!el||el.id==='sound-toggle')return;
   if(el.matches('.bead,[data-upper],[data-lower]')) bead();
-  else if(el.id==='check'){}
   else tap();
   if(el.id==='check'){
     setTimeout(()=>{
-      if(document.querySelector('.result-title.coral')) wrong();
-      else if(document.querySelector('.result-title:not(.coral)')) correct();
+      if(document.querySelector('.result-title.coral')) correct();
+      else if(document.querySelector('.result-title:not(.coral)')) wrong();
     },60);
   }
-  if(el.id==='next'&&/Continue to Level/.test(el.textContent)) levelup();
+  if(el.id==='continue' && document.querySelector('.levelup-title')) levelup();
 });
 
+let celebratedLevelup=false;
 const observer=new MutationObserver(()=>{
-  if(document.querySelector('.levelup-title')) levelup();
+  const visible=!!document.querySelector('.levelup-title');
+  if(visible&&!celebratedLevelup){celebratedLevelup=true;levelup();}
+  if(!visible)celebratedLevelup=false;
 });
 observer.observe(document.body,{childList:true,subtree:true});
 window.abacusSound={setEnabled,isEnabled:()=>enabled,correct,wrong,levelup,cheer};
