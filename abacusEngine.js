@@ -40,12 +40,10 @@ export function setValue(abacus,value){
 
 function rand(min,max){return Math.floor(Math.random()*(max-min+1))+min;}
 
-// The v1 curriculum intentionally keeps the direct-subtraction examples
-// defined by the product spec (including 5-2 as a direct example).
 function valid(a,b,op,rule){
   const result=op==='add'?a+b:a-b;
   if(result<0)return false;
-  if(rule==='direct')return op==='add'?(a%5)+b<=4:a<=5;
+  if(rule==='direct')return op==='add'?(a%5)+b<=4:(a%5)>=b;
   if(rule==='small')return op==='add'?a+b<10&&(a%5)+b>4:a<10&&a%5<b;
   if(rule==='big')return op==='add'?a+b>=10:a>=10&&b>a%10;
   return false;
@@ -79,7 +77,7 @@ export function generateProblem(level){
     1:[2,3,'add','direct'],2:[5,4,'add','direct'],3:[5,2,'sub','direct'],4:[9,4,'sub','direct'],
     5:[3,4,'add','small'],6:[2,4,'add','small'],7:[6,3,'sub','small'],8:[7,5,'sub','small'],
     9:[7,8,'add','big'],10:[6,9,'add','big'],11:[12,5,'sub','big'],12:[15,8,'sub','big'],
-    13:[3,4,'add','small'],14:[7,5,'sub','small'],15:[7,8,'add','big']
+    13:[3,4,'add','small'],14:[7,5,'add','small'],15:[7,8,'add','big']
   };
   const fallback=fallbacks[safeLevel];
   return buildProblem(fallback[0],fallback[1],fallback[2],fallback[3]);
