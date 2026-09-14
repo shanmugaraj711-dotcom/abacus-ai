@@ -16,4 +16,8 @@
   return {ok:Object.values(checks).every(Boolean),checks};
  }
  window.AbacusQAGate={run};
+ // Staging-only adaptive QA harness. This branch is never production until QA approval.
+ if(location.hostname.includes('github.io')||location.hostname.includes('pages.dev')||location.hostname==='localhost'){
+  const s=document.createElement('script');s.src='./phase1AdaptiveStaging.js?v=phase1-staging1';document.head.appendChild(s);
+ }
 })();
