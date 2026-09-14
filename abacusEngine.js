@@ -74,16 +74,20 @@ export function generateProblem(level){
   }
 
   const fallbacks={
-    1:[2,3,'add','direct'],2:[5,4,'add','direct'],3:[5,2,'sub','direct'],4:[9,4,'sub','direct'],
+    1:[1,2,'add','direct'],2:[5,4,'add','direct'],3:[5,2,'sub','direct'],4:[9,4,'sub','direct'],
     5:[3,4,'add','small'],6:[2,4,'add','small'],7:[6,3,'sub','small'],8:[7,5,'sub','small'],
     9:[7,8,'add','big'],10:[6,9,'add','big'],11:[12,5,'sub','big'],12:[15,8,'sub','big'],
     13:[3,4,'add','small'],14:[7,5,'sub','small'],15:[7,8,'add','big']
   };
   const fallback=fallbacks[safeLevel];
+  if(!fallback||!valid(fallback[0],fallback[1],fallback[2],fallback[3])){
+    throw new Error(`No valid problem available for level ${safeLevel}`);
+  }
   return buildProblem(fallback[0],fallback[1],fallback[2],fallback[3]);
 }
 
 export function checkAnswer(problem,childAnswer){
+  if(!problem||!Array.isArray(problem.operands)||!Number.isFinite(problem.answer))return {correct:false,ruleUsed:problem?.expectedRule||null};
   const n=typeof childAnswer==='number'?childAnswer:valueOf(childAnswer);
   const correct=Number.isFinite(n)&&n===problem.answer;
   return {correct,ruleUsed:problem.expectedRule};
