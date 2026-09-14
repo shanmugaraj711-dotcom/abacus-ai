@@ -14,17 +14,6 @@
   <main id="app" aria-live="polite"></main>
   <noscript>Please enable JavaScript to use Abacus AI for Kids.</noscript>
   <script>
-    // Global compatibility shim: challengeApp.js currently references
-    // `assessment` in its screen router, but the actual quick assessment
-    // flow starts through startAssessment()/assessmentQuestion().
-    // Defining the missing global prevents the router from throwing before
-    // the first screen can render on production/mobile browsers.
-    window.assessment = function () {
-      if (window.__abacusBootFailed && !document.getElementById('app')?.children.length) {
-        window.__abacusBootFailed('Assessment route unavailable');
-      }
-    };
-
     // Never leave a child staring at a blank screen. If the app module fails
     // to load/execute, show a recoverable screen instead of a silent failure.
     window.__abacusBootFailed = function (message) {
@@ -33,7 +22,7 @@
       app.dataset.bootShown = '1';
       app.innerHTML = '<div style="min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center;background:#FAF6EE;color:#4B2C18;font-family:ui-rounded,Arial,sans-serif"><div style="max-width:420px"><div style="font-size:56px">🧮</div><h1 style="margin:8px 0">Babi is waking up…</h1><p style="line-height:1.5;color:#75685D">The Abacus World did not load correctly. Let’s try a fresh start.</p><button onclick="location.reload()" style="border:0;border-radius:14px;padding:14px 22px;background:#6B4226;color:#fff;font:900 17px ui-rounded,Arial,sans-serif">Try Again</button><p style="font-size:11px;color:#9A8B7C;margin-top:16px">'+String(message||'App startup error').replace(/[<>]/g,'')+'</p></div></div>';
     };
-    window.addEventListener('error', function (e) {
+    window.addEventListener('error', function () {
       if (!document.getElementById('app')?.children.length) window.__abacusBootFailed('Startup error');
     });
     window.addEventListener('unhandledrejection', function () {
@@ -45,11 +34,11 @@
     }, 6000);
   </script>
   <script type="module">
-    import('./challengeApp.js?v=20260914-boot9').catch(function (err) {
+    import('./challengeApp.js?v=20260914-boot10').catch(function (err) {
       window.__abacusBootFailed(err && err.message ? err.message : 'Module failed to load');
     });
   </script>
-  <script src="interactionFix.js?v=20260914-boot9"></script>
-  <script type="module" src="sound.js?v=20260914-boot9"></script>
+  <script src="interactionFix.js?v=20260914-boot10"></script>
+  <script type="module" src="sound.js?v=20260914-boot10"></script>
 </body>
 </html>
