@@ -14,6 +14,17 @@
   <main id="app" aria-live="polite"></main>
   <noscript>Please enable JavaScript to use Abacus AI for Kids.</noscript>
   <script>
+    // Global compatibility shim: challengeApp.js currently references
+    // `assessment` in its screen router, but the actual quick assessment
+    // flow starts through startAssessment()/assessmentQuestion().
+    // Defining the missing global prevents the router from throwing before
+    // the first screen can render on production/mobile browsers.
+    window.assessment = function () {
+      if (window.__abacusBootFailed && !document.getElementById('app')?.children.length) {
+        window.__abacusBootFailed('Assessment route unavailable');
+      }
+    };
+
     // Never leave a child staring at a blank screen. If the app module fails
     // to load/execute, show a recoverable screen instead of a silent failure.
     window.__abacusBootFailed = function (message) {
@@ -34,11 +45,11 @@
     }, 6000);
   </script>
   <script type="module">
-    import('./challengeApp.js?v=20260914-boot8').catch(function (err) {
+    import('./challengeApp.js?v=20260914-boot9').catch(function (err) {
       window.__abacusBootFailed(err && err.message ? err.message : 'Module failed to load');
     });
   </script>
-  <script src="interactionFix.js?v=20260914-boot8"></script>
-  <script type="module" src="sound.js?v=20260914-boot8"></script>
+  <script src="interactionFix.js?v=20260914-boot9"></script>
+  <script type="module" src="sound.js?v=20260914-boot9"></script>
 </body>
 </html>
