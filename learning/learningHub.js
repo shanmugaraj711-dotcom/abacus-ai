@@ -12,7 +12,7 @@ const groups = [
   { id: 'numbers', title: '3. Build Bigger Numbers', sub: 'Use 5 + lower beads to make 6–9.', icon: '🧮', lessons: NUMBER_BUILDING }
 ];
 const allLessons = [...FOUNDATION, ...FIVE_BEAD, ...NUMBER_BUILDING];
-let wiredWorld = false;
+let wiredLearn = null;
 let activeLesson = null;
 let activeAbacus = null;
 let lessonLocked = false;
@@ -69,7 +69,6 @@ function bindLesson(){
     const actual=valueOf(activeAbacus);
     if(actual!==activeLesson.target){ status.className='learning-status bad'; status.textContent=`Not yet — you made ${actual}. Try the beads again! 💛`; window.abacusSound?.wrong?.(); return; }
     lessonLocked=true; check.disabled=true; check.textContent='Awesome! 🎉'; check.classList.add('learning-next'); status.className='learning-status ok'; status.textContent=`${sayCorrect()} Babi is cheering for you!`; window.abacusSound?.correct?.();
-    // Kids need a moment to see the win before the next lesson appears.
     setTimeout(()=>{
       const nextId=activeLesson.id+1;
       if(nextId<=5){ openLesson(nextId); }
@@ -78,8 +77,9 @@ function bindLesson(){
   };
 }
 function wireWorld(){
-  const learn=document.getElementById('learn'); if(!learn || wiredWorld) return;
-  wiredWorld=true; learn.onclick=(e)=>{e.preventDefault(); openHub();};
+  const learn=document.getElementById('learn'); if(!learn || learn===wiredLearn) return;
+  wiredLearn=learn;
+  learn.onclick=(e)=>{e.preventDefault(); openHub();};
   if(location.hash==='#start-level-1') setTimeout(()=>{ const practice=document.getElementById('practice'); location.hash=''; practice?.click(); },120);
 }
 const observer=new MutationObserver(wireWorld); observer.observe(app,{childList:true,subtree:true});
