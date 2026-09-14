@@ -20,7 +20,7 @@ let lessonLocked = false;
 function profile(){ try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {}; } catch { return {}; } }
 function esc(v){ return String(v ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c])); }
 function babi(expr='happy', size='small'){ return `<svg class="babi babi-${size} babi-${expr}" viewBox="0 0 160 160" aria-label="Babi"><use href="./assets/mascot/babi.svg#${expr}"></use></svg>`; }
-function speak(text){ try { if('speechSynthesis' in window){ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.rate=.88; u.pitch:1.08; speechSynthesis.speak(u); } } catch {} }
+function speak(text){ try { if('speechSynthesis' in window){ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.rate=.88; u.pitch=1.08; speechSynthesis.speak(u); } } catch {} }
 function sayCorrect(){ const words=['Awesome!','Great job!','You did it!','Brilliant!']; const text=words[Math.floor(Math.random()*words.length)]; speak(text); return text; }
 function abacusHtml(a){
   return `<div class="abacus-wrap learning-abacus"><div class="abacus"><div class="abacus-inner">${[0,1].map(r=>{
