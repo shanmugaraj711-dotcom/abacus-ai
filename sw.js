@@ -1,4 +1,4 @@
-const CACHE='abacus-ai-v23';
+const CACHE='abacus-ai-v24';
 const ASSETS=['./','./index.html','./styles.css','./tutor.css','./challengeApp.js','./lessonFix.js','./hintEnhancer.js','./playModes.js','./playBridge.js','./interactionFix.js','./babiCharacter.js','./babiVoice.js','./tinyAI.js','./babiContext.js','./levelZero.js','./mastery.js','./dailyMission.js','./parentInsights.js','./voiceHardening.js','./qaGate.js','./abacusEngine.js','./sound.js','./celebration.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>Promise.all(ASSETS.map(asset=>cache.add(asset).catch(()=>null)))).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
