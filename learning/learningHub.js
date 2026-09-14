@@ -55,9 +55,11 @@ function openLesson(id){
   bindLesson();
 }
 function bindLesson(){
-  const host=app.querySelector('.learning-abacus'); const current=document.getElementById('learningCurrent'); const status=document.getElementById('learningStatus'); const check=document.getElementById('learningCheck');
+  const current=document.getElementById('learningCurrent'); const status=document.getElementById('learningStatus'); const check=document.getElementById('learningCheck');
   const draw=()=>{
-    host.outerHTML=abacusHtml(activeAbacus); const h=app.querySelector('.learning-abacus'); current.textContent=String(valueOf(activeAbacus));
+    const host=app.querySelector('.learning-abacus'); if(!host) return;
+    host.outerHTML=abacusHtml(activeAbacus);
+    const h=app.querySelector('.learning-abacus'); current.textContent=String(valueOf(activeAbacus));
     h.querySelectorAll('[data-learning-upper]').forEach(b=>b.onclick=()=>{if(lessonLocked)return; const r=Number(b.dataset.learningUpper); activeAbacus.rods[r].upper=!activeAbacus.rods[r].upper; draw();});
     h.querySelectorAll('[data-learning-lower]').forEach(b=>b.onclick=()=>{if(lessonLocked)return; const r=Number(b.dataset.learningLower), i=Number(b.dataset.index), c=activeAbacus.rods[r].lower; activeAbacus.rods[r].lower=i<c?i:Math.min(4,i+1); draw();});
   };
@@ -72,7 +74,7 @@ function bindLesson(){
       const nextId=activeLesson.id+1;
       if(nextId<=5){ openLesson(nextId); }
       else { renderHub(); }
-    },1400);
+    },1800);
   };
 }
 function wireWorld(){
