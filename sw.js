@@ -1,5 +1,5 @@
-const CACHE='abacus-ai-v10';
-const ASSETS=['./','./index.html','./styles.css','./tutor.css','./challengeApp.js','./interactionFix.js','./abacusEngine.js','./sound.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'];
+const CACHE='abacus-ai-v11';
+const ASSETS=['./','./index.html','./styles.css','./tutor.css','./challengeApp.js','./lessonFix.js','./interactionFix.js','./abacusEngine.js','./sound.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install',event=>event.waitUntil(
   caches.open(CACHE)
