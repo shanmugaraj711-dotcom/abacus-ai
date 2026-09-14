@@ -16,8 +16,8 @@
   return {ok:Object.values(checks).every(Boolean),checks};
  }
  window.AbacusQAGate={run};
- // Staging-only adaptive QA harness. This branch is never production until QA approval.
- if(location.hostname.includes('github.io')||location.hostname.includes('pages.dev')||location.hostname==='localhost'){
-  const s=document.createElement('script');s.src='./phase1AdaptiveStaging.js?v=phase1-staging1';document.head.appendChild(s);
+ // Only Cloudflare's branch-preview hostname loads the Phase 1 staging harness.
+ if(location.hostname.startsWith('phase1-adaptive-fix-staging.')){
+  const s=document.createElement('script');s.src='./phase1AdaptiveStaging.js?v=phase1-staging2';document.head.appendChild(s);
  }
 })();
