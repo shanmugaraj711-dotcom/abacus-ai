@@ -11,8 +11,8 @@ const LEVELS = Object.freeze({
   10:{op:'add',rule:'big',maxA:9,maxB:9},
   11:{op:'sub',rule:'big',maxA:18,maxB:9},
   12:{op:'sub',rule:'big',maxA:18,maxB:9},
-  13:{op:'mixedSmall',rule:'mixed',maxA:9,maxB:9},
-  14:{op:'mixedBig',rule:'mixed',maxA:18,maxB:9},
+  13:{op:'mixed',rule:'mixed',maxA:9,maxB:9},
+  14:{op:'mixed',rule:'mixed',maxA:18,maxB:9},
   15:{op:'mixed',rule:'mixed',maxA:18,maxB:9}
 });
 
@@ -68,7 +68,7 @@ export function generateProblem(level){
   for(let i=0;i<1000;i++){
     const a=rand(1,cfg.maxA);
     const b=rand(1,cfg.maxB);
-    const operation=safeLevel===15 ? (Math.random()<0.5?'add':'sub') : (cfg.op.startsWith('sub')?'sub':'add');
+    const operation=(safeLevel>=13)?(Math.random()<0.5?'add':'sub'):(cfg.op.startsWith('sub')?'sub':'add');
     const rule=mixedChoices?mixedChoices[rand(0,mixedChoices.length-1)]:cfg.rule;
     if(valid(a,b,operation,rule))return buildProblem(a,b,operation,rule);
   }
@@ -77,7 +77,7 @@ export function generateProblem(level){
     1:[2,3,'add','direct'],2:[5,4,'add','direct'],3:[5,2,'sub','direct'],4:[9,4,'sub','direct'],
     5:[3,4,'add','small'],6:[2,4,'add','small'],7:[6,3,'sub','small'],8:[7,5,'sub','small'],
     9:[7,8,'add','big'],10:[6,9,'add','big'],11:[12,5,'sub','big'],12:[15,8,'sub','big'],
-    13:[3,4,'add','small'],14:[7,5,'add','small'],15:[7,8,'add','big']
+    13:[3,4,'add','small'],14:[7,5,'sub','small'],15:[7,8,'add','big']
   };
   const fallback=fallbacks[safeLevel];
   return buildProblem(fallback[0],fallback[1],fallback[2],fallback[3]);
