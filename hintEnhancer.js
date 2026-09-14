@@ -1,14 +1,18 @@
-// Step-by-step Babi teacher hints. Runs before lessonFix's legacy hint handler and intercepts it.
+// Step-by-step Babi teacher hints. Uses the actual problem from practice or result screens.
 function hintSteps(){
-  const p=document.querySelector('.problem')?.textContent||'';
-  const m=p.match(/(\d+)\s*([+−-])\s*(\d+)/);
-  const a=Number(m?.[1]||0),op=m?.[2]||'+',b=Number(m?.[3]||0),answer=op==='−'||op==='-'?Math.max(0,a-b):a+b;
+  const raw=document.querySelector('.problem')?.textContent||document.querySelector('.result-problem')?.textContent||'';
+  const m=raw.match(/(\d+)\s*([+−-])\s*(\d+)/);
+  if(!m){
+    window.BabiVoice?.hint?.();
+    return;
+  }
+  const a=Number(m[1]),op=m[2],b=Number(m[3]),answer=op==='−'||op==='-'?Math.max(0,a-b):a+b;
   const steps=op==='−'||op==='-'
     ? [`First, make ${a} →`,`Now take away ${b} →`,`Count what's left! 🎉`]
     : [`First, make ${a} →`,`Now add ${b} more →`,`Count them all! 🎉`];
   let index=0;
   const wrap=document.createElement('div');wrap.className='babi-steps-backdrop';
-  wrap.innerHTML=`<div class="babi-steps" role="dialog" aria-modal="true" aria-label="Babi step hint"><div class="step-babi">🤖</div><p class="eyebrow">BABI HINT · <span id="stepNo">1</span>/3</p><h2 id="stepText">${steps[0]}</h2><p class="step-answer">${a} ${op} ${b} = ?</p><button type="button" id="stepNext">Show me →</button></div>`;
+  wrap.innerHTML=`<div class="babi-steps" role="dialog" aria-modal="true" aria-label="Babi step hint"><div class="step-babi">🐻</div><p class="eyebrow">BABI HINT · <span id="stepNo">1</span>/3</p><h2 id="stepText">${steps[0]}</h2><p class="step-answer">${a} ${op} ${b} = ?</p><button type="button" id="stepNext">Show me →</button></div>`;
   document.body.appendChild(wrap);
   const text=wrap.querySelector('#stepText'),no=wrap.querySelector('#stepNo'),next=wrap.querySelector('#stepNext');
   next.onclick=()=>{index++;if(index>=steps.length){text.textContent=`Answer: ${answer} 🎉`;no.textContent='✓';next.textContent='Done!';next.onclick=()=>wrap.remove();window.abacusSound?.cheer?.();return}no.textContent=String(index+1);text.textContent=steps[index];if(index===steps.length-1)next.textContent='Show answer →'};
