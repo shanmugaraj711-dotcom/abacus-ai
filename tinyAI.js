@@ -10,7 +10,7 @@
     const text=(document.body?.innerText||'').toLowerCase();
     let screen='world';
     if(document.querySelector('.practice-meta,.problem,#check'))screen='practice';
-    else if(document.querySelector('.lesson-card'))screen='learn';
+    else if(document.querySelector('.learning-lesson-card,.lesson-card'))screen='learn';
     else if(document.querySelector('.game-grid'))screen='play';
     else if(document.querySelector('.world-levels'))screen='master';
     const level=Number(g.currentLevel||1);
@@ -19,10 +19,21 @@
     const totals=Object.values(rules).reduce((a,r)=>({correct:a.correct+(r?.correct||0),wrong:a.wrong+(r?.wrong||0)}),{correct:0,wrong:0});
     return {name:p?.name||'friend',age:p?.age||'6-8',experience:p?.experience||'new',level,rule,streak:Number(g.streak||0),screen,totals,text,levels:g.levels||{},rules};
   }
-  function has(q, text){return q.some(x=>text.includes(x))}
+  function has(q,text){return q.some(x=>text.includes(x))}
+  function arithmetic(q,c){
+    const m=q.match(/(\d+)\s*([+\-−])\s*(\d+)/);
+    if(!m)return null;
+    const a=Number(m[1]),b=Number(m[3]);
+    if(a>99||b>99)return null;
+    const op=m[2];
+    if(op==='+' )return {text:`${a} + ${b} = ${a+b}. Build ${a} first, then add ${b} on the abacus.`,kind:'worked-example'};
+    if(a<b)return {text:`Let's build ${a} first. You cannot take ${b} away from ${a} without going below zero.`,kind:'concept'};
+    return {text:`${a} − ${b} = ${a-b}. Build ${a} first, then take away ${b} on the abacus.`,kind:'worked-example'};
+  }
   function response(input,c){
     const q=clean(input);
-    if(!q) return {text:`Hi ${c.name}! Ask me about the abacus and I will help you one small step at a time.`,kind:'welcome'};
+    if(!q)return {text:`Hi ${c.name}! Ask me about the abacus and I will help you one small step at a time.`,kind:'welcome'};
+    const math=arithmetic(q,c); if(math)return math;
     if(has(['hello','hi','hey','வணக்கம்','ஹாய்'],q)) return {text:c.age==='3-5'?`Hi ${c.name}! Babi is ready for a tiny bead adventure!`:`Hi ${c.name}! I’m Babi. Ready for your next bead challenge?`,kind:'greeting'};
     if(has(['hint','help','stuck','சிரமம்','உதவி','ஹெல்ப்'],q)) return {text:`That’s okay, ${c.name}. Look at the question first. Move only the beads you need, then check your number. I’ll give you one small clue at a time.`,kind:'hint'};
     if(has(['upper','top','five','5','மேல்','ஐந்து'],q)) return {text:'The upper bead is worth 5. Bring it to the bar to make five, then add lower beads for six, seven, eight or nine.',kind:'concept'};
@@ -36,7 +47,7 @@
     if(has(['streak','score','progress','ஸ்ட்ரீக்','முன்னேற்றம்'],q)) return {text:`You have a ${c.streak}-star current streak. Keep going one correct answer at a time.`,kind:'progress'};
     if(has(['what can you do','what do you do','who are you','நீ யார்'],q)) return {text:`I’m Babi’s Tiny AI helper. I can explain abacus ideas, give small hints, and use your current learning context. I won’t make up an answer.`,kind:'about'};
     if(c.screen==='practice') return {text:`Look at your ${c.level <= 4?'direct':'friend'} move, build the answer with the beads, and check it. If you’re stuck, ask me for a hint.`,kind:'practice'};
-    return {text:`I can help with the abacus, ${c.name}. Try asking “How do I make 9?”, “What is the 5 bead?”, or “Give me a hint.”`,kind:'fallback'};
+    return {text:`I can help with the abacus, ${c.name}. Try asking “How do I make 9?”, “What is the 5 bead?”, or “What is 3 + 4?”.`,kind:'fallback'};
   }
   window.TinyAI={context,response,ask:(input)=>response(input,context())};
 })();
