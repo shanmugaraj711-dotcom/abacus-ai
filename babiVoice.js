@@ -17,8 +17,9 @@
 
   // IMPORTANT: Babi is intentionally single-language now.
   // Older builds used "ta-en" bilingual mode. Normalize that legacy value to Tamil.
-  let stored=localStorage.getItem('abacus-ai-language');
-  let lang=stored==='en'?'en':'ta';
+  function readLanguage(){try{return localStorage.getItem('abacus-ai-language')}catch(e){return null}}
+  function writeLanguage(value){try{localStorage.setItem('abacus-ai-language',value)}catch(e){/* voice still works without persistence */}}
+  let lang=readLanguage()==='en'?'en':'ta';
   let speaking=false;
 
   function voices(){return ('speechSynthesis' in window&&speechSynthesis.getVoices)?speechSynthesis.getVoices():[]}
@@ -42,12 +43,11 @@
     }catch(e){speaking=false;return false}
   }
 
-  // The public say() API keeps both strings for compatibility, but speaks ONLY the selected language.
   function say(en,ta){return lang==='en'?speak(en,'en-IN'):speak(ta,'ta-IN')}
   function greeting(name){return lang==='en'?speak(T.greeting(name),'en-IN'):speak(T.greetingTa(name),'ta-IN')}
   function setLanguage(value){
     lang=value==='en'?'en':'ta';
-    localStorage.setItem('abacus-ai-language',lang);
+    writeLanguage(lang);
     document.querySelectorAll('[data-voice-lang]').forEach(b=>b.classList.toggle('selected',b.dataset.voiceLang===lang));
   }
   function current(){return lang}
@@ -72,7 +72,7 @@
       if(b.dataset.voiceLang==='ta')speak('ஹாய்! நான் பாபி. தமிழில் பேசலாமா?','ta-IN');
       else speak('Hi! I am Babi. Shall we learn together?','en-IN');
     }));
-    setLanguage(localStorage.getItem('abacus-ai-language')==='en'?'en':'ta');
+    setLanguage(readLanguage()==='en'?'en':'ta');
   }
 
   function inject(){
@@ -93,7 +93,7 @@
     const hint=e.target?.closest?.('#hint,.hint-btn,[data-hint]');if(hint)setTimeout(hintMessage,80);
   },{passive:true});
   if('speechSynthesis' in window)speechSynthesis.onvoiceschanged=()=>{};
-  window.BabiVoice={say,greeting,setLanguage,current,hint:hintMessage,supported:('speechSynthesis' in window),stop:()=>speechSynthesis?.cancel()};
+  window.BabiVoice={say,greeting,setLanguage,current,hint:hintMessage,supported:('speechSynthesis' in window),stop:()=>window.speechSynthesis?.cancel()};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject);else inject();
   new MutationObserver(inject).observe(document.documentElement,{childList:true,subtree:true});
 })();
