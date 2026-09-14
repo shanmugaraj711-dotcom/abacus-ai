@@ -5,86 +5,36 @@ import {createAbacus,valueOf} from './abacusEngine.js';
 const TARGETS={1:3,2:3,3:5,4:8,5:4};
 const moods=['Hi! Tap me! 🌟','Beep-beep! Let’s move some beads! 🧮','Yaaaay! Great team! 🎉','I’m watching the beads. You’ve got this! 💛'];
 let moodIndex=0;
-
 const style=document.createElement('style');
 style.textContent=`
-.babi{cursor:pointer;touch-action:manipulation;transition:transform .18s ease}
+.babi{cursor:pointer;touch-action:manipulation;transition:transform .18s ease;user-select:none;-webkit-user-select:none}
 .babi.babi-buddy-dance{animation:babiBuddyDance .78s ease}
+.babi.babi-squish{animation:babiSquish .5s cubic-bezier(.2,.9,.3,1)}
+.babi.babi-wave{animation:babiWave .7s ease}.babi.babi-hop{animation:babiHop .55s ease}.babi.babi-blink{animation:babiBlink .55s ease}.babi.babi-sway{animation:babiSway 1.2s ease}.babi.babi-giggle{animation:babiGiggle .65s ease}.babi.babi-surprise{animation:babiSurprise .6s ease}.babi.babi-spin{animation:babiSpin .7s ease}.babi.babi-bounce{animation:babiBounce .65s ease}
 @keyframes babiBuddyDance{0%,100%{transform:translateY(0) rotate(0)}20%{transform:translateY(-12px) rotate(-6deg)}40%{transform:translateY(0) rotate(6deg)}60%{transform:translateY(-8px) rotate(-4deg)}80%{transform:translateY(0) rotate(3deg)}}
-.babi-demo-backdrop{position:fixed;inset:0;z-index:3000;background:rgba(45,27,16,.55);display:grid;place-items:center;padding:18px}
-.babi-demo{width:min(560px,94vw);max-height:88vh;overflow:auto;background:#fffaf0;border:3px solid #d8b77e;border-radius:28px;padding:20px;box-shadow:0 18px 60px rgba(0,0,0,.28);text-align:center;color:#4b2c18}
-.babi-demo h2{margin:4px 0 8px;font-size:28px}.babi-demo p{margin:8px 0 14px;font-size:17px;line-height:1.4}
-.babi-demo .demo-babi{width:96px;height:96px}.babi-demo .demo-number{font-size:46px;font-weight:900;margin:8px}
-.babi-demo .demo-beads{position:relative;min-height:180px;margin:8px auto 14px;padding:18px;background:#402515;border-radius:20px;max-width:360px}
-.babi-demo .demo-rod{position:relative;height:145px;width:70px;margin:auto;border-left:7px solid #c98b3c;border-right:7px solid #c98b3c;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:4px}
-.babi-demo .demo-bead{width:43px;height:24px;border-radius:50%;background:#d89a45;border:3px solid #8a572b;box-shadow:0 3px 5px rgba(0,0,0,.25);transition:transform .3s ease,opacity .3s ease}
-.babi-demo .demo-bead.active{transform:translateY(39px)}.babi-demo .demo-bead.upper{margin-bottom:26px}.babi-demo .demo-bead.upper.active{transform:translateY(28px)}
-.babi-demo .demo-caption{font-weight:800;font-size:16px;background:#f3dfb5;border-radius:14px;padding:10px}
-.babi-demo button{border:0;border-radius:16px;padding:13px 20px;font-size:17px;font-weight:900;background:#c98732;color:white;box-shadow:0 4px 0 #74441e;min-width:140px}
-.lesson-target{background:#f3dfb5;border-radius:16px;padding:10px;margin:10px 0;text-align:center}.lesson-target small{display:block}.lesson-target strong{font-size:42px}
+@keyframes babiSquish{0%{transform:scale(1)}25%{transform:scale(1.18,.82)}50%{transform:scale(.84,1.16)}75%{transform:scale(1.08,.94)}100%{transform:scale(1)}}
+@keyframes babiWave{20%{transform:rotate(-10deg)}45%{transform:rotate(10deg)}70%{transform:rotate(-7deg)}100%{transform:rotate(0)}}
+@keyframes babiHop{45%{transform:translateY(-18px) scale(1.05)}100%{transform:translateY(0)}}
+@keyframes babiBlink{0%,100%{transform:scaleY(1)}45%{transform:scaleY(.82)}60%{transform:scaleY(1)}}
+@keyframes babiSway{25%{transform:rotate(-5deg)}75%{transform:rotate(5deg)}100%{transform:rotate(0)}}
+@keyframes babiGiggle{25%{transform:rotate(-7deg) scale(1.05)}50%{transform:rotate(7deg) scale(.96)}75%{transform:rotate(-5deg) scale(1.03)}}
+@keyframes babiSurprise{30%{transform:scale(1.14)}60%{transform:scale(.94)}100%{transform:scale(1)}}
+@keyframes babiSpin{50%{transform:rotate(12deg) translateY(-8px)}100%{transform:rotate(0)}}
+@keyframes babiBounce{35%{transform:translateY(-10px)}65%{transform:translateY(3px)}100%{transform:translateY(0)}}
+.babi-demo-backdrop{position:fixed;inset:0;z-index:3000;background:rgba(45,27,16,.55);display:grid;place-items:center;padding:18px}.babi-demo{width:min(560px,94vw);max-height:88vh;overflow:auto;background:#fffaf0;border:3px solid #d8b77e;border-radius:28px;padding:20px;box-shadow:0 18px 60px rgba(0,0,0,.28);text-align:center;color:#4b2c18}.babi-demo h2{margin:4px 0 8px;font-size:28px}.babi-demo p{margin:8px 0 14px;font-size:17px;line-height:1.4}.babi-demo .demo-babi{width:96px;height:96px}.babi-demo .demo-number{font-size:46px;font-weight:900;margin:8px}.babi-demo .demo-beads{position:relative;min-height:180px;margin:8px auto 14px;padding:18px;background:#402515;border-radius:20px;max-width:360px}.babi-demo .demo-rod{position:relative;height:145px;width:70px;margin:auto;border-left:7px solid #c98b3c;border-right:7px solid #c98b3c;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:4px}.babi-demo .demo-bead{width:43px;height:24px;border-radius:50%;background:#d89a45;border:3px solid #8a572b;box-shadow:0 3px 5px rgba(0,0,0,.25);transition:transform .3s ease,opacity .3s ease}.babi-demo .demo-bead.active{transform:translateY(39px)}.babi-demo .demo-bead.upper{margin-bottom:26px}.babi-demo .demo-bead.upper.active{transform:translateY(28px)}.babi-demo .demo-caption{font-weight:800;font-size:16px;background:#f3dfb5;border-radius:14px;padding:10px}.babi-demo button{border:0;border-radius:16px;padding:13px 20px;font-size:17px;font-weight:900;background:#c98732;color:white;box-shadow:0 4px 0 #74441e;min-width:140px}.lesson-target{background:#f3dfb5;border-radius:16px;padding:10px;margin:10px 0;text-align:center}.lesson-target small{display:block}.lesson-target strong{font-size:42px}
 `;
 document.head.appendChild(style);
-
-function showToast(text){
-  document.querySelector('.babi-toast')?.remove();
-  const t=document.createElement('div');t.className='babi-toast';t.textContent=text;
-  Object.assign(t.style,{position:'fixed',left:'50%',bottom:'78px',transform:'translateX(-50%)',zIndex:3500,maxWidth:'88vw',padding:'12px 16px',borderRadius:'16px',background:'#fff8e8',border:'2px solid #d7b577',color:'#4b2c18',fontWeight:'800',textAlign:'center',boxShadow:'0 8px 24px rgba(0,0,0,.2)'});
-  document.body.appendChild(t);setTimeout(()=>t.remove(),2200);
-}
-
-function attachBabi(){
-  document.querySelectorAll('.babi:not([data-babi-wired])').forEach(el=>{
-    el.dataset.babiWired='1';
-    el.addEventListener('click',e=>{
-      e.preventDefault();e.stopPropagation();
-      el.classList.remove('babi-buddy-dance');void el.offsetWidth;el.classList.add('babi-buddy-dance');
-      showToast(moods[moodIndex++%moods.length]);
-      window.abacusSound?.cheer?.();
-    },{capture:true});
-  });
-}
-
-function abacusHtml(a){
-  return `<div class="lesson-abacus" aria-label="Interactive lesson abacus"><div class="abacus-wrap"><div class="abacus"><div class="abacus-inner">${[0,1].map(r=>{const rod=a.rods[r];const lowers=[0,1,2,3].map(i=>`<button type="button" class="bead lower ${i<rod.lower?'active':''}" data-lesson-lower="${r}" data-index="${i}" aria-label="${r?'Tens':'Ones'} lower bead ${i+1}"></button>`).join('');return `<div class="rod-column"><span class="rod-label">${r?'TENS':'ONES'}</span><div class="upper-zone"><button type="button" class="bead upper ${rod.upper?'active':''}" data-lesson-upper="${r}" aria-label="${r?'Tens':'Ones'} upper bead worth five"></button></div><div class="beam"></div><div class="lower-zone">${lowers}</div></div>`}).join('')}</div></div></div></div>`;
-}
-
-function demo(){
-  const card=document.querySelector('.lesson-card');
-  const targetText=card?.querySelector('.lesson-target strong')?.textContent?.trim()||card?.querySelector('.mini-number')?.textContent?.trim()||document.querySelector('.answer-card strong')?.textContent?.trim()||'3';
-  const problem=document.querySelector('.problem')?.textContent||'';const m=problem.match(/(\d+)\s*([+−-])\s*(\d+)/);
-  let n=Number(targetText)||3,caption=`Watch Babi build ${n}.`;
-  if(m){n=m[2]==='−'||m[2]==='-'?Math.max(0,Number(m[1])-Number(m[3])):Number(m[1])+Number(m[3]);caption=`Watch Babi: ${m[1]} ${m[2]} ${m[3]}.`}
-  n=Math.max(0,Math.min(99,n));const ones=n%10,tens=Math.floor(n/10);
-  const lower=count=>Array.from({length:4},(_,i)=>`<span class="demo-bead ${i<count?'active':''}"></span>`).join('');
-  const rod=(label,d)=>`<div><div style="font-weight:900;margin-bottom:5px">${label}</div><div class="demo-rod"><span class="demo-bead upper ${d>=5?'active':''}"></span>${lower(d%5)}</div></div>`;
-  const wrap=document.createElement('div');wrap.className='babi-demo-backdrop';
-  wrap.innerHTML=`<div class="babi-demo" role="dialog" aria-modal="true" aria-label="Babi demonstration"><svg class="demo-babi babi babi-happy" viewBox="0 0 160 160" aria-label="Babi"><use href="./assets/mascot/babi.svg#happy"></use></svg><h2>Watch Babi 👀</h2><p>${caption}</p><div class="demo-beads" style="display:flex;justify-content:space-around;gap:18px">${rod('TENS',tens)}${rod('ONES',ones)}</div><div class="demo-number">${n}</div><div class="demo-caption">${n>=5?'Big bead = 5. Small beads = 1 each.':'Each small bead = 1.'}</div><br><button type="button" id="closeBabiDemo">Got it! →</button></div>`;
-  document.body.appendChild(wrap);wrap.querySelector('#closeBabiDemo').onclick=()=>wrap.remove();wrap.addEventListener('click',e=>{if(e.target===wrap)wrap.remove()});
-}
-
-function wireHint(){
-  document.querySelectorAll('#hint,[data-babi-hint]').forEach(btn=>{
-    if(btn.dataset.babiHintWired==='1')return;btn.dataset.babiHintWired='1';
-    btn.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();demo()},{capture:true});
-  });
-  const card=document.querySelector('.lesson-card');
-  if(card&&!document.querySelector('#lessonBabiHint')){
-    const b=document.createElement('button');b.id='lessonBabiHint';b.className='secondary';b.type='button';b.textContent='🤖 Let Babi show me';
-    const primary=card.querySelector('#lessonGo');if(primary)primary.before(b);else card.appendChild(b);b.onclick=demo;
-  }
-}
-
-function enhance(){
-  const card=document.querySelector('.lesson-card');const eyebrow=card?.querySelector('.eyebrow')?.textContent||'';const match=eyebrow.match(/·\s*(\d+)\/6/);
-  if(!card||!match)return;const step=Number(match[1]);if(step>=6)return;const target=TARGETS[step];if(!target)return;
-  const key=`${step}:${card.textContent.slice(0,80)}`;if(card.dataset.lessonEnhanced===key){attachBabi();wireHint();return}card.dataset.lessonEnhanced=key;
-  const old=card.querySelector('.mini-number');if(!old)return;
-  old.outerHTML=`<div class="lesson-target"><small>Build this number</small><strong>${target}</strong></div><div id="lessonAbacusHost">${abacusHtml(createAbacus())}</div><div class="lesson-current">Your number: <b id="lessonCurrent">0</b></div>`;
-  const a=createAbacus(),host=card.querySelector('#lessonAbacusHost'),current=card.querySelector('#lessonCurrent'),next=card.querySelector('#lessonGo');if(!host||!current||!next)return;
-  next.disabled=true;next.textContent='Build it first →';
-  const draw=()=>{host.innerHTML=abacusHtml(a);current.textContent=String(valueOf(a));const correct=valueOf(a)===target;next.disabled=!correct;next.textContent=correct?'I got it →':'Build it first →';host.querySelectorAll('[data-lesson-upper]').forEach(btn=>btn.onclick=()=>{const r=Number(btn.dataset.lessonUpper);a.rods[r].upper=!a.rods[r].upper;draw()});host.querySelectorAll('[data-lesson-lower]').forEach(btn=>btn.onclick=()=>{const r=Number(btn.dataset.lessonLower),i=Number(btn.dataset.index),count=a.rods[r].lower;a.rods[r].lower=i<count?i:Math.min(4,i+1);draw()})};
-  draw();attachBabi();wireHint();
-}
-
+function showToast(text){document.querySelector('.babi-toast')?.remove();const t=document.createElement('div');t.className='babi-toast';t.textContent=text;Object.assign(t.style,{position:'fixed',left:'50%',bottom:'78px',transform:'translateX(-50%)',zIndex:3500,maxWidth:'88vw',padding:'12px 16px',borderRadius:'16px',background:'#fff8e8',border:'2px solid #d7b577',color:'#4b2c18',fontWeight:'800',textAlign:'center',boxShadow:'0 8px 24px rgba(0,0,0,.2)'});document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
+const reactions=['babi-buddy-dance','babi-wave','babi-blink','babi-hop','babi-giggle','babi-surprise','babi-spin','babi-bounce','babi-sway'];
+let reactionBag=[];
+function refillBag(){reactionBag=[...reactions].sort(()=>Math.random()-.5)}
+function nextReaction(){if(!reactionBag.length)refillBag();return reactionBag.pop()}
+let idleTimer=null;
+function armIdle(el){clearTimeout(idleTimer);idleTimer=setTimeout(()=>{if(!document.body.contains(el))return;el.classList.remove('babi-sway','babi-blink');void el.offsetWidth;el.classList.add(Math.random()<.5?'babi-blink':'babi-sway');armIdle(el)},17000)}
+function attachBabi(){document.querySelectorAll('.babi:not([data-babi-wired])').forEach(el=>{el.dataset.babiWired='1';let downX=0,downY=0,moved=false;const react=()=>{const cls=nextReaction();el.classList.remove(...reactions);void el.offsetWidth;el.classList.add(cls);showToast(moods[moodIndex++%moods.length]);window.abacusSound?.cheer?.();armIdle(el)};el.addEventListener('pointerdown',e=>{downX=e.clientX;downY=e.clientY;moved=false;el.setPointerCapture?.(e.pointerId);el.classList.remove(...reactions);el.classList.add('babi-squish');clearTimeout(idleTimer);if(e.pointerType==='touch'||e.pointerType==='mouse')e.preventDefault()},{passive:false});el.addEventListener('pointermove',e=>{if(Math.hypot(e.clientX-downX,e.clientY-downY)>8){moved=true;el.classList.remove('babi-squish');const dx=Math.max(-12,Math.min(12,(e.clientX-downX)/5));const dy=Math.max(-12,Math.min(12,(e.clientY-downY)/5));el.style.transform=`translate(${dx}px,${dy}px) scale(${1+Math.min(.14,Math.hypot(e.clientX-downX,e.clientY-downY)/300)})`}}, {passive:true});el.addEventListener('pointerup',e=>{el.releasePointerCapture?.(e.pointerId);el.style.transform='';el.classList.remove('babi-squish');if(!moved)react();else{el.classList.add('babi-buddy-dance');armIdle(el)}},{passive:true});el.addEventListener('pointercancel',()=>{el.style.transform='';el.classList.remove('babi-squish');armIdle(el)},{passive:true});el.addEventListener('click',e=>{e.preventDefault();e.stopPropagation()},{capture:true});armIdle(el)})}
+function abacusHtml(a){return `<div class="lesson-abacus" aria-label="Interactive lesson abacus"><div class="abacus-wrap"><div class="abacus"><div class="abacus-inner">${[0,1].map(r=>{const rod=a.rods[r];const lowers=[0,1,2,3].map(i=>`<button type="button" class="bead lower ${i<rod.lower?'active':''}" data-lesson-lower="${r}" data-index="${i}" aria-label="${r?'Tens':'Ones'} lower bead ${i+1}"></button>`).join('');return `<div class="rod-column"><span class="rod-label">${r?'TENS':'ONES'}</span><div class="upper-zone"><button type="button" class="bead upper ${rod.upper?'active':''}" data-lesson-upper="${r}" aria-label="${r?'Tens':'Ones'} upper bead worth five"></button></div><div class="beam"></div><div class="lower-zone">${lowers}</div></div>`}).join('')}</div></div></div></div>`}
+function demo(){const card=document.querySelector('.lesson-card');const targetText=card?.querySelector('.lesson-target strong')?.textContent?.trim()||card?.querySelector('.mini-number')?.textContent?.trim()||document.querySelector('.answer-card strong')?.textContent?.trim()||'3';const problem=document.querySelector('.problem')?.textContent||'';const m=problem.match(/(\d+)\s*([+−-])\s*(\d+)/);let n=Number(targetText)||3,caption=`Watch Babi build ${n}.`;if(m){n=m[2]==='−'||m[2]==='-'?Math.max(0,Number(m[1])-Number(m[3])):Number(m[1])+Number(m[3]);caption=`Watch Babi: ${m[1]} ${m[2]} ${m[3]}.`}n=Math.max(0,Math.min(99,n));const ones=n%10,tens=Math.floor(n/10);const lower=count=>Array.from({length:4},(_,i)=>`<span class="demo-bead ${i<count?'active':''}"></span>`).join('');const rod=(label,d)=>`<div><div style="font-weight:900;margin-bottom:5px">${label}</div><div class="demo-rod"><span class="demo-bead upper ${d>=5?'active':''}"></span>${lower(d%5)}</div></div>`;const wrap=document.createElement('div');wrap.className='babi-demo-backdrop';wrap.innerHTML=`<div class="babi-demo" role="dialog" aria-modal="true" aria-label="Babi demonstration"><svg class="demo-babi babi babi-happy" viewBox="0 0 160 160" aria-label="Babi"><use href="./assets/mascot/babi.svg#happy"></use></svg><h2>Watch Babi 👀</h2><p>${caption}</p><div class="demo-beads" style="display:flex;justify-content:space-around;gap:18px">${rod('TENS',tens)}${rod('ONES',ones)}</div><div class="demo-number">${n}</div><div class="demo-caption">${n>=5?'Big bead = 5. Small beads = 1 each.':'Each small bead = 1.'}</div><br><button type="button" id="closeBabiDemo">Got it! →</button></div>`;document.body.appendChild(wrap);wrap.querySelector('#closeBabiDemo').onclick=()=>wrap.remove();wrap.addEventListener('click',e=>{if(e.target===wrap)wrap.remove()})}
+function wireHint(){document.querySelectorAll('#hint,[data-babi-hint]').forEach(btn=>{if(btn.dataset.babiHintWired==='1')return;btn.dataset.babiHintWired='1';btn.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();demo()},{capture:true})});const card=document.querySelector('.lesson-card');if(card&&!document.querySelector('#lessonBabiHint')){const b=document.createElement('button');b.id='lessonBabiHint';b.className='secondary';b.type='button';b.textContent='🤖 Let Babi show me';const primary=card.querySelector('#lessonGo');if(primary)primary.before(b);else card.appendChild(b);b.onclick=demo}}
+function enhance(){const card=document.querySelector('.lesson-card');const eyebrow=card?.querySelector('.eyebrow')?.textContent||'';const match=eyebrow.match(/·\s*(\d+)\/6/);if(!card||!match)return;const step=Number(match[1]);if(step>=6)return;const target=TARGETS[step];if(!target)return;const key=`${step}:${card.textContent.slice(0,80)}`;if(card.dataset.lessonEnhanced===key){attachBabi();wireHint();return}card.dataset.lessonEnhanced=key;const old=card.querySelector('.mini-number');if(!old)return;old.outerHTML=`<div class="lesson-target"><small>Build this number</small><strong>${target}</strong></div><div id="lessonAbacusHost">${abacusHtml(createAbacus())}</div><div class="lesson-current">Your number: <b id="lessonCurrent">0</b></div>`;const a=createAbacus(),host=card.querySelector('#lessonAbacusHost'),current=card.querySelector('#lessonCurrent'),next=card.querySelector('#lessonGo');if(!host||!current||!next)return;next.disabled=true;next.textContent='Build it first →';const draw=()=>{host.innerHTML=abacusHtml(a);current.textContent=String(valueOf(a));const correct=valueOf(a)===target;next.disabled=!correct;next.textContent=correct?'I got it →':'Build it first →';host.querySelectorAll('[data-lesson-upper]').forEach(btn=>btn.onclick=()=>{const r=Number(btn.dataset.lessonUpper);a.rods[r].upper=!a.rods[r].upper;draw()});host.querySelectorAll('[data-lesson-lower]').forEach(btn=>btn.onclick=()=>{const r=Number(btn.dataset.lessonLower),i=Number(btn.dataset.index),count=a.rods[r].lower;a.rods[r].lower=i<count?i:Math.min(4,i+1);draw()})};draw();attachBabi();wireHint()}
 const observer=new MutationObserver(()=>{enhance();attachBabi();wireHint()});observer.observe(document.body,{childList:true,subtree:true});
 enhance();attachBabi();wireHint();
