@@ -1,0 +1,8 @@
+// Phase 1 staging-only adaptive harness. Never ship to production without explicit QA approval.
+(function(){
+ const KEY='abacus-ai-phase1-wrong-count-v1';
+ const load=()=>{try{return Number(localStorage.getItem(KEY)||0)}catch{return 0}};
+ const save=n=>{try{localStorage.setItem(KEY,String(n))}catch{}};
+ function install(){document.addEventListener('click',e=>{const btn=e.target.closest('#check');if(!btn)return;const p=document.querySelector('.problem');const m=p?.textContent.match(/(\d+)\s*([+−-])\s*(\d+)/);if(!m)return;e.preventDefault();e.stopImmediatePropagation();let value=0;document.querySelectorAll('[data-lower]').forEach(x=>{if(x.classList.contains('active'))value+=Math.pow(10,Number(x.dataset.lower))});document.querySelectorAll('[data-upper]').forEach(x=>{if(x.classList.contains('active'))value+=5*Math.pow(10,Number(x.dataset.upper))});const a=Number(m[1]),b=Number(m[3]),answer=m[2]==='+'?a+b:a-b;let wrong=load();if(value===answer){save(0);location.reload();return}wrong=Math.min(2,wrong+1);const level=Number((document.querySelector('.practice-meta')?.textContent.match(/LEVEL\s+(\d+)/i)||[])[1]||1);if(wrong>=2){const next=Math.max(1,level-1);try{const raw=JSON.parse(localStorage.getItem('abacus-ai-progress-v2')||'{}');raw.currentLevel=next;raw.streak=0;raw.wrongCount=0;localStorage.setItem('abacus-ai-progress-v2',JSON.stringify(raw))}catch{}save(0);alert(level>1?`Two misses — let's practise Level ${next} again. 🌱`:`Two misses — Level 1 is our starting floor. Let's practise it together. 🌱`);location.reload();return}save(wrong);alert('Not yet. One more careful try — look at the beads. 🌟');location.reload()},true)}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
+})();
