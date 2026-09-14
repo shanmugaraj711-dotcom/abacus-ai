@@ -1,4 +1,4 @@
-const CACHE='abacus-ai-v8';
+const CACHE='abacus-ai-v9';
 const ASSETS=['./','./index.html','./styles.css','./tutor.css','./challengeApp.js','./interactionFix.js','./abacusEngine.js','./sound.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install',event=>event.waitUntil(
