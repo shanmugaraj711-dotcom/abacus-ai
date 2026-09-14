@@ -18,11 +18,16 @@
   }
   function lessonNumber(card){const m=(card.querySelector('.eyebrow')?.textContent||'').match(/LEARN\s·\s(\d+)/i);return m?Number(m[1]):1}
   function hintFor(n,target,current){
-    if(n===1)return current===0?'Tap one lower bead on the ONES rod. Each lower bead is worth 1.':current<target?`You have ${current}. Add ${target-current} more lower bead${target-current===1?'':'s'} on ONES.`:'Start again by moving the ONES beads one at a time.';
-    if(n===3)return 'Find the upper bead. It is worth 5. Tap it to make 5.';
-    if(n===4)return target>=6?'Make 5 first with the upper bead, then add the lower beads.':'Use the lower beads one at a time.';
-    if(n===5)return `Look at Babi's target: ${target}. Build it slowly and check your number before pressing the button.`;
-    return 'Move the beads gently and watch the number underneath the abacus.';
+    if(target>0){
+      if(current===target)return `Perfect! Your number is ${target}. You're ready — press Check.`;
+      if(current<target){const left=target-current;return current===0?`Start with the ONES rod. Move one lower bead at a time toward the bar.`:`Nice! You have ${current}. Move ${left===1?'one more bead':`${left} more beads`} until your number is ${target}.`;}
+      return `Oops, you have ${current}, but we need ${target}. Move a bead back and watch the number change.`;
+    }
+    if(n===1)return 'Try one lower bead on the ONES rod. Watch the number change before moving another.';
+    if(n===3)return 'Find the upper bead. It is worth 5. Tap it and watch your number.';
+    if(n===4)return 'Make the 5 first, then use lower beads to build the rest.';
+    if(n===5)return `Look at Babi's target and build it slowly. Watch your number before pressing Check.`;
+    return 'Move one bead gently and watch your number. Use the number to guide your next move.';
   }
   function render(card){
     if(!card||card===lastCard||card.querySelector('.lesson-tutor'))return;
@@ -33,7 +38,7 @@
       <div class="lesson-tutor-body">
         <p>${n===1?'Here is the simple rule: lower beads = 1 each. The ONES rod is for ones.':''}</p>
         <ol class="lesson-steps">
-          ${n===1?'<li><b>ONES</b> means each lower bead counts as 1.</li><li>Tap a lower bead and watch <b>Your number</b> change.</li><li>For this mission, gently move <b>3 lower beads</b>.</li>':'<li>Read what Babi asks you to make.</li><li>Move the beads and watch <b>Your number</b>.</li><li>Only press Check when your number matches.</li>'}
+          ${n===1?'<li><b>ONES</b> means each lower bead counts as 1.</li><li>Tap a lower bead and watch <b>Your number</b> change.</li><li>For this mission, gently move <b>3 lower beads</b>.':'<li>Read what Babi asks you to make.</li><li>Move the beads and watch <b>Your number</b>.</li><li>Only press Check when your number matches.</li>'}
         </ol>
         <div class="lesson-tutor-actions"><button class="lesson-tutor-btn hint" id="lessonHintBtn" type="button">💡 Give me a hint</button></div>
         <div class="lesson-hint" id="lessonHint"></div>
