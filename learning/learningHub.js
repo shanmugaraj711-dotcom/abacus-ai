@@ -12,7 +12,7 @@ const groups = [
   { id: 'numbers', title: '3. Build Bigger Numbers', sub: 'Use 5 + lower beads to make 6–9.', icon: '🧮', lessons: NUMBER_BUILDING }
 ];
 const allLessons = [...FOUNDATION, ...FIVE_BEAD, ...NUMBER_BUILDING];
-let wiredWorld = false;
+let wiredLearn = null;
 let activeLesson = null;
 let activeAbacus = null;
 let lessonLocked = false;
@@ -20,7 +20,7 @@ let lessonLocked = false;
 function profile(){ try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {}; } catch { return {}; } }
 function esc(v){ return String(v ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c])); }
 function babi(expr='happy', size='small'){ return `<svg class="babi babi-${size} babi-${expr}" viewBox="0 0 160 160" aria-label="Babi"><use href="./assets/mascot/babi.svg#${expr}"></use></svg>`; }
-function speak(text){ try { if('speechSynthesis' in window){ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.rate=.88; u.pitch=1.08; speechSynthesis.speak(u); } } catch {} }
+function speak(text){ try { if('speechSynthesis' in window){ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.rate=.88; u.pitch:1.08; speechSynthesis.speak(u); } } catch {} }
 function sayCorrect(){ const words=['Awesome!','Great job!','You did it!','Brilliant!']; const text=words[Math.floor(Math.random()*words.length)]; speak(text); return text; }
 function abacusHtml(a){
   return `<div class="abacus-wrap learning-abacus"><div class="abacus"><div class="abacus-inner">${[0,1].map(r=>{
@@ -60,8 +60,6 @@ function bindLesson(){
   const status=document.getElementById('learningStatus');
   const check=document.getElementById('learningCheck');
   const draw=()=>{
-    // IMPORTANT: always query the current DOM node. The previous renderer replaced
-    // the abacus element, leaving a stale reference that made beads move invisibly.
     const host=app.querySelector('.learning-abacus');
     if(!host) return;
     host.outerHTML=abacusHtml(activeAbacus);
@@ -94,8 +92,10 @@ function bindLesson(){
   };
 }
 function wireWorld(){
-  const learn=document.getElementById('learn'); if(!learn || wiredWorld) return;
-  wiredWorld=true; learn.onclick=(e)=>{e.preventDefault(); openHub();};
+  const learn=document.getElementById('learn');
+  if(!learn || wiredLearn===learn) return;
+  wiredLearn=learn;
+  learn.onclick=(e)=>{e.preventDefault(); openHub();};
   if(location.hash==='#start-level-1') setTimeout(()=>{ const practice=document.getElementById('practice'); location.hash=''; practice?.click(); },120);
 }
 const observer=new MutationObserver(wireWorld); observer.observe(app,{childList:true,subtree:true});
