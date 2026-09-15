@@ -21,6 +21,7 @@
       meta?.insertAdjacentElement('afterend',p);
     }
   }
+  const afterRender=()=>queueMicrotask(inject);
   inject();
-  new MutationObserver(inject).observe(document.documentElement,{childList:true,subtree:true});
+  document.addEventListener('click',afterRender,{passive:true});
 })();
