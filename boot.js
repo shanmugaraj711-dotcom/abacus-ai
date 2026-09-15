@@ -28,6 +28,7 @@
       await import('./babiVoice.js?v=20260915-voice2');
       await import('./audioFx.js?v=20260915-audio3');
       await import('./kidUi.js?v=20260915-kid4');
+      await import('./practiceFocus.js?v=20260915-practice1');
       await import('./navigationFix.js?v=20260915-nav1');
     }catch(err){console.error(err);fail()}
     finally{if(sw)navigator.serviceWorker.register=sw}
