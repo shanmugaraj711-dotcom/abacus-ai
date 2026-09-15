@@ -26,21 +26,18 @@
     synth.__abacusBabiVoice=true;
   }
   function startApp(){return (async()=>{
-    const sw=navigator.serviceWorker?.register;
-    if(sw)navigator.serviceWorker.register=()=>Promise.resolve(null);
     try{
       tuneBabiVoice();
-      await import('./challengeApp.js?v=20260915-appshell3');
+      // Single application router: challengeApp owns Learn, Practice, Games and Levels.
+      // No second navigation layer or hash-based race.
+      await import('./challengeApp.js?v=20260915-router4');
       await import('./runtimeGuards.js?v=20260915-runtime3');
-      await import('./learning/learningHub.js?v=20260915-learning2');
       await import('./babiVoice.js?v=20260915-voice4');
       await import('./audioFx.js?v=20260915-audio4');
       await import('./kidUi.js?v=20260915-kid5');
       await import('./practiceFocus.js?v=20260915-practice2');
-      await import('./navigationFix.js?v=20260915-nav3');
       await import('./sessionSummary.js?v=20260915-session1');
     }catch(err){console.error(err);fail()}
-    finally{if(sw)navigator.serviceWorker.register=sw}
   })()}
   const wire=()=>{
     let age='',exp='',busy=false;
@@ -55,5 +52,5 @@
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v22').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v23').catch(()=>{})});
 })();
