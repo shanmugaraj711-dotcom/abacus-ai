@@ -11,8 +11,9 @@
     try{
       await import('./challengeApp.js?v=20260915-appshell1');
       await import('./runtimeGuards.js?v=20260915-runtime1');
-      // Voice is deliberately lazy-loaded after the app shell so it cannot regress startup speed.
+      // Voice and sound are deliberately loaded after the app shell so startup stays instant.
       await import('./babiVoice.js?v=20260915-voice1');
+      await import('./audioFx.js?v=20260915-audio1');
     }
     catch(err){console.error(err);fail()}
     finally{if(sw)navigator.serviceWorker.register=sw}
