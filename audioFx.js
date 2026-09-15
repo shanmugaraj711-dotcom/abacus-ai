@@ -23,7 +23,7 @@
   const stopMusic=()=>{musicOn=false;clearTimeout(musicTimer)};
   let lastResult=0,lastLevel=0;
   const checkState=()=>{const now=Date.now();const result=document.querySelector('.result-title');if(result&&now-lastResult>700){lastResult=now;result.classList.contains('coral')?success():tone(220,0,.12,'sine',.035)}const level=document.querySelector('.levelup-title');if(level&&now-lastLevel>1200){lastLevel=now;levelup()}};
-  document.addEventListener('click',e=>{const el=e.target?.closest?.('button,[role="button"],.bead');if(el&&!el.matches('#check,#continue,.kid-music'))click();if(e.target?.closest?.('#check,#continue'))setTimeout(checkState,40)},true);
-  new MutationObserver(checkState).observe(document.getElementById('app')||document.documentElement,{childList:true,subtree:true});
+  document.addEventListener('click',e=>{const el=e.target?.closest?.('button,[role="button"],.bead');if(el&&!el.matches('#check,#continue,.kid-music'))click();if(e.target?.closest?.('#check,#continue'))setTimeout(checkState,45)},true);
+  window.addEventListener('abacus:render',()=>setTimeout(checkState,45));
   window.AbacusAudio={click,babiCue,success,levelup,musicToggle,stopMusic,isMusicOn:()=>musicOn,supported};
 })();
