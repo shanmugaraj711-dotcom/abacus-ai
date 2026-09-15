@@ -11,10 +11,10 @@
     if(!card||document.getElementById('bootVoiceChoice'))return;
     if(!document.getElementById('bootVoiceStyle')){const s=document.createElement('style');s.id='bootVoiceStyle';s.textContent='.boot-voice-choice{margin:0 0 15px;padding:14px;border-radius:19px;background:linear-gradient(135deg,#eef9ff,#fff4d8);border:3px solid #c9e5ee;text-align:center}.boot-voice-title{font:950 17px ui-rounded,system-ui,sans-serif;color:#4b2c18}.boot-voice-sub{margin:5px 0 10px;font:700 12px/1.3 ui-rounded,system-ui,sans-serif;color:#725e50}.boot-voice-buttons{display:grid;grid-template-columns:1fr 1fr;gap:9px}.boot-voice-buttons button{min-height:48px;border:3px solid #d9c49d;border-radius:15px;background:#fff;font:900 15px ui-rounded,system-ui,sans-serif;color:#4b2c18;box-shadow:0 3px 0 rgba(107,66,38,.12)}.boot-voice-buttons button.selected{border-color:#f1a52b;background:#fff1ca;box-shadow:0 4px 0 #d38a20}.boot-voice-buttons button:active{transform:scale(.97)}';document.head.appendChild(s)}
     const box=document.createElement('section');box.id='bootVoiceChoice';box.className='boot-voice-choice';
-    box.innerHTML='<div class="boot-voice-title">🔊 How should Babi talk?</div><div class="boot-voice-sub">Pick a voice. Tap 🔊 Babi anytime to hear the page.</div><div class="boot-voice-buttons"><button type="button" data-boot-lang="en">🇬🇧 English</button><button type="button" data-boot-lang="ta">🇮🇳 தமிழ்</button></div>';
+    box.innerHTML='<div class="boot-voice-title">🔊 How should Babi talk?</div><div class="boot-voice-sub">Pick a voice. Tap 🔊 Babi anytime to hear the page.</div><div class="boot-voice-buttons"><button type="button" data-boot-lang="en">🇬🇧 English</button><button type="button" data-boot-lang="ta">🇮🇳 Tamil • Tanglish</button></div>';
     card.prepend(box);
     const current=localStorage.getItem(LANG)==='ta'?'ta':'en';
-    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lang==='ta'?'ஹாய்! நான் பாபி! சேர்ந்து மணிகளோடு magic பண்ணலாம்!':'Hey! I am Babi! Let’s make some bead magic!');u.lang=lang==='ta'?'ta-IN':'en-US';u.rate=.84;u.pitch=lang==='ta'?1.28:1.38;speechSynthesis.speak(u)};
+    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lang==='ta'?'ஹாய்! நான் பாபி பேசுகிறேன்! நம்ம இப்போ Abacus கத்துக்கலாம்!':'Hey! I am Babi! Let’s make some bead magic!');u.lang=lang==='ta'?'ta-IN':'en-US';u.rate=.84;u.pitch=lang==='ta'?1.28:1.38;speechSynthesis.speak(u)};
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.addEventListener('click',()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)}));
     box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
@@ -33,11 +33,11 @@
       await import('./challengeApp.js?v=20260915-appshell3');
       await import('./runtimeGuards.js?v=20260915-runtime3');
       await import('./learning/learningHub.js?v=20260915-learning2');
-      await import('./babiVoice.js?v=20260915-voice3');
+      await import('./babiVoice.js?v=20260915-voice4');
       await import('./audioFx.js?v=20260915-audio4');
       await import('./kidUi.js?v=20260915-kid5');
       await import('./practiceFocus.js?v=20260915-practice2');
-      await import('./navigationFix.js?v=20260915-nav2');
+      await import('./navigationFix.js?v=20260915-nav3');
       await import('./sessionSummary.js?v=20260915-session1');
     }catch(err){console.error(err);fail()}
     finally{if(sw)navigator.serviceWorker.register=sw}
@@ -55,5 +55,5 @@
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v20').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v22').catch(()=>{})});
 })();
