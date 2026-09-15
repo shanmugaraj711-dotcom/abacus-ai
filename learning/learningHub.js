@@ -18,7 +18,7 @@ let activeAbacus = null;
 let lessonLocked = false;
 
 function profile(){ try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {}; } catch { return {}; } }
-function esc(v){ return String(v ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c])); }
+function esc(v){ return String(v ?? '').replace(/[&<>\\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[c])); }
 function babi(expr='happy', size='small'){ return `<svg class="babi babi-${size} babi-${expr}" viewBox="0 0 160 160" aria-label="Babi"><use href="./assets/mascot/babi.svg#${expr}"></use></svg>`; }
 function speak(text){ try { if('speechSynthesis' in window){ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(text); u.rate=.88; u.pitch=1.08; speechSynthesis.speak(u); } } catch {} }
 function sayCorrect(){ const words=['Awesome!','Great job!','You did it!','Brilliant!']; const text=words[Math.floor(Math.random()*words.length)]; speak(text); return text; }
@@ -68,12 +68,15 @@ function bindLesson(){
     if(lessonLocked) return;
     const actual=valueOf(activeAbacus);
     if(actual!==activeLesson.target){ status.className='learning-status bad'; status.textContent=`Not yet — you made ${actual}. Try the beads again! 💛`; window.abacusSound?.wrong?.(); return; }
-    lessonLocked=true; check.disabled=true; check.textContent='Awesome! 🎉'; check.classList.add('learning-next'); status.className='learning-status ok'; status.textContent=`${sayCorrect()} Babi is cheering for you!`; window.abacusSound?.correct?.();
+    lessonLocked=true; check.disabled=true; check.textContent='Awesome! 🎉'; check.classList.add('learning-next'); status.className='learning-status ok';
+    const praise=sayCorrect(); status.textContent=`${praise} Babi is cheering for you!`;
+    window.BabiCelebration?.success?.(`${praise} 👏`,`learn:${activeLesson.id}:${actual}`);
+    window.abacusSound?.correct?.();
     setTimeout(()=>{
       const nextId=activeLesson.id+1;
       if(nextId<=5){ openLesson(nextId); }
       else { renderHub(); }
-    },1800);
+    },3200);
   };
 }
 function wireWorld(){
