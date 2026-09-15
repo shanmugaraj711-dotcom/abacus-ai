@@ -43,6 +43,18 @@
       });
     }
   };
+  const ensureBack=()=>{
+    const topbar=app.querySelector('.world-screen .topbar');
+    if(!topbar||topbar.querySelector('#back'))return;
+    // The assessment is the only current child flow without challengeApp's normal back control.
+    // Return to the World safely; profile persistence means boot resumes there without onboarding.
+    if(app.querySelector('.assessment')){
+      const b=document.createElement('button');
+      b.type='button';b.id='back';b.className='icon-btn';b.setAttribute('aria-label','Back to My Abacus World');b.textContent='←';
+      b.onclick=()=>{location.href='./'};
+      topbar.prepend(b);
+    }
+  };
   let styleReady=false;
   const ensureStyle=()=>{if(styleReady)return;styleReady=true;const s=document.createElement('style');s.textContent='.learning-locked{position:relative;filter:saturate(.7)}.learning-locked::after{content:"🔒";position:absolute;top:9px;right:10px;font-size:20px}';document.head.appendChild(s)};
   document.addEventListener('click',e=>{
@@ -55,8 +67,8 @@
     const level=e.target.closest?.('[data-level]');
     if(level){const n=Number(level.dataset.level),p=read('abacus-ai-progress-v2',{currentLevel:1}),current=Math.max(1,Math.min(15,Number(p.currentLevel)||1));if(n>6){e.preventDefault();e.stopImmediatePropagation();toast('More levels are coming later 🔒');return}if(n>current){e.preventDefault();e.stopImmediatePropagation();toast(`Master Level ${current} first ⭐`);return}}
   },true);
-  const observer=new MutationObserver(()=>{ensureStyle();decorate()});
+  const observer=new MutationObserver(()=>{ensureStyle();decorate();ensureBack()});
   observer.observe(app,{childList:true,subtree:true});
-  ensureStyle();decorate();
-  window.__abacusRuntimeGuards={version:1,openLearn,openGames};
+  ensureStyle();decorate();ensureBack();
+  window.__abacusRuntimeGuards={version:2,openLearn,openGames};
 })();
