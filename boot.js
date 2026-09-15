@@ -14,22 +14,30 @@
     box.innerHTML='<div class="boot-voice-title">🔊 How should Babi talk?</div><div class="boot-voice-sub">Pick a voice. Tap 🔊 Babi anytime to hear the page.</div><div class="boot-voice-buttons"><button type="button" data-boot-lang="en">🇬🇧 English</button><button type="button" data-boot-lang="ta">🇮🇳 தமிழ்</button></div>';
     card.prepend(box);
     const current=localStorage.getItem(LANG)==='ta'?'ta':'en';
-    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lang==='ta'?'ஹாய்! நான் பாபி! சேர்ந்து மணிகளோடு magic பண்ணலாம்!':'Hey! I am Babi! Let’s make some bead magic!');u.lang=lang==='ta'?'ta-IN':'en-IN';u.rate=.9;u.pitch=lang==='ta'?1.16:1.28;speechSynthesis.speak(u)};
+    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lang==='ta'?'ஹாய்! நான் பாபி! சேர்ந்து மணிகளோடு magic பண்ணலாம்!':'Hey! I am Babi! Let’s make some bead magic!');u.lang=lang==='ta'?'ta-IN':'en-US';u.rate=.84;u.pitch=lang==='ta'?1.28:1.38;speechSynthesis.speak(u)};
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.addEventListener('click',()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)}));
     box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
+  }
+  function tuneBabiVoice(){
+    if(!('speechSynthesis' in window)||speechSynthesis.__abacusBabiVoice)return;
+    const synth=speechSynthesis,native=synth.speak.bind(synth);
+    const pick=lang=>{const base=lang.toLowerCase().split('-')[0],list=synth.getVoices?.()||[],same=list.filter(v=>(v.lang||'').toLowerCase().startsWith(base));return same.find(v=>/samantha|jenny|aria|zira|ava|susan|karen|google.*female|female|woman|girl|neural|natural/i.test(v.name))||same[0]||null};
+    synth.speak=u=>{try{const lang=(u.lang||'en-IN').toLowerCase();u.lang=lang.startsWith('ta')?'ta-IN':'en-US';u.voice=pick(u.lang)||u.voice;u.rate=lang.startsWith('ta')?.82:.84;u.pitch=lang.startsWith('ta')?1.28:1.38;u.volume=1}catch{}native(u)};
+    synth.__abacusBabiVoice=true;
   }
   function startApp(){return (async()=>{
     const sw=navigator.serviceWorker?.register;
     if(sw)navigator.serviceWorker.register=()=>Promise.resolve(null);
     try{
-      await import('./challengeApp.js?v=20260915-appshell2');
-      await import('./runtimeGuards.js?v=20260915-runtime2');
-      await import('./learning/learningHub.js?v=20260915-learning1');
-      await import('./babiVoice.js?v=20260915-voice2');
-      await import('./audioFx.js?v=20260915-audio3');
-      await import('./kidUi.js?v=20260915-kid4');
-      await import('./practiceFocus.js?v=20260915-practice1');
-      await import('./navigationFix.js?v=20260915-nav1');
+      tuneBabiVoice();
+      await import('./challengeApp.js?v=20260915-appshell3');
+      await import('./runtimeGuards.js?v=20260915-runtime3');
+      await import('./learning/learningHub.js?v=20260915-learning2');
+      await import('./babiVoice.js?v=20260915-voice3');
+      await import('./audioFx.js?v=20260915-audio4');
+      await import('./kidUi.js?v=20260915-kid5');
+      await import('./practiceFocus.js?v=20260915-practice2');
+      await import('./navigationFix.js?v=20260915-nav2');
     }catch(err){console.error(err);fail()}
     finally{if(sw)navigator.serviceWorker.register=sw}
   })()}
@@ -42,9 +50,9 @@
     ages.forEach(b=>b.addEventListener('click',()=>{age=b.dataset.age;ages.forEach(x=>x.classList.toggle('selected',x===b));ready()}));
     exps.forEach(b=>b.addEventListener('click',()=>{exp=b.dataset.exp;exps.forEach(x=>x.classList.toggle('selected',x===b));ready()}));
     name.addEventListener('input',ready);
-    next.addEventListener('click',async()=>{if(busy||next.disabled)return;busy=true;next.disabled=true;const profile={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};try{localStorage.setItem(PROFILE,JSON.stringify(profile))}catch{busy=false;next.disabled=false;return}if(exp==='known'){try{await import('./experiencedAssessment.js?v=20260915-assess1');setTimeout(()=>document.getElementById('obNext')?.click(),0)}catch(err){console.error(err);busy=false;next.disabled=false;fail()}return}await startApp()});
+    next.addEventListener('click',async()=>{if(busy||next.disabled)return;busy=true;next.disabled=true;const profile={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};try{localStorage.setItem(PROFILE,JSON.stringify(profile))}catch{busy=false;next.disabled=false;return}if(exp==='known'){try{await import('./experiencedAssessment.js?v=20260915-assess2');setTimeout(()=>document.getElementById('obNext')?.click(),0)}catch(err){console.error(err);busy=false;next.disabled=false;fail()}return}await startApp()});
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v18').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v19').catch(()=>{})});
 })();
