@@ -3,20 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#6B4226">
+<meta name="theme-color" content="#52CEF7">
 <meta name="description" content="Abacus AI for Kids — an offline-first wooden-soroban learning adventure.">
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="tutor.css">
+<link rel="stylesheet" href="onboarding.css?v=20260915-onboard1">
 <title>Abacus AI for Kids</title>
 </head>
 <body>
 <main id="app" aria-live="polite">
   <div class="screen onboarding" id="onboardingShell">
     <div class="ob-brand">🧮 <b>Abacus AI</b><small>My Abacus World</small></div>
-    <svg class="babi babi-hero babi-idle" viewBox="0 0 160 160" aria-label="Babi"><use href="./assets/mascot/babi.svg#idle"></use></svg>
-    <h1>Let's build your Abacus World!</h1>
-    <p class="ob-sub">Babi will learn how to help you.</p>
+    <section class="ob-scene" aria-label="Babi's cartoon learning world">
+      <div class="ob-sun"></div><div class="ob-cloud one"></div><div class="ob-cloud two"></div>
+      <div class="ob-ground"></div><div class="ob-tree"></div>
+      <div class="ob-hello">Hi!<br>I'm Babi 👋</div>
+      <div class="ob-sign">Let's build<br>your Abacus World!<small>Babi will learn how to help you.</small></div>
+      <svg class="babi babi-hero babi-idle" viewBox="0 0 160 160" aria-label="Babi"><use href="./assets/mascot/babi.svg#idle"></use></svg>
+      <div class="ob-tap">🔊 Tap Babi anytime!</div>
+      <div class="ob-books"><span>Learn</span><span>Practise</span><span>Play</span><span>Have Fun!</span></div>
+    </section>
     <div class="ob-card">
       <label for="childName">What's your name?</label>
       <input id="childName" maxlength="18" autocomplete="off" placeholder="Your first name">
@@ -38,6 +45,6 @@
   </div>
 </main>
 <noscript>Please enable JavaScript to save your profile and enter Abacus World.</noscript>
-<script defer src="boot.js?v=20260915-shell1"></script>
+<script defer src="boot.js?v=20260915-shell2"></script>
 </body>
 </html>
