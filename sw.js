@@ -1,6 +1,6 @@
-const CACHE='abacus-ai-phase5-shell-v24';
+const CACHE='abacus-ai-phase5-shell-v25';
 const ASSETS=[
-  './','./index.html','./styles.css','./tutor.css','./onboarding.css','./boot.js','./runtimeGuards.js',
+  './','./index.html','./styles.css','./tutor.css','./onboarding.css','./boot.js',
   './challengeApp.js','./abacusEngine.js','./experiencedAssessment.js','./playModes.js','./babiVoice.js','./audioFx.js','./kidUi.js','./practiceFocus.js','./sessionSummary.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'
 ];
 self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await Promise.all(ASSETS.map(url=>cache.add(url).catch(()=>null)));await self.skipWaiting()})()));
