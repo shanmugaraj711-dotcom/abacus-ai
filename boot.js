@@ -14,17 +14,17 @@
     box.innerHTML='<div class="boot-voice-title">🔊 How should Babi talk?</div><div class="boot-voice-sub">Pick a voice. Tap 🔊 Babi anytime to hear the page.</div><div class="boot-voice-buttons"><button type="button" data-boot-lang="en">🇬🇧 English</button><button type="button" data-boot-lang="ta">🇮🇳 Tamil • Tanglish</button></div>';
     card.prepend(box);
     const current=localStorage.getItem(LANG)==='ta'?'ta':'en';
-    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const text=lang==='ta'?'ஹாய்! நான் Babi. இப்போ நாம Abacus கத்துக்கலாம். ஏதாவது doubt இருந்தா Babi-யை கேளு!':'Hey! I am Babi. Let’s learn Abacus together. If you get stuck, ask me!';const parts=text.match(/[\u0B80-\u0BFF]+(?:\s+[\u0B80-\u0BFF]+)*|[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*/g)||[text];let i=0;const next=()=>{if(i>=parts.length)return;const part=parts[i++].trim();const ta=/[\u0B80-\u0BFF]/.test(part);const u=new SpeechSynthesisUtterance(part);u.lang=ta?'ta-IN':'en-IN';u.rate=ta?.88:.93;u.pitch=1.16;speechSynthesis.speak(u);u.onend=next};next()};
+    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const text=lang==='ta'?'ஹாய்! நான் Babi. இப்போ நாம Abacus கத்துக்கலாம். ஏதாவது doubt இருந்தா Babi-யை கேளு!':'Hey! I am Babi. Let’s learn Abacus together. If you get stuck, ask me!';const parts=text.match(/[\u0B80-\u0BFF]+(?:\s+[\u0B80-\u0BFF]+)*|[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*/g)||[text];let i=0;const next=()=>{if(i>=parts.length)return;const part=parts[i++].trim();const ta=/[\u0B80-\u0BFF]/.test(part);const u=new SpeechSynthesisUtterance(part);u.lang=ta?'ta-IN':'en-IN';u.rate=ta?.88:.93;u.pitch=1.16;u.onend=next;speechSynthesis.speak(u)};next()};
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.addEventListener('click',()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)}));
     box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
   function startApp(){return (async()=>{try{
-    await import('./challengeApp.js?v=20260915-router6');
-    await import('./babiVoice.js?v=20260915-voice6');
-    await import('./audioFx.js?v=20260915-audio4');
-    await import('./kidUi.js?v=20260915-kid5');
-    await import('./practiceFocus.js?v=20260915-practice2');
-    await import('./sessionSummary.js?v=20260915-session1');
+    await import('./challengeApp.js');
+    await import('./babiVoice.js');
+    await import('./audioFx.js');
+    await import('./kidUi.js');
+    await import('./practiceFocus.js');
+    await import('./sessionSummary.js');
   }catch(err){console.error(err);fail()}})()}
   const wire=()=>{
     let age='',exp='',busy=false;
@@ -35,7 +35,7 @@
     ages.forEach(b=>b.addEventListener('click',()=>{age=b.dataset.age;ages.forEach(x=>x.classList.toggle('selected',x===b));ready()}));
     exps.forEach(b=>b.addEventListener('click',()=>{exp=b.dataset.exp;exps.forEach(x=>x.classList.toggle('selected',x===b));ready()}));
     name.addEventListener('input',ready);
-    next.addEventListener('click',async()=>{if(busy||next.disabled)return;busy=true;next.disabled=true;const profile={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};try{localStorage.setItem(PROFILE,JSON.stringify(profile))}catch{busy=false;next.disabled=false;return}if(exp==='known'){try{await import('./experiencedAssessment.js?v=20260915-assess3');setTimeout(()=>document.getElementById('obNext')?.click(),0)}catch(err){console.error(err);busy=false;next.disabled=false;fail()}return}await startApp()});
+    next.addEventListener('click',async()=>{if(busy||next.disabled)return;busy=true;next.disabled=true;const profile={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};try{localStorage.setItem(PROFILE,JSON.stringify(profile))}catch{busy=false;next.disabled=false;return}if(exp==='known'){try{await import('./experiencedAssessment.js');setTimeout(()=>document.getElementById('obNext')?.click(),0)}catch(err){console.error(err);busy=false;next.disabled=false;fail()}return}await startApp()});
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
