@@ -4,8 +4,14 @@
   const app=document.getElementById('app');
   if(!app)return;
   const read=()=>{try{return JSON.parse(localStorage.getItem(PROFILE)||'null')}catch{return null}};
-  const fail=()=>{app.innerHTML='<div class="screen onboarding center"><div style="max-width:520px;margin:auto"><div style="font-size:56px">🧮</div><h1> Babi is waking up…</h1><p>We could not start Abacus World.</p><button class="primary" type="button" onclick="location.reload()">Try Again</button></div></div>'};
-  const startApp=async()=>{try{await import('./challengeApp.js?v=20260915-appshell1');await import('./runtimeGuards.js?v=20260915-runtime1')}catch(err){console.error(err);fail()}};
+  const fail=()=>{app.innerHTML='<div class="screen onboarding center"><div style="max-width:520px;margin:auto"><div style="font-size:56px">🧮</div><h1>Babi is waking up…</h1><p>We could not start Abacus World.</p><button class="primary" type="button" onclick="location.reload()">Try Again</button></div></div>'};
+  const startApp=async()=>{
+    const sw=navigator.serviceWorker?.register;
+    if(sw)navigator.serviceWorker.register=()=>Promise.resolve(null);
+    try{await import('./challengeApp.js?v=20260915-appshell1');await import('./runtimeGuards.js?v=20260915-runtime1')}
+    catch(err){console.error(err);fail()}
+    finally{if(sw)navigator.serviceWorker.register=sw}
+  };
   const wire=()=>{
     let age='',exp='',busy=false;
     const next=document.getElementById('obNext');
@@ -23,10 +29,8 @@
       const profile={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};
       try{localStorage.setItem(PROFILE,JSON.stringify(profile))}catch{busy=false;next.disabled=false;return}
       if(exp==='known'){
-        try{
-          await import('./experiencedAssessment.js?v=20260915-assess1');
-          setTimeout(()=>document.getElementById('obNext')?.click(),0);
-        }catch(err){console.error(err);busy=false;next.disabled=false;fail()}
+        try{await import('./experiencedAssessment.js?v=20260915-assess1');setTimeout(()=>document.getElementById('obNext')?.click(),0)}
+        catch(err){console.error(err);busy=false;next.disabled=false;fail()}
         return;
       }
       await startApp();
@@ -36,10 +40,6 @@
   if(profile){
     app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';
     startApp();
-  }else{
-    wire();
-  }
-  window.addEventListener('load',()=>{
-    if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v12').catch(()=>{});
-  });
+  }else wire();
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v12').catch(()=>{})});
 })();
