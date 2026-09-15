@@ -19,8 +19,6 @@
     levelTa:n=>`யேய் ${n}! 🏆 நீ Level-ஐ முடிச்சிட்ட! Babi-க்கு ரொம்ப சந்தோஷம்!`,
     hint:`Tiny clue! 💡 Look at the numbers and move only the beads you need.`,
     hintTa:`சின்ன clue! 💡 Numbers-ஐ பாரு. தேவையான beads-ஐ மட்டும் move பண்ணு.`,
-    help:`Babi is here! 🐻 Tell me what is confusing and we can do it step by step.`,
-    helpTa:`Babi இங்கேதான்! 🐻 எது புரியலையோ சொல்லு. நாம step by step பண்ணலாம்.`,
     locked:n=>`Let's finish the free levels first, ${n}! Then we can explore more.`,
     lockedTa:n=>`முதல்ல free levels-ஐ முடிக்கலாம், ${n}! அப்புறம் இன்னும் explore பண்ணலாம்.`,
     greeting:n=>`Hi ${n}! 👋 I am Babi. Shall we learn some bead magic?`,
@@ -33,17 +31,27 @@
   const name=()=>profile().name||'friend';
   const voices=()=>hasSpeech?(speechSynthesis.getVoices?.()||[]):[];
   const pickVoice=code=>{const base=code.split('-')[0].toLowerCase(),list=voices(),same=list.filter(v=>(v.lang||'').toLowerCase().startsWith(base));return same.find(v=>/natural|neural|enhanced|premium|microsoft|google/i.test(v.name))||same[0]||null};
-  const split=text=>String(text).replace(/\s+/g,' ').trim().match(/[^.!?।！？]+[.!?।！？]?/g)||[String(text)];
-  function speak(text,code){
+  const stop=()=>{try{speechSynthesis.cancel()}catch{}};
+  // Android browsers often pronounce mixed Tamil/English badly when the entire sentence is tagged ta-IN.
+  // Split code-switched text into Tamil and Latin chunks and give each chunk the correct voice locale.
+  function speakMixed(text){
     if(!hasSpeech)return false;
     try{
-      speechSynthesis.cancel();
-      const parts=split(text);let i=0;
-      const next=()=>{if(i>=parts.length)return;const u=new SpeechSynthesisUtterance(parts[i++]);u.lang=code;u.voice=pickVoice(code);u.volume=1;u.rate=code.startsWith('ta')?.80:.88;u.pitch=code.startsWith('ta')?1.14:1.28;u.onend=()=>setTimeout(next,90);u.onerror=()=>setTimeout(next,50);speechSynthesis.speak(u)};
+      stop();
+      const parts=String(text).replace(/\s+/g,' ').trim().match(/[\u0B80-\u0BFF]+(?:[\u0B80-\u0BFF'’\-]*\s+[\u0B80-\u0BFF'’\-]+)*|[A-Za-z0-9]+(?:[\s'’+−=-][A-Za-z0-9]+)*/g)||[String(text)];
+      let i=0;
+      const next=()=>{
+        if(i>=parts.length)return;
+        const part=parts[i++].trim();if(!part)return next();
+        const tamil=/[\u0B80-\u0BFF]/.test(part);
+        const u=new SpeechSynthesisUtterance(part);
+        u.lang=tamil?'ta-IN':'en-IN';u.voice=pickVoice(u.lang);u.volume=1;u.rate=tamil?.88:.93;u.pitch=1.16;
+        u.onend=()=>setTimeout(next,45);u.onerror=()=>setTimeout(next,25);speechSynthesis.speak(u);
+      };
       next();return true;
     }catch{return false}
   }
-  const say=(en,ta)=>lang==='ta'?speak(ta,'ta-IN'):speak(en,'en-US');
+  const say=(en,ta)=>lang==='ta'?speakMixed(ta):speakMixed(en);
   function setLanguage(v){lang=v==='ta'?'ta':'en';try{localStorage.setItem('abacus-ai-language',lang)}catch{}document.querySelectorAll('[data-voice-lang],[data-boot-lang]').forEach(b=>b.classList.toggle('selected',(b.dataset.voiceLang||b.dataset.bootLang)===lang))}
   function context(){
     const n=name(),g=progress(),l=Number(g.currentLevel||1),s=Number(g.streak||0),has=s=>!!document.querySelector(s),text=(document.body?.innerText||'').replace(/\s+/g,' ').trim();
@@ -58,7 +66,7 @@
   }
   function inject(){
     if(document.getElementById('babi-global-helper'))return;
-    const style=document.createElement('style');style.id='babi-voice-style';style.textContent=`#babi-global-helper{position:fixed;right:10px;bottom:max(9px,env(safe-area-inset-bottom));z-index:9999;width:46px;height:46px;padding:0;border:2px solid rgba(107,66,38,.18);border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#fff7df,#ffd98d);box-shadow:0 5px 15px rgba(70,38,12,.20);color:#4b2c18;cursor:pointer;touch-action:manipulation;transition:transform .18s ease,box-shadow .18s ease}#babi-global-helper .face{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#f3c38c;font-size:21px;box-shadow:inset 0 -2px 0 rgba(90,45,10,.12)}#babi-global-helper:active{transform:scale(.90)}#babi-global-helper.is-speaking{animation:babiTalk .55s ease-in-out infinite alternate;box-shadow:0 0 0 4px rgba(255,177,55,.20),0 5px 15px rgba(70,38,12,.20)}#babi-helper-bubble{position:fixed;right:10px;bottom:max(62px,calc(53px + env(safe-area-inset-bottom)));z-index:9998;max-width:min(255px,calc(100vw - 30px));padding:11px 13px;border-radius:17px 17px 6px 17px;background:#fff;box-shadow:0 7px 20px rgba(70,38,12,.16);color:#4b2c18;font:800 13px/1.4 ui-rounded,system-ui,sans-serif;display:none;pointer-events:none}#babi-helper-bubble.show{display:block;animation:babiIn .2s ease}@keyframes babiIn{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}@keyframes babiTalk{to{transform:translateY(-3px) rotate(3deg)}}`;
+    const style=document.createElement('style');style.id='babi-voice-style';style.textContent=`#babi-global-helper{position:fixed;right:10px;bottom:max(9px,env(safe-area-inset-bottom));z-index:9999;width:46px;height:46px;padding:0;border:2px solid rgba(107,66,38,.18);border-radius:50%;display:grid;place-items:center;background:linear-gradient(145deg,#fff7df,#ffd98d);box-shadow:0 5px 15px rgba(70,38,12,.20);cursor:pointer;touch-action:manipulation;transition:transform .18s ease,box-shadow .18s ease}#babi-global-helper .face{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#f3c38c;font-size:21px;box-shadow:inset 0 -2px 0 rgba(90,45,10,.12)}#babi-global-helper:active{transform:scale(.90)}#babi-global-helper.is-speaking{animation:babiTalk .55s ease-in-out infinite alternate;box-shadow:0 0 0 4px rgba(255,177,55,.20),0 5px 15px rgba(70,38,12,.20)}#babi-helper-bubble{position:fixed;right:10px;bottom:max(62px,calc(53px + env(safe-area-inset-bottom)));z-index:9998;max-width:min(255px,calc(100vw - 30px));padding:11px 13px;border-radius:17px 17px 6px 17px;background:#fff;box-shadow:0 7px 20px rgba(70,38,12,.16);color:#4b2c18;font:800 13px/1.4 ui-rounded,system-ui,sans-serif;display:none;pointer-events:none}#babi-helper-bubble.show{display:block;animation:babiIn .2s ease}@keyframes babiIn{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}@keyframes babiTalk{to{transform:translateY(-3px) rotate(3deg)}}`;
     document.head.appendChild(style);
     const b=document.createElement('button');b.id='babi-global-helper';b.type='button';b.innerHTML='<span class="face">🐻</span>';b.setAttribute('aria-label','Tap Babi to hear the page');
     const bubble=document.createElement('div');bubble.id='babi-helper-bubble';document.body.appendChild(bubble);document.body.appendChild(b);
@@ -66,8 +74,7 @@
   }
   function hint(){say(T.hint,T.hintTa)}
   document.addEventListener('click',e=>{const el=e.target?.closest?.('.babi-component');if(el){const now=Date.now();if(now-(window.__lastBabiVoice||0)>900){window.__lastBabiVoice=now;say(T.greeting(name()),T.greetingTa(name()))}}if(e.target?.closest?.('#hint,.hint-btn,[data-hint]'))setTimeout(hint,100)},{passive:true});
-  window.BabiVoice={say,greeting:n=>say(T.greeting(n),T.greetingTa(n)),setLanguage,current:()=>lang,hint,supported:hasSpeech,stop:()=>{try{speechSynthesis.cancel()}catch{}},context};
-  if(hasSpeech)speechSynthesis.onvoiceschanged=()=>{};
+  window.BabiVoice={say,greeting:n=>say(T.greeting(n),T.greetingTa(n)),setLanguage,current:()=>lang,hint,supported:hasSpeech,stop,context};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject);else inject();
   new MutationObserver(inject).observe(document.documentElement,{childList:true,subtree:true});
 })();
