@@ -14,17 +14,22 @@
     box.innerHTML='<div class="boot-voice-title">🔊 How should Babi talk?</div><div class="boot-voice-sub">Pick a voice. Tap 🔊 Babi anytime to hear the page.</div><div class="boot-voice-buttons"><button type="button" data-boot-lang="en">🇬🇧 English</button><button type="button" data-boot-lang="ta">🇮🇳 Tamil • Tanglish</button></div>';
     card.prepend(box);
     const current=localStorage.getItem(LANG)==='ta'?'ta':'en';
-    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const text=lang==='ta'?'ஹாய்! நான் Babi. இப்போ நாம Abacus கத்துக்கலாம். ஏதாவது doubt இருந்தா Babi-யை கேளு!':'Hey! I am Babi. Let’s learn Abacus together. If you get stuck, ask me!';const parts=text.match(/[\u0B80-\u0BFF]+(?:\s+[\u0B80-\u0BFF]+)*|[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*/g)||[text];let i=0;const next=()=>{if(i>=parts.length)return;const part=parts[i++].trim();const ta=/[\u0B80-\u0BFF]/.test(part);const u=new SpeechSynthesisUtterance(part);u.lang=ta?'ta-IN':'en-IN';u.rate=ta?.88:.93;u.pitch=1.16;u.onend=next;speechSynthesis.speak(u)};next()};
+    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const text=lang==='ta'?'ஹாய்! நான் Babi. இப்போ நாம Abacus கத்துக்கலாம். ஏதாவது doubt இருந்தா Babi-யை கேளு!':'Hey! I am Babi. Let’s learn Abacus together. If you get stuck, ask me!';const parts=text.match(/[\u0B80-\u0BFF]+(?:\s+[\u0B80-\u0BFF]+)*|[A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*/g)||[text];let i=0;const next=()=>{if(i>=parts.length)return;const part=parts[i++].trim();const ta=/[\u0B80-\u0BFF]/.test(part);const u=new SpeechSynthesisUtterance(part);u.lang=ta?'ta-IN':'en-IN';u.rate=ta?1.0:1.05;u.pitch=1.12;u.onend=next;speechSynthesis.speak(u)};next()};
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.addEventListener('click',()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)}));
     box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
+  function loadEnhancements(){
+    const jobs=['./babiVoice.js','./audioFx.js','./kidUi.js','./practiceFocus.js','./sessionSummary.js'].map(src=>import(src).catch(err=>console.error('Enhancement load failed:',src,err)));
+    Promise.all(jobs);
+  }
+  function deferEnhancements(){
+    if('requestIdleCallback' in window)requestIdleCallback(loadEnhancements,{timeout:1200});
+    else setTimeout(loadEnhancements,180);
+  }
   function startApp(){return (async()=>{try{
     await import('./challengeApp.js');
-    await import('./babiVoice.js');
-    await import('./audioFx.js');
-    await import('./kidUi.js');
-    await import('./practiceFocus.js');
-    await import('./sessionSummary.js');
+    // Core learning becomes interactive first. Voice, music, visual polish and session recap load after first paint.
+    deferEnhancements();
   }catch(err){console.error(err);fail()}})()}
   const wire=()=>{
     let age='',exp='',busy=false;
@@ -39,5 +44,5 @@
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v27').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v28').catch(()=>{})});
 })();
