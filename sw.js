@@ -1,5 +1,26 @@
-const CACHE='abacus-ai-phase5-staging-v11';
-const CORE=['./','./index.html','./styles.css','./tutor.css','./challengeApp.js','./abacusEngine.js','./learning/learningGate.js','./phase5FlowGuard.js','./lazyFeatures.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'];
-self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>Promise.all(CORE.map(x=>c.add(x).catch(()=>null)))).then(()=>self.skipWaiting())));
-self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('abacus-ai-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
-self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;const url=new URL(event.request.url);if(url.origin!==location.origin)return;event.respondWith(fetch(event.request).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put(event.request,r.clone())).catch(()=>{});return r}).catch(()=>caches.match(event.request).then(c=>c||(event.request.mode==='navigate'?caches.match('./index.html'):Response.error()))))});
+const CACHE='abacus-ai-phase5-shell-v12';
+const ASSETS=[
+  './','./index.html','./styles.css','./tutor.css','./boot.js','./runtimeGuards.js',
+  './challengeApp.js','./abacusEngine.js','./experiencedAssessment.js','./learning/learningHub.js',
+  './learning/01-foundation.js','./learning/02-five-bead.js','./learning/03-number-building.js','./learning/04-ready.js',
+  './playModes.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'
+];
+self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await Promise.all(ASSETS.map(url=>cache.add(url).catch(()=>null)));await self.skipWaiting()})()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('abacus-ai-')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim()})()));
+self.addEventListener('fetch',event=>{
+  if(event.request.method!=='GET')return;
+  const url=new URL(event.request.url);
+  if(url.origin!==location.origin)return;
+  event.respondWith((async()=>{
+    const cached=await caches.match(event.request,{ignoreSearch:true});
+    if(cached)return cached;
+    try{
+      const response=await fetch(event.request);
+      if(response.ok){const copy=response.clone();event.waitUntil(caches.open(CACHE).then(c=>c.put(event.request,copy)).catch(()=>{}));}
+      return response;
+    }catch{
+      if(event.request.mode==='navigate')return caches.match('./index.html',{ignoreSearch:true});
+      return Response.error();
+    }
+  })());
+});
