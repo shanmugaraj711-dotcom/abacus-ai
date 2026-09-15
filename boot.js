@@ -22,11 +22,13 @@
     const sw=navigator.serviceWorker?.register;
     if(sw)navigator.serviceWorker.register=()=>Promise.resolve(null);
     try{
-      await import('./challengeApp.js?v=20260915-appshell1');
-      await import('./runtimeGuards.js?v=20260915-runtime1');
+      await import('./challengeApp.js?v=20260915-appshell2');
+      await import('./runtimeGuards.js?v=20260915-runtime2');
+      await import('./learning/learningHub.js?v=20260915-learning1');
       await import('./babiVoice.js?v=20260915-voice2');
       await import('./audioFx.js?v=20260915-audio3');
-      await import('./kidUi.js?v=20260915-kid3');
+      await import('./kidUi.js?v=20260915-kid4');
+      await import('./navigationFix.js?v=20260915-nav1');
     }catch(err){console.error(err);fail()}
     finally{if(sw)navigator.serviceWorker.register=sw}
   })()}
@@ -43,5 +45,5 @@
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v17').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v18').catch(()=>{})});
 })();
