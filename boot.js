@@ -38,6 +38,7 @@
       await import('./kidUi.js?v=20260915-kid5');
       await import('./practiceFocus.js?v=20260915-practice2');
       await import('./navigationFix.js?v=20260915-nav2');
+      await import('./sessionSummary.js?v=20260915-session1');
     }catch(err){console.error(err);fail()}
     finally{if(sw)navigator.serviceWorker.register=sw}
   })()}
@@ -54,5 +55,5 @@
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v19').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v20').catch(()=>{})});
 })();
