@@ -15,11 +15,11 @@ const allLessons = [...FOUNDATION, ...FIVE_BEAD, ...NUMBER_BUILDING];
 const HINTS = {
   1: {
     title: 'Babi’s tiny tutorial 💡',
-    steps: ['An abacus is a counting tool — the beads help you see numbers with your hands.', 'The little beads below the bar are worth 1 each.', 'Tap a little bead to move it UP to the bar. Three beads up means 3.']
+    steps: ['An abacus is a counting tool — the beads help you see numbers with your hands.', 'The little beads below the bar are worth 1 each.', 'Start with just one little bead: move it UP to the bar. One bead means 1.']
   },
   2: {
     title: 'Babi’s hint 💡',
-    steps: ['Each lower bead is worth 1.', 'Move the beads UP to the bar.', 'For 3, bring three lower beads up.']
+    steps: ['Each lower bead is worth 1.', 'Move the beads UP to the bar.', 'For 3, bring three lower beads up — one at a time.']
   },
   3: {
     title: 'Babi’s hint 💡',
@@ -74,11 +74,15 @@ function openLesson(id){
   activeLesson=allLessons.find(x=>x.id===id); if(!activeLesson) return;
   activeAbacus=createAbacus(); lessonLocked=false; addStyle();
   const hint=HINTS[activeLesson.id] || HINTS[1];
-  const guide=activeLesson.id===1?`<section class="learning-guide" aria-label="First time abacus tutorial"><div class="learning-guide-head">${babi('encourage','small')}<div><h2>New to abacus? You’re in the right place. 🌱</h2><p>Babi will teach you from the beginning.</p></div></div><ol><li>An abacus is a counting tool.</li><li>Little beads = 1 each.</li><li>Move a little bead UP to the bar.</li></ol></section>`:'';
-  app.innerHTML=`<div class="screen world-screen"><header class="topbar"><button class="icon-btn" id="learningLessonBack" aria-label="Back to Learn">←</button><div class="brand"><span class="brand-mark">🧮</span><span><strong>Abacus AI</strong><small>Learn</small></span></div></header><main class="content"><div class="learning-lesson-card">${babi('happy','large')}<p class="eyebrow">LEARN · ${activeLesson.id}/5</p><h1>${activeLesson.title}</h1><p>${activeLesson.text}</p>${guide}<div class="learning-target"><small>Babi wants you to make</small><strong>${activeLesson.target}</strong></div><p class="learning-note">${activeLesson.note}</p>${abacusHtml(activeAbacus)}<div class="learning-current">Your number: <b id="learningCurrent">0</b></div><button type="button" class="learning-hint" id="learningHint" aria-expanded="false">💡 Babi Hint</button><div class="learning-hint-panel" id="learningHintPanel"><strong>${hint.title}</strong>${hint.steps.map((x,i)=>`<p>${i+1}. ${x}</p>`).join('')}</div><div id="learningStatus" class="learning-status" role="status" aria-live="polite"></div><button class="primary learning-check" id="learningCheck">Check my answer ✓</button></div></main></div>`;
+  const guide = activeLesson.id===1
+    ? `<section class="learning-guide" aria-label="First time abacus tutorial"><div class="learning-guide-head">${babi('encourage','small')}<div><h2>What is this thing? 🌱</h2><p>An abacus is a simple counting tool. You move beads with your fingers to make numbers you can see.</p></div></div><ol><li><b>ONES</b> is the little numbers: 1, 2, 3…</li><li>Each little bead below the bar is worth <b>1</b>.</li><li>Move <b>one</b> little bead UP to the bar. That makes 1.</li></ol></section>`
+    : activeLesson.id===2
+      ? `<section class="learning-guide" aria-label="Second abacus tutorial"><div class="learning-guide-head">${babi('encourage','small')}<div><h2>Let’s make 3 together 👆</h2><p>You already met 1. Now we’ll use the same idea three times.</p></div></div><ol><li>Find the <b>ONES</b> rod.</li><li>Move one little bead UP to the bar.</li><li>Do it two more times — <b>3 little beads = 3</b>.</li></ol></section>`
+      : '';
+  app.innerHTML=`<div class="screen world-screen"><header class="topbar"><button class="icon-btn" id="learningLessonBack" aria-label="Back to Learn">←</button><div class="brand"><span class="brand-mark">🧮</span><span><strong>Abacus AI</strong><small>Learn</small></span></div></header><main class="content"><div class="learning-lesson-card">${babi('happy','large')}<p class="eyebrow">LEARN · ${activeLesson.id}/5</p><h1>${activeLesson.title}</h1><p>${activeLesson.text}</p>${guide}<div class="learning-target"><small>Babi wants you to make</small><strong>${activeLesson.target}</strong></div><p class="learning-note">${activeLesson.note}</p>${abacusHtml(activeAbacus)}<div class="learning-current">Your number: <b id="learningCurrent">0</b></div><button type="button" class="learning-hint" id="learningHint" aria-expanded="false">💡 Babi Hint — show me what to do</button><div class="learning-hint-panel" id="learningHintPanel"><strong>${hint.title}</strong>${hint.steps.map((x,i)=>`<p>${i+1}. ${x}</p>`).join('')}</div><div id="learningStatus" class="learning-status" role="status" aria-live="polite"></div><button class="primary learning-check" id="learningCheck">Check my answer ✓</button></div></main></div>`;
   document.getElementById('learningLessonBack').onclick=renderHub;
   const hintButton=document.getElementById('learningHint'); const hintPanel=document.getElementById('learningHintPanel');
-  hintButton.onclick=()=>{ const show=!hintPanel.classList.contains('show'); hintPanel.classList.toggle('show',show); hintButton.setAttribute('aria-expanded',String(show)); if(show){ speak(activeLesson.id===1?'An abacus is a counting tool. Move the little beads up to the bar.':'Babi has a hint for you.'); if(activeLesson.id===1) app.querySelector('.learning-abacus')?.classList.add('guide-pulse'); } };
+  hintButton.onclick=()=>{ const show=!hintPanel.classList.contains('show'); hintPanel.classList.toggle('show',show); hintButton.setAttribute('aria-expanded',String(show)); if(show){ speak(activeLesson.id===1?'An abacus is a counting tool. Move one little bead up to the bar.':'Babi has a hint for you.'); if(activeLesson.id===1 || activeLesson.id===2) app.querySelector('.learning-abacus')?.classList.add('guide-pulse'); } };
   bindLesson();
 }
 function bindLesson(){
