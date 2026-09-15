@@ -28,7 +28,6 @@
   }
   function startApp(){return (async()=>{try{
     await import('./challengeApp.js');
-    // Core learning becomes interactive first. Voice, music, visual polish and session recap load after first paint.
     deferEnhancements();
   }catch(err){console.error(err);fail()}})()}
   const wire=()=>{
@@ -44,5 +43,5 @@
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v28').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v29').catch(()=>{})});
 })();
