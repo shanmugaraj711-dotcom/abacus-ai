@@ -20,5 +20,9 @@
   function music(screen){const actions=screen.querySelector('.top-actions');if(!actions||actions.querySelector('.kid-music')||!window.AbacusAudio)return;const b=document.createElement('button');b.className='kid-music';b.type='button';b.textContent=window.AbacusAudio.isMusicOn()?'🎵 On':'🎵 Music';b.setAttribute('aria-label','Turn gentle music on or off');b.onclick=()=>{const on=window.AbacusAudio.musicToggle();b.classList.toggle('on',on);b.textContent=on?'🎵 On':'🎵 Music'};actions.appendChild(b)}
   function decorate(){const screen=document.querySelector('.world-screen');if(!screen)return;theme(screen);audio(screen);music(screen);if(!screen.querySelector('.kid-page-stickers')){const main=screen.querySelector('.content');if(main){const s=document.createElement('div');s.className='kid-page-stickers';s.innerHTML='<span>🧒</span><span>👧</span><span>⭐</span><span>🌈</span><span>🧮</span><span>💛</span>';main.prepend(s)}}}
   function inject(){if(!document.getElementById('kid-ui-style')){const s=document.createElement('style');s.id='kid-ui-style';s.textContent=STYLE;document.head.appendChild(s)}decorate()}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject);else inject();new MutationObserver(inject).observe(document.documentElement,{childList:true,subtree:true});
+  const afterRender=()=>queueMicrotask(inject);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject);else inject();
+  // Navigation is click-driven in the core app, so decorate after the click instead of
+  // watching the whole document with a MutationObserver.
+  document.addEventListener('click',afterRender,{passive:true});
 })();
