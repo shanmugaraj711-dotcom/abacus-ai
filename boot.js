@@ -14,25 +14,23 @@
     box.innerHTML='<div class="boot-voice-title">🔊 How should Babi talk?</div><div class="boot-voice-sub">Pick a voice. Tap 🔊 Babi anytime to hear the page.</div><div class="boot-voice-buttons"><button type="button" data-boot-lang="en">🇬🇧 English</button><button type="button" data-boot-lang="ta">🇮🇳 Tamil • Tanglish</button></div>';
     card.prepend(box);
     const current=localStorage.getItem(LANG)==='ta'?'ta':'en';
-    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lang==='ta'?'ஹாய்! நான் பாபி பேசுகிறேன்! நம்ம இப்போ Abacus கத்துக்கலாம்!':'Hey! I am Babi! Let’s make some bead magic!');u.lang=lang==='ta'?'ta-IN':'en-US';u.rate=.84;u.pitch=lang==='ta'?1.28:1.38;speechSynthesis.speak(u)};
+    const speak=(lang)=>{if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lang==='ta'?'ஹாய்! நான் பாபி! இப்போ நாம Abacus கத்துக்கலாம். ஏதாவது doubt இருந்தா Babi-யை கேளு!':'Hey! I am Babi! Let’s learn abacus together. If you get stuck, just ask me!');u.lang=lang==='ta'?'ta-IN':'en-US';u.rate=.82;u.pitch=lang==='ta'?1.16:1.30;speechSynthesis.speak(u)};
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.addEventListener('click',()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)}));
     box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
   function tuneBabiVoice(){
     if(!('speechSynthesis' in window)||speechSynthesis.__abacusBabiVoice)return;
     const synth=speechSynthesis,native=synth.speak.bind(synth);
-    const pick=lang=>{const base=lang.toLowerCase().split('-')[0],list=synth.getVoices?.()||[],same=list.filter(v=>(v.lang||'').toLowerCase().startsWith(base));return same.find(v=>/samantha|jenny|aria|zira|ava|susan|karen|google.*female|female|woman|girl|neural|natural/i.test(v.name))||same[0]||null};
-    synth.speak=u=>{try{const lang=(u.lang||'en-IN').toLowerCase();u.lang=lang.startsWith('ta')?'ta-IN':'en-US';u.voice=pick(u.lang)||u.voice;u.rate=lang.startsWith('ta')?.82:.84;u.pitch=lang.startsWith('ta')?1.28:1.38;u.volume=1}catch{}native(u)};
+    const pick=lang=>{const base=lang.toLowerCase().split('-')[0],list=synth.getVoices?.()||[],same=list.filter(v=>(v.lang||'').toLowerCase().startsWith(base));return same.find(v=>/natural|neural|enhanced|premium|google|microsoft|female|woman|girl/i.test(v.name))||same[0]||null};
+    synth.speak=u=>{try{const lang=(u.lang||'en-IN').toLowerCase();u.lang=lang.startsWith('ta')?'ta-IN':'en-US';u.voice=pick(u.lang)||u.voice;u.rate=lang.startsWith('ta')?.82:.88;u.pitch=lang.startsWith('ta')?1.16:1.30;u.volume=1}catch{}native(u)};
     synth.__abacusBabiVoice=true;
   }
   function startApp(){return (async()=>{
     try{
       tuneBabiVoice();
-      // Single application router: challengeApp owns Learn, Practice, Games and Levels.
-      // No second navigation layer or hash-based race.
-      await import('./challengeApp.js?v=20260915-router4');
-      await import('./runtimeGuards.js?v=20260915-runtime3');
-      await import('./babiVoice.js?v=20260915-voice4');
+      // One router only. challengeApp owns Learn, Practise, Games and Levels.
+      await import('./challengeApp.js?v=20260915-router5');
+      await import('./babiVoice.js?v=20260915-voice5');
       await import('./audioFx.js?v=20260915-audio4');
       await import('./kidUi.js?v=20260915-kid5');
       await import('./practiceFocus.js?v=20260915-practice2');
@@ -52,5 +50,5 @@
   };
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else wire();
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v24').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v25').catch(()=>{})});
 })();
