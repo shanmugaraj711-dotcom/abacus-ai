@@ -29,24 +29,29 @@
   const profile=()=>{try{return JSON.parse(localStorage.getItem('abacus-ai-profile-v2')||'null')||{}}catch{return {}}};
   const progress=()=>{try{return JSON.parse(localStorage.getItem('abacus-ai-progress-v2')||'null')||{}}catch{return {}}};
   const name=()=>profile().name||'friend';
-  const voices=()=>hasSpeech?(speechSynthesis.getVoices?.()||[]):[];
+  let voiceCache=[];
+  const refreshVoices=()=>{voiceCache=hasSpeech?(speechSynthesis.getVoices?.()||[]):[]};
+  if(hasSpeech){refreshVoices();speechSynthesis.addEventListener?.('voiceschanged',refreshVoices)}
+  const voices=()=>voiceCache.length?voiceCache:(refreshVoices(),voiceCache);
   const pickVoice=code=>{const base=code.split('-')[0].toLowerCase(),list=voices(),same=list.filter(v=>(v.lang||'').toLowerCase().startsWith(base));return same.find(v=>/natural|neural|enhanced|premium|microsoft|google/i.test(v.name))||same[0]||null};
   const stop=()=>{try{speechSynthesis.cancel()}catch{}};
-  // Android browsers often pronounce mixed Tamil/English badly when the entire sentence is tagged ta-IN.
-  // Split code-switched text into Tamil and Latin chunks and give each chunk the correct voice locale.
   function speakMixed(text){
     if(!hasSpeech)return false;
     try{
       stop();
-      const parts=String(text).replace(/\s+/g,' ').trim().match(/[\u0B80-\u0BFF]+(?:[\u0B80-\u0BFF'’\-]*\s+[\u0B80-\u0BFF'’\-]+)*|[A-Za-z0-9]+(?:[\s'’+−=-][A-Za-z0-9]+)*/g)||[String(text)];
+      const raw=String(text).replace(/\s+/g,' ').trim();
+      if(!raw)return false;
+      // Keep code-switched speech in a few larger chunks. The old implementation
+      // queued many tiny utterances, which made Android feel delayed and laggy.
+      const parts=raw.match(/[\u0B80-\u0BFF]+(?:[\u0B80-\u0BFF'’\-]*\s+[\u0B80-\u0BFF'’\-]+)*|[A-Za-z0-9]+(?:[\s'’+−=-][A-Za-z0-9]+)*/g)||[raw];
       let i=0;
       const next=()=>{
         if(i>=parts.length)return;
         const part=parts[i++].trim();if(!part)return next();
         const tamil=/[\u0B80-\u0BFF]/.test(part);
         const u=new SpeechSynthesisUtterance(part);
-        u.lang=tamil?'ta-IN':'en-IN';u.voice=pickVoice(u.lang);u.volume=1;u.rate=tamil?.88:.93;u.pitch=1.16;
-        u.onend=()=>setTimeout(next,45);u.onerror=()=>setTimeout(next,25);speechSynthesis.speak(u);
+        u.lang=tamil?'ta-IN':'en-IN';u.voice=pickVoice(u.lang);u.volume=1;u.rate=tamil?1.0:1.05;u.pitch=1.12;
+        u.onend=next;u.onerror=next;speechSynthesis.speak(u);
       };
       next();return true;
     }catch{return false}
@@ -76,5 +81,4 @@
   document.addEventListener('click',e=>{const el=e.target?.closest?.('.babi-component');if(el){const now=Date.now();if(now-(window.__lastBabiVoice||0)>900){window.__lastBabiVoice=now;say(T.greeting(name()),T.greetingTa(name()))}}if(e.target?.closest?.('#hint,.hint-btn,[data-hint]'))setTimeout(hint,100)},{passive:true});
   window.BabiVoice={say,greeting:n=>say(T.greeting(n),T.greetingTa(n)),setLanguage,current:()=>lang,hint,supported:hasSpeech,stop,context};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject);else inject();
-  new MutationObserver(inject).observe(document.documentElement,{childList:true,subtree:true});
 })();
