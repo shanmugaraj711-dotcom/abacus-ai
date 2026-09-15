@@ -1,31 +1,32 @@
 // Babi voice: playful, page-aware and offline/PWA safe.
+// Tamil mode intentionally uses easy Tanglish: Tamil + familiar English product words.
 // Uses the device's SpeechSynthesis voice; no network voice service is required.
 (function(){
   const T={
     world:(n,l,s)=>s?`Hey ${n}! 🌟 Level ${l}, ${s} stars! Let's beat your best!`:`Hi ${n}! 👋 Babi is ready! Pick Learn, Practise or Play!`,
-    worldTa:(n,l,s)=>s?`ஹேய் ${n}! 🌟 லெவல் ${l}, ${s} ஸ்டார்ஸ்! உன் பெஸ்ட்டை beat பண்ணலாம்!`:`ஹாய் ${n}! 👋 பாபி ரெடி! Learn, Practise அல்லது Play-ஐ தேர்வு செய்!`,
+    worldTa:(n,l,s)=>s?`ஹேய் ${n}! 🌟 லெவல் ${l}, ${s} ஸ்டார்ஸ்! உன் பெஸ்ட்டை beat பண்ணலாம்!`:`ஹாய் ${n}! 👋 பாபி ரெடி! Learn, Practise அல்லது Play-ஐ தேர்வு பண்ணு!`,
     learn:(n,t)=>`Awesome choice, ${n}! ✨ ${t||'One tiny abacus idea'}. Watch me, then you try!`,
-    learnTa:(n,t)=>`சூப்பர் சாய்ஸ், ${n}! ✨ ${t||'ஒரு சின்ன அபாகஸ் ஐடியா'}. முதலில் பாரு, அப்புறம் நீ செய்!`,
+    learnTa:(n,t)=>`சூப்பர் சாய்ஸ், ${n}! ✨ ${t||'ஒரு சின்ன Abacus idea'}. முதலில் பாரு, அப்புறம் நீ try பண்ணலாம்!`,
     practice:(n,p)=>`Your turn, ${n}! 🎯 ${p?`${p} — `:''}Move the beads, make the number, then tap Check!`,
-    practiceTa:(n,p)=>`இப்போது உன் டர்ன், ${n}! 🎯 ${p?`${p} — `:''}மணிகளை நகர்த்து, எண்ணை உருவாக்கி, Check அழுத்து!`,
+    practiceTa:(n,p)=>`இப்போ உன் turn, ${n}! 🎯 ${p?`${p} — `:''}மணிகளை move பண்ணி, answer உருவாக்கி, Check பண்ணு!`,
     play:n=>`Game time, ${n}! 🎮 Ready... set... beads! Babi is cheering for you!`,
     playTa:n=>`கேம் டைம், ${n}! 🎮 ரெடி... செட்... மணிகள்! பாபி உன்னை cheer பண்ணுறேன்!`,
     levels:(n,l)=>`Master Path time, ${n}! 🏆 Level ${l} is your next little adventure.`,
-    levelsTa:(n,l)=>`Master Path டைம், ${n}! 🏆 லெவல் ${l} உன் அடுத்த சின்ன அட்வென்ச்சர்.`,
+    levelsTa:(n,l)=>`Master Path டைம், ${n}! 🏆 லெவல் ${l} உன் அடுத்த சின்ன adventure.`,
     right:n=>`Woohoo, ${n}! 🎉 Nailed it! Your beads got it right!`,
-    rightTa:n=>`வூஹூ, ${n}! 🎉 சூப்பர்! உன் மணிகள் சரியான பதிலை கண்டுபிடிச்சுடுச்சு!`,
+    rightTa:n=>`வூஹூ, ${n}! 🎉 சூப்பர்! உன் மணிகள் சரியான answer கண்டுபிடிச்சுடுச்சு!`,
     wrong:n=>`Oopsie, ${n}! 💛 That's okay. Shake it off and try one more bead move!`,
-    wrongTa:n=>`அச்சச்சோ, ${n}! 💛 பரவாயில்லை. மீண்டும் ஒரு மணியை நகர்த்திப் பாரு!`,
+    wrongTa:n=>`அச்சச்சோ, ${n}! 💛 பரவாயில்லை. மீண்டும் ஒரு bead move பண்ணிப் பாரு!`,
     level:n=>`Ta-da, ${n}! 🏆 Level complete! Babi is super proud.`,
-    levelTa:n=>`டா-டா, ${n}! 🏆 லெவல் முடிச்சிட்ட! பாபிக்கு ரொம்ப சந்தோஷம்!`,
+    levelTa:n=>`டா-டா, ${n}! 🏆 Level முடிச்சிட்ட! பாபிக்கு ரொம்ப சந்தோஷம்!`,
     hint:`Tiny clue! 💡 Look at the operation, then move only the beads you need.`,
-    hintTa:`சின்ன கிளூ! 💡 முதலில் operation-ஐ பாரு. தேவையான மணிகளை மட்டும் நகர்த்து.`,
+    hintTa:`சின்ன clue! 💡 முதலில் operation-ஐ பாரு. தேவையான beads-ஐ மட்டும் move பண்ணு.`,
     help:`Babi is here! 🐻 Tell me what's tricky and we'll solve it one tiny step at a time.`,
-    helpTa:`பாபி இங்கேதான்! 🐻 எது கஷ்டம் என்று சொல். ஒவ்வொரு சின்ன step-ஆக சேர்ந்து செய்வோம்.`,
+    helpTa:`பாபி இங்கேதான்! 🐻 எது கஷ்டம் என்று சொல்லு. ஒவ்வொரு சின்ன step-ஆக சேர்ந்து செய்வோம்!`,
     locked:n=>`Aha! 🔒 You found a future adventure, ${n}. First, let's master your free levels!`,
     lockedTa:n=>`ஆஹா! 🔒 Future adventure கிடைச்சுடுச்சு, ${n}. முதலில் free levels-ஐ master பண்ணலாம்!`,
     greeting:n=>`Hey ${n}! 👋 It's Babi! Let's make some bead magic!`,
-    greetingTa:n=>`ஹேய் ${n}! 👋 பாபி இங்கே! மணிகளோடு magic பண்ணலாம்!`
+    greetingTa:n=>`ஹாய் ${n}! 👋 நான் பாபி பேசுகிறேன்! நம்ம இப்போ Abacus கத்துக்கலாம்!`
   };
   let lang='en',speaking=false;try{lang=localStorage.getItem('abacus-ai-language')==='ta'?'ta':'en'}catch{}
   const hasSpeech='speechSynthesis' in window;
@@ -44,10 +45,11 @@
   function context(){
     const n=name(),g=progress(),l=Number(g.currentLevel||1),s=Number(g.streak||0),has=s=>!!document.querySelector(s),text=(document.body?.innerText||'').replace(/\s+/g,' ').trim();
     if(has('.levelup-title'))return [T.level(n),T.levelTa(n)];
-    if(has('.result-title')){const ok=!!document.querySelector('.result-title.coral');return [ok?T.right(n):T.wrong(n),ok?T.rightTa(n):T.wrongTa(n)]}
+    if(has('.result-title')){const ok=!!document.querySelector('.result-title.coral');return [ok?T.right(n):T.wrong(n),ok?T.rightTa(n):T.wrongTa(n)];}
     if(has('.wall-card'))return [T.locked(n),T.lockedTa(n)];
-    if(has('.practice-meta')||has('.problem')||has('#check')){const m=text.match(/(\d+)\s*([+−-])\s*(\d+)\s*=\s*\?/);const p=m?`${m[1]} ${m[2]} ${m[3]}`:'';return [T.practice(n,p),T.practiceTa(n,p)]}
-    if(has('.lesson-card')||text.toLowerCase().includes('abacus adventure')){const t=document.querySelector('.lesson-card h1')?.textContent?.trim()||'';return [T.learn(n,t),T.learnTa(n,t)]}
+    if(has('.practice-meta')||has('.problem')||has('#check')){const m=text.match(/(\d+)\s*([+−-])\s*(\d+)\s*=\s*\?/);const p=m?`${m[1]} ${m[2]} ${m[3]}`:'';return [T.practice(n,p),T.practiceTa(n,p)];}
+    if(has('.learning-lesson-card')||text.toLowerCase().includes('learn, one little step')){const t=document.querySelector('.learning-lesson-card h1')?.textContent?.trim()||'';return [T.learn(n,t),T.learnTa(n,t)];}
+    if(has('.lesson-card')||text.toLowerCase().includes('abacus adventure')){const t=document.querySelector('.lesson-card h1')?.textContent?.trim()||'';return [T.learn(n,t),T.learnTa(n,t)];}
     if(has('.game-grid')||text.toLowerCase().includes('playroom'))return [T.play(n),T.playTa(n)];
     if(has('.world-levels')||text.toLowerCase().includes('master path'))return [T.levels(n,l),T.levelsTa(n,l)];
     return [T.world(n,l,s),T.worldTa(n,l,s)];
