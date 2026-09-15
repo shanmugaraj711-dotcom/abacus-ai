@@ -1,4 +1,4 @@
-// Phase 4 QA — non-invasive checks for the parent analytics layer.
+// Phase 4 QA — parent analytics and challenge-flow regression checks.
 (function(){
  function run(){
   const d=window.ParentInsights?.summary?window.ParentInsights.summary():null;
@@ -10,7 +10,8 @@
    rules:Array.isArray(d?.rules),
    recommendation:typeof d?.next==='string'&&d.next.length>0,
    localOnly:typeof localStorage!=='undefined',
-   dashboardApi:!!window.ParentAnalytics?.render
+   dashboardApi:!!window.ParentAnalytics?.render,
+   adaptiveHarnessPassive:window.Phase1AdaptiveStaging?.passive===true
   };
   return {ok:Object.values(checks).every(Boolean),checks,summary:d};
  }
