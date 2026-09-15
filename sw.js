@@ -1,9 +1,9 @@
-const CACHE='abacus-ai-phase5-shell-v20';
+const CACHE='abacus-ai-phase5-shell-v21';
 const ASSETS=[
   './','./index.html','./styles.css','./tutor.css','./onboarding.css','./boot.js','./runtimeGuards.js',
   './challengeApp.js','./abacusEngine.js','./experiencedAssessment.js','./learning/learningHub.js',
   './learning/01-foundation.js','./learning/02-five-bead.js','./learning/03-number-building.js','./learning/04-ready.js',
-  './playModes.js','./babiVoice.js','./audioFx.js','./kidUi.js','./practiceFocus.js','./navigationFix.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'
+  './playModes.js','./babiVoice.js','./audioFx.js','./kidUi.js','./practiceFocus.js','./navigationFix.js','./sessionSummary.js','./manifest.json','./assets/mascot/babi.svg','./icons/icon-192.png','./icons/icon-512.png'
 ];
 self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await Promise.all(ASSETS.map(url=>cache.add(url).catch(()=>null)));await self.skipWaiting()})()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('abacus-ai-')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim()})()));
