@@ -8,7 +8,12 @@
   const startApp=async()=>{
     const sw=navigator.serviceWorker?.register;
     if(sw)navigator.serviceWorker.register=()=>Promise.resolve(null);
-    try{await import('./challengeApp.js?v=20260915-appshell1');await import('./runtimeGuards.js?v=20260915-runtime1')}
+    try{
+      await import('./challengeApp.js?v=20260915-appshell1');
+      await import('./runtimeGuards.js?v=20260915-runtime1');
+      // Voice is deliberately lazy-loaded after the app shell so it cannot regress startup speed.
+      await import('./babiVoice.js?v=20260915-voice1');
+    }
     catch(err){console.error(err);fail()}
     finally{if(sw)navigator.serviceWorker.register=sw}
   };
