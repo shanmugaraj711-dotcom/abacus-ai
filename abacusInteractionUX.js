@@ -8,10 +8,10 @@
   const STYLE='abacusInteractionUXStyle';
   if(!document.getElementById(STYLE)){
     const s=document.createElement('style');s.id=STYLE;s.textContent=`
-      .abacus-wrap{touch-action:manipulation;user-select:none;-webkit-user-select:none}
+      .abacus-wrap{touch-action:none;user-select:none;-webkit-user-select:none}
       .abacus{overflow:visible}
-      .abacus-inner{touch-action:manipulation}
-      .abacus .bead{position:relative;z-index:5;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;min-width:64px;min-height:38px}
+      .abacus-inner{touch-action:none}
+      .abacus .bead{position:relative;z-index:5;cursor:pointer;touch-action:none;-webkit-tap-highlight-color:transparent;min-width:64px;min-height:38px}
       .abacus .bead:active{transform:scale(1.08)}
       .abacus .bead.upper:active{transform:translateY(50px) scale(1.08)}
       .abacus .lower-zone{gap:7px;padding-top:5px}
@@ -31,6 +31,9 @@
       .abx-touch-tip{margin:8px 0 0;padding:9px 11px;border-radius:12px;background:#EEF8EA;border:1px solid #B9D9B8;color:#35633B;font-size:11px;font-weight:800}
       .lesson-card .abacus-wrap{margin-top:14px}
       .lesson-card .abacus-wrap .bead{outline-offset:3px}
+      /* The foundation demo is a watch surface, not a second abacus exercise. */
+      .demo-card .demo-abacus .abacus-wrap{pointer-events:none;opacity:.96}
+      .demo-card .demo-abacus .abacus-wrap .bead{cursor:default}
       @media(max-width:520px){
         .abacus{padding:16px 10px;border-width:7px;border-radius:19px}
         .abacus-inner{gap:8px;padding:13px 8px}
@@ -39,17 +42,13 @@
         .bead.upper,.abacus .bead.upper{width:64px;height:42px}
         .abacus .bead.lower.active{transform:translateY(-105px)}
         .abacus .bead.upper.active{transform:translateY(44px)}
+        .demo-card .demo-abacus .abacus-wrap .bead{pointer-events:none}
       }
     `;document.head.appendChild(s)}
 
   let lastLesson=null,lastDemo=null;
   const q=(s,r=document)=>r.querySelector(s);
   const qa=(s,r=document)=>[...r.querySelectorAll(s)];
-
-  function beadIndex(el){
-    const zone=el.closest('.lower-zone');
-    return zone?qa('.bead',zone).indexOf(el):-1;
-  }
 
   function refreshLowerMotion(root){
     if(!root)return;
@@ -71,15 +70,31 @@
   function installTouch(root){
     if(!root||root.dataset.abxTouch==='1')return;
     root.dataset.abxTouch='1';
-    root.addEventListener('pointerup',e=>{
+    let downX=0,downY=0,downBead=null;
+    root.addEventListener('pointerdown',e=>{
       const bead=e.target.closest('.bead');
       if(!bead||!root.contains(bead))return;
-      e.preventDefault();
-      bead.click();
+      downX=e.clientX;downY=e.clientY;downBead=bead;
+    },{passive:true});
+    root.addEventListener('pointerup',e=>{
+      const bead=e.target.closest('.bead')||downBead;
+      if(!bead||!root.contains(bead))return;
+      const moved=Math.hypot(e.clientX-downX,e.clientY-downY)>10;
+      if(moved){
+        e.preventDefault();
+        bead.dataset.abxSkipClick='1';
+        bead.click();
+        setTimeout(()=>delete bead.dataset.abxSkipClick,0);
+      }
       bead.classList.remove('abx-pulse');void bead.offsetWidth;bead.classList.add('abx-pulse');
       setTimeout(()=>bead.classList.remove('abx-pulse'),360);
       setTimeout(()=>refreshLowerMotion(root),0);
+      downBead=null;
     },{passive:false});
+    root.addEventListener('click',e=>{
+      const bead=e.target.closest('.bead');
+      if(bead?.dataset.abxSkipClick==='1'){e.preventDefault();e.stopPropagation();delete bead.dataset.abxSkipClick}
+    },true);
     refreshLowerMotion(root);
   }
 
@@ -105,21 +120,21 @@
     button.dataset.abxDemo='1';
     const host=q('.demo-abacus');
     if(host&&!q('.abx-demo-live',host)){
-      const live=document.createElement('div');live.className='abx-demo-live';live.innerHTML='<i class="dot"></i><span>Babi will move one bead at a time. Watch, then copy the move.</span>';
+      const live=document.createElement('div');live.className='abx-demo-live';live.innerHTML='<i class="dot"></i><span>Watch Babi move one bead at a time. Then copy the move.</span>';
       button.insertAdjacentElement('beforebegin',live);
-      const tip=document.createElement('div');tip.className='abx-touch-tip';tip.textContent='👆 On your phone: tap a bead or press and slide it toward the bar.';
+      const tip=document.createElement('div');tip.className='abx-touch-tip';tip.textContent='👆 After Watch: tap a bead or press and slide it toward the bar.';
       live.insertAdjacentElement('afterend',tip);
     }
     button.onclick=e=>{
       e.preventDefault();
       if(button.dataset.running==='1')return;
       button.dataset.running='1';button.disabled=true;button.textContent='✨ Babi is building 3…';
-      const feedback=q('#demoFeedback');if(feedback)feedback.textContent='Watch the beads travel to the bar — one at a time.';
+      const feedback=q('#demoFeedback');if(feedback)feedback.textContent='Watch Babi move each bead to the bar — one at a time.';
       demoBeads(0);
       [1,2,3].forEach((v,i)=>setTimeout(()=>demoBeads(v),420+i*520));
       setTimeout(()=>{
         button.dataset.running='0';button.disabled=false;button.textContent='↻ Watch Babi again';
-        const feedback=q('#demoFeedback');if(feedback)feedback.textContent='Now you try: tap or drag the lower beads to make 3. 🌟';
+        const feedback=q('#demoFeedback');if(feedback)feedback.textContent='Demo complete. Choose a lesson below and move the beads yourself. 🌟';
       },2200);
     };
   }
