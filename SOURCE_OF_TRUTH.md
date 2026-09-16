@@ -21,8 +21,8 @@ Never substitute another workspace/project for the GitHub repository. Never inve
 ## 2. Current verified Git state
 
 - Active branch: `phase5-performance-final`
-- Latest verified commit at checkpoint creation: `0c97954164f68660a11563d7f1466adf8a61d7d8`
-- Latest commit message: `Bump service worker registration version`
+- Latest verified commit: `931a83e974eeef1af0a47821e4f091c8c79ee7f8`
+- Latest change: hardened the Learn/Practice UX adapter and Master Path presentation.
 - Core stabilization commit: `07ff16bc68bc4a3c6fbc7b30d25dcfc2993c323e` (historical stabilization checkpoint)
 - The active branch and `main` have diverged. Do not merge, rebase, or replace either branch without an explicit engineering reason and inspection of the diff.
 
@@ -51,6 +51,7 @@ Optional enhancement layer:
    kidUi.js
    sessionSummary.js
    homeBabi.js
+   learnPracticeUX.js  ← thin presentation adapter; no learning truth
 
 Offline layer:
    sw.js
@@ -69,7 +70,26 @@ Core principles:
 - Progress survives reloads and normal PWA reopening.
 - Future backend, payment, AI, APK and orchestration services are introduced only when a demonstrated product need and validation gate justify them.
 
-## 5. Current learning gate
+## 5. Engineering reference protocol
+
+PromptStudioAI's Reference Coding work is used as an **engineering reference, not a code/visual copy source**.
+
+Reusable principles:
+- Keep one authoritative workflow instead of parallel implementations.
+- Put presentation around an existing reliable core rather than rewriting the core unnecessarily.
+- Validate boundaries and inputs explicitly.
+- Fail gracefully and preserve the primary user workflow when optional services/layers fail.
+- Keep user-facing states explicit: progress, success, error and next action.
+- Make mobile behavior a first-class acceptance condition.
+- Ship one coherent, reviewable change at a time and verify the real end-to-end path before declaring it complete.
+
+Abacus adaptation:
+- `challengeApp.js` remains the authoritative experience/state/navigation path.
+- `abacusEngine.js` remains the authoritative math contract.
+- Enhancement modules are thin, optional adapters and may not create competing state machines.
+- Offline boot-critical assets must remain independent of network services.
+
+## 6. Current learning gate
 
 The authoritative child flow is:
 
@@ -94,7 +114,7 @@ The current code stores these gates in progress state:
 - `state.learn.completed`
 - `state.practiceCompleted`
 
-## 6. Learning progression
+## 7. Learning progression
 
 15-level curriculum:
 
@@ -115,7 +135,7 @@ Adaptive rule:
 - 2 wrong within a level → drop one level, with minimum Level 1.
 - Track accuracy by level and rule type.
 
-## 7. Learn is a teaching system, not a menu of drills
+## 8. Learn is a teaching system, not a menu of drills
 
 For a new learner, Learn must explain the abacus before expecting independent answers.
 
@@ -133,7 +153,7 @@ Future changes to Learn must preserve the principle:
 
 Do not turn Learn into a screen that merely displays arithmetic questions.
 
-## 8. Babi architecture
+## 9. Babi architecture
 
 Canonical source of truth:
 - `assets/mascot/babi.svg`
@@ -149,7 +169,7 @@ Babi is one recognizable character system. Screens may change pose/expression, b
 
 Babi is a companion/teacher, not decoration.
 
-## 9. Current supporting product areas
+## 10. Current supporting product areas
 
 Existing/active product surfaces include:
 - Onboarding
@@ -170,17 +190,17 @@ Existing/active product surfaces include:
 
 Test / Exam / Competition remain future destinations and must not pretend to be implemented.
 
-## 10. Offline/PWA rules
+## 11. Offline/PWA rules
 
 `sw.js` is responsible for caching the shell and boot-critical assets.
 
-Current cache version at checkpoint: `abacus-ai-phase5-shell-v34`.
+**Current cache version:** `abacus-ai-phase5-shell-v35`.
 
 Whenever a boot-critical asset changes, the service-worker cache/version must be intentionally bumped and verified.
 
 Offline operation is a release gate, not an optional enhancement.
 
-## 11. Quality rules
+## 12. Quality rules
 
 Before declaring a change complete:
 
@@ -198,7 +218,7 @@ Before declaring a change complete:
 - Test offline reopening after first load.
 - Test real Android Chrome/PWA behavior before declaring the mobile/offline gate passed.
 
-## 12. Known repository complexity
+## 13. Known repository complexity
 
 The branch contains accumulated phase, QA, experimental and legacy modules in addition to the current core. Examples include older Babi, navigation, learning and QA helpers.
 
@@ -206,7 +226,7 @@ This is a known cleanup target, not permission to randomly remove files.
 
 The engineering objective is to converge toward one authoritative implementation path and remove duplicates only after dependency/reference verification.
 
-## 13. Product validation gates
+## 14. Product validation gates
 
 Do not advance technology phases just because they are technically possible.
 
@@ -222,7 +242,7 @@ Do not add or make core learning depend on:
 
 until the appropriate validation gate is passed.
 
-## 14. Future engineering protocol
+## 15. Future engineering protocol
 
 For every new Abacus request:
 
@@ -237,6 +257,7 @@ Cross-check the requested change against:
 - tests
 - existing feature modules
 - current deployment assumptions
+- PromptStudioAI engineering reference patterns where relevant
 
 ### C. Decide the smallest authoritative change
 Do not create another competing implementation when the existing architecture can be extended.
@@ -250,20 +271,20 @@ Run/review relevant tests and inspect the resulting code path. For user-facing c
 ### F. Checkpoint
 Record the final commit/branch and important architectural decision in this file when the change materially changes the product architecture.
 
-## 15. Current work state
+## 16. Current work state
 
-The current baseline is considered **stabilized core + guided learning gate**, not finished product.
+The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX adapter**.
 
-Known next-level work includes:
-- Make Learn a genuinely excellent beginner teaching experience.
-- Complete the visual Babi/world treatment across important screens.
-- Converge/remove duplicate or legacy implementations safely.
-- Finish parent-facing value/progress polish.
-- Finish session/result/share/pricing/analytics work according to the latest product decisions.
-- Perform real device/offline QA.
+Next work should continue toward:
+- excellent beginner teaching
+- complete Babi/world treatment across important screens
+- safe convergence of duplicate/legacy implementations
+- parent-facing value/progress polish
+- session/result/share/pricing/analytics work according to current product decisions
+- real device/offline QA
 
-**Important:** Do not start these automatically. Wait for the user's exact next change unless the user explicitly asks for a full audit/fix.
+Do not jump to AI/backend/APK/payment infrastructure before the V1 validation gate.
 
-## 16. Golden rule
+## 17. Golden rule
 
 **Never lose the project context. Never substitute Lovable for GitHub. Never guess production. Never create duplicate architecture when the existing authoritative path can be improved. Always re-audit the current branch before making a material change.**
