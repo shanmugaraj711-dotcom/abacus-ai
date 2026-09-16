@@ -29,9 +29,11 @@
       .abx-demo-actions button.primary-demo{background:#6B4226;color:#fff;border-color:#6B4226;box-shadow:0 3px 0 #4B2C18}
       .abx-demo-actions button:disabled{opacity:.55}
       .abx-touch-tip{margin:8px 0 0;padding:9px 11px;border-radius:12px;background:#EEF8EA;border:1px solid #B9D9B8;color:#35633B;font-size:11px;font-weight:800}
-      .lesson-card .abacus-wrap{margin-top:14px}
-      .lesson-card .abacus-wrap .bead{outline-offset:3px}
-      /* The foundation demo is a watch surface, not a second abacus exercise. */
+      .abx-touch-tip.waiting{display:none}
+      .foundation-lesson .abacus-wrap{margin-top:14px}
+      .foundation-lesson .abacus-wrap .bead{outline-offset:3px}
+      .foundation-lesson .rod-column:nth-child(2),.demo-card .demo-abacus .rod-column:nth-child(2){display:none}
+      .foundation-lesson .lesson-list{display:none}
       .demo-card .demo-abacus .abacus-wrap{pointer-events:none;opacity:.96}
       .demo-card .demo-abacus .abacus-wrap .bead{cursor:default}
       @media(max-width:520px){
@@ -122,9 +124,12 @@
     if(host&&!q('.abx-demo-live',host)){
       const live=document.createElement('div');live.className='abx-demo-live';live.innerHTML='<i class="dot"></i><span>Watch Babi move one bead at a time. Then copy the move.</span>';
       button.insertAdjacentElement('beforebegin',live);
-      const tip=document.createElement('div');tip.className='abx-touch-tip';tip.textContent='👆 After Watch: tap a bead or press and slide it toward the bar.';
+      const tip=document.createElement('div');tip.className='abx-touch-tip waiting';tip.textContent='👆 After Watch: tap a bead or press and slide it toward the bar.';
       live.insertAdjacentElement('afterend',tip);
     }
+    const tip=q('.abx-touch-tip',host);
+    const showTry=()=>tip?.classList.remove('waiting');
+    if(/again|complete|completed/i.test(button.textContent||''))showTry();
     button.onclick=e=>{
       e.preventDefault();
       if(button.dataset.running==='1')return;
@@ -134,6 +139,7 @@
       [1,2,3].forEach((v,i)=>setTimeout(()=>demoBeads(v),420+i*520));
       setTimeout(()=>{
         button.dataset.running='0';button.disabled=false;button.textContent='↻ Watch Babi again';
+        showTry();
         const feedback=q('#demoFeedback');if(feedback)feedback.textContent='Demo complete. Choose a lesson below and move the beads yourself. 🌟';
       },2200);
     };
@@ -142,7 +148,12 @@
   function scan(){
     qa('.abacus-wrap').forEach(installTouch);
     const lesson=q('.lesson-card');
-    if(lesson&&lesson!==lastLesson){lastLesson=lesson;setTimeout(()=>refreshLowerMotion(q('.lesson-card .abacus-wrap')),0)}
+    if(lesson&&lesson!==lastLesson){
+      lastLesson=lesson;
+      const title=q('h1',lesson)?.textContent?.trim()||'';
+      if(['Meet the abacus','Make 1–4','Meet 5','Make 6–9','Tiny challenge'].includes(title))lesson.classList.add('foundation-lesson');
+      setTimeout(()=>refreshLowerMotion(q('.lesson-card .abacus-wrap')),0);
+    }
     const demo=q('.demo-card');
     if(demo&&demo!==lastDemo){lastDemo=demo;installDemo()}
   }
