@@ -12,6 +12,19 @@
     const speak=lang=>{if(!('speechSynthesis' in window))return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lang==='ta'?'ஹாய்! நான் Babi. இப்போ நாம Abacus கத்துக்கலாம்.':'Hey! I am Babi. Let’s learn Abacus together.');u.lang=lang==='ta'?'ta-IN':'en-IN';u.rate=lang==='ta'?1.08:1.12;u.pitch=1.08;speechSynthesis.speak(u)}catch{}};
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.onclick=()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)});box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
+  // Navigation integrity guard: one physical activation can advance exactly one lesson.
+  // Each lesson render creates a fresh #lessonGo, so no shared reset/re-enable state is needed.
+  document.addEventListener('click',e=>{
+    const button=e.target.closest?.('#lessonGo');
+    if(!button)return;
+    if(button.dataset.lessonAdvancing==='1'){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    button.dataset.lessonAdvancing='1';
+    button.disabled=true;
+  },true);
   async function loadEnhancements(){
     try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js');await import('./homeBabi.js');await import('./learnPracticeUX.js');await import('./abacusInteractionUX.js');await import('./v1ProgressUX.js');await import('./parentProgressUX.js')}catch(err){console.error('Optional layer failed',err)}
   }
