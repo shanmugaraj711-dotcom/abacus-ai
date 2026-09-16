@@ -29,6 +29,7 @@
       .lp-success{animation:lpSuccess .5s ease}.lp-wiggle{animation:lpWiggle .38s ease}@keyframes lpSuccess{0%{transform:scale(.98)}55%{transform:scale(1.015)}100%{transform:scale(1)}}@keyframes lpWiggle{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
       .lp-master-intro{display:flex;align-items:center;gap:10px;margin:8px 0 12px;padding:10px 12px;border-radius:16px;background:#FFF7E7;border:1px solid #E2C89A;color:#6B4226}.lp-master-intro img{width:48px;height:48px;object-fit:contain}.lp-master-intro b{display:block;font-size:14px}.lp-master-intro span{display:block;font-size:11px;margin-top:2px;color:#75685D}
       .lp-master-path{position:relative}.lp-master-path:before{content:"";position:absolute;left:50%;top:18px;bottom:18px;width:3px;transform:translateX(-50%);background:#E5C98F;border-radius:9px;opacity:.8}.lp-master-path .world-level{position:relative;z-index:1}
+      .lp-demo-bead{transition:transform .32s ease,filter .32s ease}.lp-demo-active{filter:brightness(1.08) saturate(1.05);transform:translateY(-2px)}
       @media(max-width:520px){.lp-teach-card{grid-template-columns:42px 1fr;padding:11px}.lp-teach-icon{width:42px;height:42px}.lp-practice-banner{padding-right:10px}.lp-road{font-size:10px}}
     `;document.head.appendChild(s);
   }
@@ -71,23 +72,35 @@
     return m?Number(m[1]):null;
   }
 
-  function clearAbacus(){
-    const root=one('.lesson-card .abacus-wrap');if(!root)return;
-    [...root.querySelectorAll('[data-lower].active')].reverse().forEach(el=>el.click());
-    const upper=root.querySelector('[data-upper].active');if(upper)upper.click();
-  }
-
-  function showTarget(target,done){
-    const root=one('.lesson-card .abacus-wrap');if(!root||!Number.isFinite(target))return;
-    clearAbacus();
-    const upper=root.querySelector('[data-upper="0"]');
-    const lowers=[...root.querySelectorAll('[data-lower="0"]')];
-    const actions=[];
-    if(target>=5&&upper)actions.push(upper);
-    const count=target%5;
-    for(let i=0;i<count&&lowers[i];i++)actions.push(lowers[i]);
-    actions.forEach((el,i)=>setTimeout(()=>{el.click();el.classList.add('lp-success');setTimeout(()=>el.classList.remove('lp-success'),350)},i*420));
-    setTimeout(()=>done&&done(),actions.length*420+450);
+  // Visual-only lesson demonstration. It deliberately never invokes the real
+  // bead event handlers, so the child's answer state remains untouched.
+  function showDemoValue(target,done){
+    const root=one('.lesson-card .abacus-wrap');
+    if(!root||!Number.isFinite(target))return;
+    const lowers=[...root.querySelectorAll('[data-lower]')];
+    const upper=root.querySelector('[data-upper]');
+    const originalLower=lowers.map(el=>el.classList.contains('active'));
+    const originalUpper=!!upper?.classList.contains('active');
+    const demoDisplay=one('#lessonValue');
+    const demoValue={value:0};
+    const render=count=>{
+      lowers.forEach((el,i)=>el.classList.toggle('lp-demo-active',i<count));
+      if(upper)upper.classList.toggle('lp-demo-active',count>=5);
+      if(demoDisplay)demoDisplay.dataset.demoValue=String(count);
+    };
+    render(0);
+    const sequence=[];
+    if(target>=5)sequence.push(5);
+    const remainder=target%5;
+    for(let i=1;i<=remainder;i++)sequence.push(5+i);
+    if(!sequence.length)sequence.push(target);
+    sequence.forEach((value,i)=>setTimeout(()=>render(value),i*420));
+    setTimeout(()=>{
+      render(0);
+      lowers.forEach((el,i)=>el.classList.toggle('lp-demo-active',originalLower[i]));
+      if(upper)upper.classList.toggle('lp-demo-active',originalUpper);
+      if(done)done(demoValue.value);
+    },sequence.length*420+450);
   }
 
   function enhanceLesson(){
@@ -101,13 +114,27 @@
     (task||check).insertAdjacentElement('afterend',coach);
     const show=document.createElement('button');show.type='button';show.className='lp-show';show.textContent='👀 Show me how';
     check.insertAdjacentElement('afterend',show);
-    // The demo is a teaching gate, not a decoration. The core app remains the
-    // source of truth; this only prevents accidental checking before the demo.
     check.disabled=true;
-    let running=false,seen=false;
+    let running=false;
     show.onclick=()=>{
       if(running)return;running=true;show.disabled=true;check.disabled=true;show.textContent='✨ Babi is showing you…';
-      showTarget(target,()=>{running=false;seen=true;show.disabled=false;check.disabled=false;show.classList.add('done');show.textContent='✓ I saw it — your turn!';setTimeout(()=>{show.classList.remove('done');show.textContent='👀 Show me again'},900)});
+      showDemoValue(target,()=>{
+        running=false;
+        // Regression guard: the real lesson value must still be zero immediately
+        // after a demo on a fresh lesson. If it isn't, fail closed and surface it.
+        const valueNode=one('#lessonValue',card);
+        const realValue=valueNode?Number(valueNode.textContent)||0:0;
+        if(realValue!==0){
+          console.error('[abacus-regression] lesson demo mutated real answer state', {target,realValue});
+          check.disabled=true;
+          show.disabled=false;
+          show.textContent='⚠ Demo state error — restart lesson';
+          return;
+        }
+        check.disabled=false;show.disabled=false;show.classList.add('done');show.textContent='✓ I saw it — your turn!';
+        const hint=one('#lessonFeedback',card);if(hint)hint.textContent='Your turn — build the number yourself.';
+        setTimeout(()=>{show.classList.remove('done');show.textContent='👀 Show me again'},900);
+      });
     };
     check.setAttribute('aria-disabled','true');
     const hint=one('#lessonFeedback',card);
