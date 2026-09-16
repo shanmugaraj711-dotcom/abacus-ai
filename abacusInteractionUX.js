@@ -1,6 +1,7 @@
 /* Abacus interaction adapter
    Core state lives in challengeApp.js. This file owns only touch/drag input
    and a single DOM render path: count -> active classes -> CSS movement.
+   Practice uses its own renderer and is intentionally excluded here.
 */
 (function(){
   const app=document.getElementById('app');
@@ -37,7 +38,6 @@
     `;document.head.appendChild(s)
   }
 
-  // One renderer: DOM bead position is derived only from the current count.
   function renderRod(root,count){
     if(!root)return;
     const beads=qa('.lower-zone .bead',root);
@@ -59,32 +59,25 @@
     if(!root||root.dataset.abxUnified==='1')return;
     root.dataset.abxUnified='1';
     let down=null;
-
     root.addEventListener('pointerdown',e=>{
       const bead=e.target.closest('.bead');
       if(!bead||!root.contains(bead))return;
       down={bead,x:e.clientX,y:e.clientY};
     },{passive:true});
-
     root.addEventListener('pointerup',e=>{
       if(!down)return;
       const moved=Math.hypot(e.clientX-down.x,e.clientY-down.y)>12;
-      if(moved){
-        e.preventDefault();
-        // Drag reuses the exact same core click/count path as a tap.
-        down.bead.click();
-      }
+      if(moved){e.preventDefault();down.bead.click()}
       down=null;
     },{passive:false});
-
-    // The authoritative core click updates count first. This listener only
-    // renders the resulting count; it never calculates or animates positions.
     root.addEventListener('click',()=>requestAnimationFrame(()=>renderFromDom(root)));
     renderFromDom(root);
   }
 
   function scan(){
-    qa('.abacus-wrap').forEach(install);
+    // Practice has a dedicated state->DOM renderer. Never attach the generic
+    // adapter here, otherwise drag/tap events can be processed twice.
+    qa('.abacus-wrap:not(.pex-abacus)').forEach(install);
     const lesson=q('.lesson-card');
     if(lesson){
       const title=q('h1',lesson)?.textContent?.trim()||'';
