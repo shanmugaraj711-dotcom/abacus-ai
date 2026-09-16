@@ -21,8 +21,8 @@ Never substitute another workspace/project for the GitHub repository. Never inve
 ## 2. Current verified Git state
 
 - Active branch: `phase5-performance-final`
-- Latest verified commit: `9b7a5144297a7f07cca5ae7a1b30b5d2263289f8`
-- Latest change: local progress passport enhancement and PWA cache v36.
+- Latest verified commit: `c588976eff8e1f3cba38d7cb8ddc4a91fc940fc0`
+- Latest change: parent-facing read-only Learning Passport adapter + PWA cache v37.
 - Core stabilization commit: `07ff16bc68bc4a3c6fbc7b30d25dcfc2993c323e` (historical stabilization checkpoint)
 - The active branch and `main` have diverged. Do not merge, rebase, or replace either branch without an explicit engineering reason and inspection of the diff.
 
@@ -52,7 +52,8 @@ Optional enhancement layer:
    sessionSummary.js
    homeBabi.js
    learnPracticeUX.js  ← teaching/practice presentation adapter
-   v1ProgressUX.js     ← local progress presentation adapter
+   v1ProgressUX.js     ← child local progress presentation adapter
+   parentProgressUX.js ← parent read-only progress/value adapter
 
 Offline layer:
    sw.js
@@ -189,6 +190,7 @@ Existing/active product surfaces include:
 - Session summary
 - English/Tamil-Tanglish speech selection
 - Local Progress Passport on My Abacus World
+- Parent-facing Learning Passport with read-only rule/level/session signals
 
 Test / Exam / Competition remain future destinations and must not pretend to be implemented.
 
@@ -196,7 +198,7 @@ Test / Exam / Competition remain future destinations and must not pretend to be 
 
 `sw.js` is responsible for caching the shell and boot-critical assets.
 
-**Current cache version:** `abacus-ai-phase5-shell-v36`.
+**Current cache version:** `abacus-ai-phase5-shell-v37`.
 
 Whenever a boot-critical asset changes, the service-worker cache/version must be intentionally bumped and verified.
 
@@ -275,7 +277,7 @@ Record the final commit/branch and important architectural decision in this file
 
 ## 16. Current work state
 
-The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local progress passport**.
+The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local child progress passport + parent-facing progress/value layer**.
 
 Next work should continue toward:
 - excellent beginner teaching
