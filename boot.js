@@ -26,7 +26,7 @@
     button.disabled=true;
   },true);
   async function loadEnhancements(){
-    try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js');await import('./homeBabi.js');await import('./learnPracticeUX.js');await import('./abacusInteractionUX.js');await import('./v1ProgressUX.js');await import('./parentProgressUX.js')}catch(err){console.error('Optional layer failed',err)}
+    try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js');await import('./homeBabi.js');await import('./learnPracticeUX.js');await import('./abacusInteractionUX.js');await import('./lessonStateMachine.js');await import('./v1ProgressUX.js');await import('./parentProgressUX.js')}catch(err){console.error('Optional layer failed',err)}
   }
   async function startApp(){try{await import('./challengeApp.js');if('requestIdleCallback' in window)requestIdleCallback(loadEnhancements,{timeout:2500});else setTimeout(loadEnhancements,1200)}catch(err){console.error('Core app failed to start',err);fail()}}
   const profile=read();
