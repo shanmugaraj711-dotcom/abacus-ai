@@ -37,7 +37,13 @@
     one('.lp-coach',card)?.remove();one('.lp-show',card)?.remove();const check=one('#lessonCheck',card);if(!check)return;
     const show=document.createElement('button');show.type='button';show.id='lessonWatch';show.className='lp-show';check.insertAdjacentElement('afterend',show);transition(card,STATES.IDLE,target);
     show.addEventListener('click',()=>{if(card.dataset.lessonState===STATES.IDLE||card.dataset.lessonState===STATES.PRACTICE)transition(card,STATES.DEMO,target)});
-    check.addEventListener('click',()=>{if(card.dataset.lessonState!==STATES.PRACTICE)return;setTimeout(()=>{if(realValue(card)===target&&one('#lessonFeedback',card)?.textContent.includes('3/3'))transition(card,STATES.COMPLETE,target)},0)});
+    check.addEventListener('click',()=>{
+      if(card.dataset.lessonState!==STATES.PRACTICE)return;
+      setTimeout(()=>{
+        const next=one('#lessonGo',card);
+        if(realValue(card)===target&&next&&!next.disabled)transition(card,STATES.COMPLETE,target);
+      },0);
+    });
   }
   function scan(){const card=one('.lesson-card');if(card&&card!==activeCard)install(card)}
   const observer=new MutationObserver(()=>requestAnimationFrame(scan));observer.observe(app,{childList:true,subtree:true});scan();
