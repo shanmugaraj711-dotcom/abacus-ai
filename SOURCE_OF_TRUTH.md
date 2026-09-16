@@ -21,9 +21,8 @@ Never substitute another workspace/project for the GitHub repository. Never inve
 ## 2. Current verified Git state
 
 - Active branch: `phase5-performance-final`
-- Latest verified commit: `c95c485ec5beab645c49ac221af17234d720f421`
-- Latest change: mobile abacus interaction polish, replayable Babi demo, and PWA cache v40.
-- Previous interaction UX commit: `9df4b2ed133679142b62a3f061bd302842665ebf9`.
+- Latest verified commit: `ca82484f0548ebb9009f7fe9da4fa076c76215d5`
+- Latest change: mobile bead interaction hardening, guided-demo boundary polish, and PWA cache v41.
 - Core stabilization commit: `07ff16bc68bc4a3c6fbc7b30d25dcfc2993c323e` (historical stabilization checkpoint)
 - The active branch and `main` have diverged. Do not merge, rebase, or replace either branch without an explicit engineering reason and inspection of the diff.
 
@@ -52,10 +51,10 @@ Optional enhancement layer:
    kidUi.js
    sessionSummary.js
    homeBabi.js
-   learnPracticeUX.js       ← teaching/practice presentation adapter
-   abacusInteractionUX.js   ← mobile bead interaction + Babi demo adapter
-   v1ProgressUX.js          ← child local progress presentation adapter
-   parentProgressUX.js      ← parent read-only progress/value adapter
+   learnPracticeUX.js  ← teaching/practice presentation adapter
+   abacusInteractionUX.js ← mobile bead interaction + guided-demo adapter
+   v1ProgressUX.js     ← child local progress presentation adapter
+   parentProgressUX.js ← parent read-only progress/value adapter
 
 Offline layer:
    sw.js
@@ -150,7 +149,14 @@ Current Learn foundation includes:
 - Babi visual demonstration.
 - Demo abacus showing Babi building a number.
 - Guided lessons for 1–4, 5, 6–9 and a small challenge.
-- Replayable Babi demo with clearer step-by-step motion and mobile guidance.
+
+Current mobile interaction gate:
+- The foundation demo abacus is a watch-only surface.
+- Before the demo is completed, the child is not presented with a “try” interaction on that demo surface.
+- After the demo, lesson surfaces provide the actual child bead interaction.
+- Mobile tap uses the core button handlers without double-toggling.
+- Mobile drag is supported as an interaction enhancement while the core state remains authoritative.
+- Foundation lesson screens focus on the ONES rod; the second rod is hidden there to reduce first-lesson noise.
 
 Future changes to Learn must preserve the principle:
 
@@ -201,7 +207,7 @@ Test / Exam / Competition remain future destinations and must not pretend to be 
 
 `sw.js` is responsible for caching the shell and boot-critical assets.
 
-**Current cache version:** `abacus-ai-phase5-shell-v40`.
+**Current cache version:** `abacus-ai-phase5-shell-v41`.
 
 Whenever a boot-critical asset changes, the service-worker cache/version must be intentionally bumped and verified.
 
@@ -280,7 +286,7 @@ Record the final commit/branch and important architectural decision in this file
 
 ## 16. Current work state
 
-The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local child progress passport + parent-facing progress/value layer + mobile bead interaction polish**.
+The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local child progress passport + parent-facing progress/value layer + hardened mobile bead interaction**.
 
 Next work should continue toward:
 - excellent beginner teaching
