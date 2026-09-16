@@ -1,6 +1,8 @@
 /* Learn + Practice UX layer
    Presentation-only: enhances the existing challengeApp flow without replacing its
    abacus engine, state, navigation, or persistence. Designed to stay offline-safe.
+   Engineering rule: this layer is a thin, failure-isolated adapter; it owns no
+   learning truth and never creates a second state machine.
 */
 (function(){
   const app=document.getElementById('app');
@@ -25,13 +27,15 @@
       .lp-practice-banner{position:relative;margin:8px 0 12px;padding:13px 14px 14px;border-radius:19px;background:linear-gradient(135deg,#6B4226,#8D542B);color:#fff;box-shadow:0 5px 0 #4B2C18;overflow:hidden}.lp-practice-banner:after{content:"★  ★  ★";position:absolute;right:10px;top:8px;color:#F6D18B;letter-spacing:5px;font-size:12px;opacity:.9}.lp-practice-banner b{display:block;font-size:16px}.lp-practice-banner span{display:block;margin-top:3px;color:#FBE2AD;font-size:12px;max-width:78%}.lp-progress{height:7px;margin-top:9px;border-radius:99px;background:rgba(255,255,255,.2);overflow:hidden}.lp-progress i{display:block;height:100%;width:33%;background:#F6D18B;border-radius:inherit;transition:width .25s ease}
       .lp-focus{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin:8px 0 12px}.lp-focus span{padding:6px 9px;border-radius:999px;background:#FFF7E7;border:1px solid #E2C89A;color:#6B4226;font-size:10px;font-weight:950}.lp-focus span:first-child{background:#FBE3B7}
       .lp-success{animation:lpSuccess .5s ease}.lp-wiggle{animation:lpWiggle .38s ease}@keyframes lpSuccess{0%{transform:scale(.98)}55%{transform:scale(1.015)}100%{transform:scale(1)}}@keyframes lpWiggle{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+      .lp-master-intro{display:flex;align-items:center;gap:10px;margin:8px 0 12px;padding:10px 12px;border-radius:16px;background:#FFF7E7;border:1px solid #E2C89A;color:#6B4226}.lp-master-intro img{width:48px;height:48px;object-fit:contain}.lp-master-intro b{display:block;font-size:14px}.lp-master-intro span{display:block;font-size:11px;margin-top:2px;color:#75685D}
+      .lp-master-path{position:relative}.lp-master-path:before{content:"";position:absolute;left:50%;top:18px;bottom:18px;width:3px;transform:translateX(-50%);background:#E5C98F;border-radius:9px;opacity:.8}.lp-master-path .world-level{position:relative;z-index:1}
       @media(max-width:520px){.lp-teach-card{grid-template-columns:42px 1fr;padding:11px}.lp-teach-icon{width:42px;height:42px}.lp-practice-banner{padding-right:10px}.lp-road{font-size:10px}}
     `;document.head.appendChild(s);
   }
 
   const esc=v=>String(v).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
   const one=(sel,root=document)=>root.querySelector(sel);
-  let lastLearn=null,lastPractice=null;
+  let lastLearn=null,lastLesson=null,lastPractice=null,lastLevels=null;
 
   function addSparkles(host){
     if(!host||host.querySelector('.lp-sparkles'))return;
@@ -69,8 +73,7 @@
 
   function clearAbacus(){
     const root=one('.lesson-card .abacus-wrap');if(!root)return;
-    const activeLower=root.querySelectorAll('[data-lower].active');
-    if(activeLower.length)activeLower[0].click();
+    [...root.querySelectorAll('[data-lower].active')].reverse().forEach(el=>el.click());
     const upper=root.querySelector('[data-upper].active');if(upper)upper.click();
   }
 
@@ -88,8 +91,8 @@
   }
 
   function enhanceLesson(){
-    const card=one('.lesson-card');if(!card||lastPractice===card)return;
-    lastPractice=card;addSparkles(card);
+    const card=one('.lesson-card');if(!card||lastLesson===card)return;
+    lastLesson=card;addSparkles(card);
     const target=parseLessonTarget();
     if(!Number.isFinite(target))return;
     const check=one('#lessonCheck',card);if(!check||card.querySelector('.lp-show'))return;
@@ -98,11 +101,17 @@
     (task||check).insertAdjacentElement('afterend',coach);
     const show=document.createElement('button');show.type='button';show.className='lp-show';show.textContent='👀 Show me how';
     check.insertAdjacentElement('afterend',show);
-    let running=false;
+    // The demo is a teaching gate, not a decoration. The core app remains the
+    // source of truth; this only prevents accidental checking before the demo.
+    check.disabled=true;
+    let running=false,seen=false;
     show.onclick=()=>{
-      if(running)return;running=true;show.disabled=true;show.textContent='✨ Babi is showing you…';
-      showTarget(target,()=>{running=false;show.disabled=false;show.classList.add('done');show.textContent='✓ I saw it — your turn!';setTimeout(()=>{show.classList.remove('done');show.textContent='👀 Show me again'},900)});
+      if(running)return;running=true;show.disabled=true;check.disabled=true;show.textContent='✨ Babi is showing you…';
+      showTarget(target,()=>{running=false;seen=true;show.disabled=false;check.disabled=false;show.classList.add('done');show.textContent='✓ I saw it — your turn!';setTimeout(()=>{show.classList.remove('done');show.textContent='👀 Show me again'},900)});
     };
+    check.setAttribute('aria-disabled','true');
+    const hint=one('#lessonFeedback',card);
+    if(hint)hint.textContent='Watch Babi first. Then build the number yourself.';
   }
 
   function enhancePractice(){
@@ -126,10 +135,23 @@
     addSparkles(one('.abacus-wrap'));
   }
 
+  function enhanceLevels(){
+    const grid=one('.world-levels');
+    if(!grid||lastLevels===grid)return;
+    lastLevels=grid;grid.classList.add('lp-master-path');
+    const head=one('.section-head');
+    if(head&&!head.querySelector('.lp-master-intro')){
+      const intro=document.createElement('div');intro.className='lp-master-intro';
+      intro.innerHTML='<img src="./assets/mascot/babi-celebrating.svg" alt="Babi celebrating"><div><b>Master one step at a time.</b><span>Complete a level to reveal the next part of your Abacus Adventure.</span></div>';
+      head.insertAdjacentElement('afterend',intro);
+    }
+  }
+
   function scan(){
     if(document.querySelector('.learn-hero'))enhanceLearn();
     if(document.querySelector('.lesson-card')&&document.querySelector('#lessonCheck'))enhanceLesson();
     if(document.querySelector('.practice-meta'))enhancePractice();
+    if(document.querySelector('.world-levels'))enhanceLevels();
   }
   let timer=0;
   const observer=new MutationObserver(()=>{clearTimeout(timer);timer=setTimeout(scan,20)});
