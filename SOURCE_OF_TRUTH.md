@@ -21,8 +21,8 @@ Never substitute another workspace/project for the GitHub repository. Never inve
 ## 2. Current verified Git state
 
 - Active branch: `phase5-performance-final`
-- Latest verified commit: `931a83e974eeef1af0a47821e4f091c8c79ee7f8`
-- Latest change: hardened the Learn/Practice UX adapter and Master Path presentation.
+- Latest verified commit: `9b7a5144297a7f07cca5ae7a1b30b5d2263289f8`
+- Latest change: local progress passport enhancement and PWA cache v36.
 - Core stabilization commit: `07ff16bc68bc4a3c6fbc7b30d25dcfc2993c323e` (historical stabilization checkpoint)
 - The active branch and `main` have diverged. Do not merge, rebase, or replace either branch without an explicit engineering reason and inspection of the diff.
 
@@ -51,7 +51,8 @@ Optional enhancement layer:
    kidUi.js
    sessionSummary.js
    homeBabi.js
-   learnPracticeUX.js  ← thin presentation adapter; no learning truth
+   learnPracticeUX.js  ← teaching/practice presentation adapter
+   v1ProgressUX.js     ← local progress presentation adapter
 
 Offline layer:
    sw.js
@@ -59,7 +60,7 @@ Offline layer:
    PWA icons/assets
 
 Persistence:
-   localStorage (profile + progress)
+   localStorage (profile + progress + lightweight session data)
 ```
 
 Core principles:
@@ -187,6 +188,7 @@ Existing/active product surfaces include:
 - Settings
 - Session summary
 - English/Tamil-Tanglish speech selection
+- Local Progress Passport on My Abacus World
 
 Test / Exam / Competition remain future destinations and must not pretend to be implemented.
 
@@ -194,7 +196,7 @@ Test / Exam / Competition remain future destinations and must not pretend to be 
 
 `sw.js` is responsible for caching the shell and boot-critical assets.
 
-**Current cache version:** `abacus-ai-phase5-shell-v35`.
+**Current cache version:** `abacus-ai-phase5-shell-v36`.
 
 Whenever a boot-critical asset changes, the service-worker cache/version must be intentionally bumped and verified.
 
@@ -273,7 +275,7 @@ Record the final commit/branch and important architectural decision in this file
 
 ## 16. Current work state
 
-The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX adapter**.
+The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local progress passport**.
 
 Next work should continue toward:
 - excellent beginner teaching
