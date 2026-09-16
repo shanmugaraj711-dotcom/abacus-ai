@@ -1,4 +1,4 @@
-const CACHE='abacus-ai-phase5-shell-v38';
+const CACHE='abacus-ai-phase5-shell-v39';
 const ASSETS=['./','./index.html','./styles.css','./tutor.css','./onboarding.css','./boot.js','./challengeApp.js','./learnPracticeUX.js','./v1ProgressUX.js','./parentProgressUX.js','./homeBabi.js','./abacusEngine.js','./experiencedAssessment.js','./playModes.js','./babiVoice.js','./audioFx.js','./kidUi.js','./sessionSummary.js','./manifest.json','./assets/mascot/babi.svg','./assets/mascot/babi-idle.svg','./assets/mascot/babi-pointing.svg','./assets/mascot/babi-celebrating.svg','./assets/mascot/babi-encouraging.svg','./assets/mascot/babi-teaching.svg','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await Promise.all(ASSETS.map(url=>cache.add(url).catch(()=>null)));await self.skipWaiting()})()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('abacus-ai-')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim()})()));
