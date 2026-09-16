@@ -24,5 +24,5 @@
     ages.forEach(b=>b.onclick=()=>{age=b.dataset.age;ages.forEach(x=>x.classList.toggle('selected',x===b));ready()});exps.forEach(b=>b.onclick=()=>{exp=b.dataset.exp;exps.forEach(x=>x.classList.toggle('selected',x===b));ready()});name.oninput=ready;
     next.onclick=async()=>{if(busy||next.disabled)return;busy=true;next.disabled=true;const p={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};try{localStorage.setItem(PROFILE,JSON.stringify(p))}catch{busy=false;next.disabled=false;return}if(exp==='known'){await import('./challengeApp.js').catch(fail);return}startApp()};
   }
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260916-v33').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260916-v34').catch(()=>{})});
 })();
