@@ -13,7 +13,7 @@
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.onclick=()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)});box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
   async function loadEnhancements(){
-    try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js')}catch(err){console.error('Optional layer failed',err)}
+    try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js');await import('./homeBabi.js')}catch(err){console.error('Optional layer failed',err)}
   }
   async function startApp(){try{await import('./challengeApp.js');if('requestIdleCallback' in window)requestIdleCallback(loadEnhancements,{timeout:2500});else setTimeout(loadEnhancements,1200)}catch(err){console.error('Core app failed to start',err);fail()}}
   const profile=read();
@@ -24,5 +24,5 @@
     ages.forEach(b=>b.onclick=()=>{age=b.dataset.age;ages.forEach(x=>x.classList.toggle('selected',x===b));ready()});exps.forEach(b=>b.onclick=()=>{exp=b.dataset.exp;exps.forEach(x=>x.classList.toggle('selected',x===b));ready()});name.oninput=ready;
     next.onclick=async()=>{if(busy||next.disabled)return;busy=true;next.disabled=true;const p={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};try{localStorage.setItem(PROFILE,JSON.stringify(p))}catch{busy=false;next.disabled=false;return}if(exp==='known'){await import('./challengeApp.js').catch(fail);return}startApp()};
   }
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260915-v32').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260916-v33').catch(()=>{})});
 })();
