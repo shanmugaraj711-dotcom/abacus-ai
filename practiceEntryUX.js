@@ -30,24 +30,10 @@
       .pex-abacus .bead.lower.active{filter:brightness(1.1);box-shadow:inset 0 3px 5px rgba(255,255,255,.28),0 5px 8px rgba(0,0,0,.35)}
       .pex-abacus .bead.upper{width:82px;height:50px;transform:translateY(0)}
       .pex-abacus .bead.upper.active{transform:translateY(48px);filter:brightness(1.1)}
-      .pex-target{margin:12px 0;padding:14px 12px;border-radius:18px;background:#FFF4DB;border:2px solid #E5C98F;text-align:center;color:#6B4226;font-weight:950}
-      .pex-target b{display:block;font-size:28px;margin-top:4px}
       .pex-feedback{min-height:25px;text-align:center;color:#6B665E;font-weight:800;margin:10px 0}
-      .pex-step{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin:10px 0 14px}
-      .pex-step span{padding:7px 11px;border-radius:999px;background:#FFF7E7;border:1px solid #D8C09A;color:#6B4226;font-size:12px;font-weight:900}
+      .pex-step{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin:10px 0 14px}.pex-step span{padding:7px 11px;border-radius:999px;background:#FFF7E7;border:1px solid #D8C09A;color:#6B4226;font-size:12px;font-weight:900}
       @media(max-width:520px){
-        .pex-abacus{margin-top:14px}
-        .pex-abacus .abacus{padding:12px 9px;border-width:7px}
-        .pex-abacus .abacus-inner{min-height:350px;padding:15px 7px}
-        .pex-abacus .rod-column{min-height:315px}
-        .pex-abacus .rod{top:52px;bottom:22px}
-        .pex-abacus .divider{top:96px;left:7%;right:7%;height:10px}
-        .pex-abacus .upper-zone{top:37px;height:58px}
-        .pex-abacus .lower-zone{top:113px;height:184px}
-        .pex-abacus .bead{width:66px;height:40px}
-        .pex-abacus .bead.upper{width:76px;height:46px}
-        .pex-abacus .bead.lower{bottom:calc(var(--slot,0) * 33px)}
-        .pex-abacus .bead.upper.active{transform:translateY(42px)}
+        .pex-abacus{margin-top:14px}.pex-abacus .abacus{padding:12px 9px;border-width:7px}.pex-abacus .abacus-inner{min-height:350px;padding:15px 7px}.pex-abacus .rod-column{min-height:315px}.pex-abacus .rod{top:52px;bottom:22px}.pex-abacus .divider{top:96px;left:7%;right:7%;height:10px}.pex-abacus .upper-zone{top:37px;height:58px}.pex-abacus .lower-zone{top:113px;height:184px}.pex-abacus .bead{width:66px;height:40px}.pex-abacus .bead.upper{width:76px;height:46px}.pex-abacus .bead.lower{bottom:calc(var(--slot,0) * 33px)}.pex-abacus .bead.upper.active{transform:translateY(42px)}
       }
     `;document.head.appendChild(s);
   }
@@ -91,7 +77,9 @@
       if(bead.dataset.lower!=null){
         const r=Number(bead.dataset.lower),i=Number(bead.dataset.index),current=Number(a.rods[r]?.lower)||0;
         if(!a.rods[r])return;
-        a.rods[r].lower=i<current?i:Math.min(5,i+1);
+        // Practice interaction is deliberately incremental: every tap moves exactly one bead.
+        // Tapping an inactive bead adds one; tapping an active bead returns one.
+        a.rods[r].lower=i<current?Math.max(0,current-1):Math.min(5,current+1);
       }
     }
 
