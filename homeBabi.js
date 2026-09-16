@@ -10,6 +10,7 @@
       const img=document.createElement('img');img.className='mission-babi';img.src=POSES.encouraging;img.alt='Babi encouraging you';mission.prepend(img);
     }
   }
+  if(!document.getElementById('homeBabiStyle')){const s=document.createElement('style');s.id='homeBabiStyle';s.textContent='.babi-home-pointing{width:70px;height:70px;object-fit:contain}.mission{position:relative}.mission-babi{position:absolute;right:74px;bottom:4px;width:48px;height:48px;object-fit:contain;pointer-events:none}';document.head.appendChild(s)}
   const app=document.querySelector('#app');
   if(!app)return;
   apply();
