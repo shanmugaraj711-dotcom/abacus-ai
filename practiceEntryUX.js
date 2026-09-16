@@ -1,7 +1,8 @@
 /* Practice entry adapter.
    Core practice rules are mirrored from challengeApp for the single missing entry path:
    Learn complete -> Practice available -> 3 correct in a row completes the first level.
-   This exists because the legacy unlockedLevel(1) gate still assumes Practice must already exist.
+   This adapter owns the Practice presentation and delegates the bead model to the
+   deterministic engine. Every bead interaction follows one state -> DOM render path.
 */
 (function(){
   const app=document.getElementById('app');
@@ -28,7 +29,7 @@
       .pex-abacus .bead.upper{width:64px;height:42px}.pex-abacus .bead.lower.active{transform:translateY(-43px)}.pex-abacus .bead.upper.active{transform:translateY(38px)}
       .pex-practice-card{padding-bottom:28px}
       .pex-target{margin:12px 0;padding:14px 12px;border-radius:18px;background:#FFF4DB;border:2px solid #E5C98F;text-align:center;color:#6B4226;font-weight:950}
-      .pex-target b{display:block;font-size:28px;margin-top:4px}.pex-feedback{min-height:25px;text-align:center;color:#6B665E;font-weight:800;margin:10px 0}
+      .pex-feedback{min-height:25px;text-align:center;color:#6B665E;font-weight:800;margin:10px 0}
       @media(max-width:520px){.pex-abacus .abacus-inner{gap:8px}.pex-abacus .rod-column{min-height:275px}.pex-abacus .bead{width:50px;height:31px}.pex-abacus .bead.upper{width:56px;height:37px}.pex-abacus .bead.lower.active{transform:translateY(-39px)}.pex-abacus .bead.upper.active{transform:translateY(34px)}}
     `;document.head.appendChild(s);
   }
@@ -42,9 +43,31 @@
     return `<div class="abacus-wrap pex-abacus"><div class="abacus"><div class="abacus-inner">${rods}</div></div></div>`;
   }
 
+  // Single Practice render path: engine state -> bead classes -> visible movement.
+  function renderAbacus(a,root){
+    if(!root)return;
+    root.querySelectorAll('[data-lower]').forEach(bead=>{
+      const rod=Number(bead.dataset.lower),index=Number(bead.dataset.index);
+      bead.classList.toggle('active',index<(Number(a.rods[rod]?.lower)||0));
+    });
+    root.querySelectorAll('[data-upper]').forEach(bead=>{
+      const rod=Number(bead.dataset.upper);
+      bead.classList.toggle('active',!!a.rods[rod]?.upper);
+    });
+  }
+
   function bind(a,root,onChange){
-    root.querySelectorAll('[data-upper]').forEach(b=>b.onclick=()=>{const r=Number(b.dataset.upper);a.rods[r].upper=!a.rods[r].upper;onChange()});
-    root.querySelectorAll('[data-lower]').forEach(b=>b.onclick=()=>{const r=Number(b.dataset.lower),i=Number(b.dataset.index),c=a.rods[r].lower;a.rods[r].lower=i<c?i:Math.min(4,i+1);onChange()});
+    if(!root)return;
+    root.querySelectorAll('[data-upper]').forEach(b=>b.onclick=()=>{
+      const r=Number(b.dataset.upper);a.rods[r].upper=!a.rods[r].upper;
+      onChange();renderAbacus(a,root);
+    });
+    root.querySelectorAll('[data-lower]').forEach(b=>b.onclick=()=>{
+      const r=Number(b.dataset.lower),i=Number(b.dataset.index),c=Number(a.rods[r].lower)||0;
+      a.rods[r].lower=i<c?i:Math.min(5,i+1);
+      onChange();renderAbacus(a,root);
+    });
+    renderAbacus(a,root);
   }
 
   async function openPractice(){
@@ -64,9 +87,9 @@
       app.innerHTML=`<div class="screen world-screen"><header class="topbar"><button type="button" class="icon-btn" id="pexBack">←</button><div class="brand"><span class="brand-mark">🧮</span><span><strong>Abacus AI</strong><small>For Kids</small></span></div><div class="top-actions"><span class="streak">★ ${streak}</span></div></header><main class="content pex-practice-card">${babi()}<div class="practice-meta"><span>LEVEL ${level} · ${esc(levelName(level))}</span><span>${streak}/3 ⭐</span></div><div class="problem">${problem.operands[0]} ${problem.operation==='add'?'+':'−'} ${problem.operands[1]} <span>= ?</span></div><p class="hint">Move the beads to make your answer.</p>${abacusHtml(a)}<div class="answer-card"><small>Your number</small><strong id="pexValue">${engine.valueOf(a)}</strong></div><div class="actions"><button type="button" class="primary" id="pexCheck">Check ✓</button><button type="button" class="secondary" id="pexHint">💡 Babi Hint</button></div><p id="pexFeedback" class="pex-feedback">Build the answer, then press Check.</p></main><div class="footer">Powered by PromptStudioAI<br><small>promptstudioai.in</small></div></div>`;
       window.scrollTo({top:0,left:0,behavior:'auto'});
       const root=app.querySelector('.pex-abacus');
-      const update=()=>{app.querySelector('#pexValue').textContent=String(engine.valueOf(a));const p=root?.closest('.screen');if(p)p.querySelector('.streak').textContent=`★ ${streak}`};
+      const update=()=>{const value=app.querySelector('#pexValue');if(value)value.textContent=String(engine.valueOf(a));const p=root?.closest('.screen');if(p)p.querySelector('.streak').textContent=`★ ${streak}`;renderAbacus(a,root)};
       bind(a,root,update);update();
-      app.querySelector('#pexBack').onclick=()=>{location.reload()};
+      app.querySelector('#pexBack').onclick=()=>{active=false;renderWorldSafely()};
       app.querySelector('#pexHint').onclick=()=>{app.querySelector('#pexFeedback').textContent=`Think about the ${problem.expectedRule} move. Babi says: one bead at a time!`};
       app.querySelector('#pexCheck').onclick=()=>{
         const ok=engine.checkAnswer(problem,a).correct;
@@ -82,7 +105,7 @@
             state.currentLevel=engine.getNextLevel(level,streak,0);
             save(state);
             feedback.textContent=level===1?'Amazing! Your first practice is complete. Master is unlocked. 🌟':'Great! Level complete. 🌟';
-            setTimeout(()=>location.reload(),650);
+            setTimeout(()=>{active=false;renderWorldSafely()},650);
             return;
           }
           feedback.textContent=`Great! ${streak}/3 correct. Next challenge is ready.`;
@@ -93,6 +116,12 @@
         }
         save(state);problem=engine.generateProblem(level);a=engine.createAbacus();draw();
       };
+    }
+
+    function renderWorldSafely(){
+      active=false;
+      window.scrollTo({top:0,left:0,behavior:'auto'});
+      location.reload();
     }
     draw();
   }
