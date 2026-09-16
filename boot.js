@@ -13,17 +13,18 @@
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.onclick=()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)});box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
   // Navigation integrity guard: one physical activation can advance exactly one lesson.
-  // Each lesson render creates a fresh #lessonGo, so no shared reset/re-enable state is needed.
+  // The lesson renderer creates a fresh #lessonGo for every lesson, so the new node
+  // naturally starts unarmed; the RAF keeps the current click alive before disabling it.
   document.addEventListener('click',e=>{
     const button=e.target.closest?.('#lessonGo');
     if(!button)return;
     if(button.dataset.lessonAdvancing==='1'){
-      e.preventDefault();
       e.stopImmediatePropagation();
+      e.preventDefault();
       return;
     }
     button.dataset.lessonAdvancing='1';
-    button.disabled=true;
+    requestAnimationFrame(()=>{button.disabled=true});
   },true);
   async function loadEnhancements(){
     try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js');await import('./homeBabi.js');await import('./learnPracticeUX.js');await import('./abacusInteractionUX.js');await import('./lessonStateMachine.js');await import('./v1ProgressUX.js');await import('./parentProgressUX.js')}catch(err){console.error('Optional layer failed',err)}
