@@ -13,7 +13,7 @@
     box.querySelectorAll('[data-boot-lang]').forEach(b=>b.onclick=()=>{localStorage.setItem(LANG,b.dataset.bootLang);box.querySelectorAll('button').forEach(x=>x.classList.toggle('selected',x===b));speak(b.dataset.bootLang)});box.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b.dataset.bootLang===current));
   }
   async function loadEnhancements(){
-    try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js');await import('./homeBabi.js');await import('./learnPracticeUX.js')}catch(err){console.error('Optional layer failed',err)}
+    try{await import('./babiVoice.js');await import('./audioFx.js');await import('./kidUi.js');await import('./sessionSummary.js');await import('./homeBabi.js');await import('./learnPracticeUX.js');await import('./v1ProgressUX.js')}catch(err){console.error('Optional layer failed',err)}
   }
   async function startApp(){try{await import('./challengeApp.js');if('requestIdleCallback' in window)requestIdleCallback(loadEnhancements,{timeout:2500});else setTimeout(loadEnhancements,1200)}catch(err){console.error('Core app failed to start',err);fail()}}
   const profile=read();
