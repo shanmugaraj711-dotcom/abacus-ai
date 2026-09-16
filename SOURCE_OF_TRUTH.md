@@ -21,8 +21,9 @@ Never substitute another workspace/project for the GitHub repository. Never inve
 ## 2. Current verified Git state
 
 - Active branch: `phase5-performance-final`
-- Latest verified commit: `c588976eff8e1f3cba38d7cb8ddc4a91fc940fc0`
-- Latest change: parent-facing read-only Learning Passport adapter + PWA cache v37.
+- Latest verified commit: `c95c485ec5beab645c49ac221af17234d720f421`
+- Latest change: mobile abacus interaction polish, replayable Babi demo, and PWA cache v40.
+- Previous interaction UX commit: `9df4b2ed133679142b62a3f061bd302842665ebf9`.
 - Core stabilization commit: `07ff16bc68bc4a3c6fbc7b30d25dcfc2993c323e` (historical stabilization checkpoint)
 - The active branch and `main` have diverged. Do not merge, rebase, or replace either branch without an explicit engineering reason and inspection of the diff.
 
@@ -51,9 +52,10 @@ Optional enhancement layer:
    kidUi.js
    sessionSummary.js
    homeBabi.js
-   learnPracticeUX.js  ← teaching/practice presentation adapter
-   v1ProgressUX.js     ← child local progress presentation adapter
-   parentProgressUX.js ← parent read-only progress/value adapter
+   learnPracticeUX.js       ← teaching/practice presentation adapter
+   abacusInteractionUX.js   ← mobile bead interaction + Babi demo adapter
+   v1ProgressUX.js          ← child local progress presentation adapter
+   parentProgressUX.js      ← parent read-only progress/value adapter
 
 Offline layer:
    sw.js
@@ -148,6 +150,7 @@ Current Learn foundation includes:
 - Babi visual demonstration.
 - Demo abacus showing Babi building a number.
 - Guided lessons for 1–4, 5, 6–9 and a small challenge.
+- Replayable Babi demo with clearer step-by-step motion and mobile guidance.
 
 Future changes to Learn must preserve the principle:
 
@@ -198,7 +201,7 @@ Test / Exam / Competition remain future destinations and must not pretend to be 
 
 `sw.js` is responsible for caching the shell and boot-critical assets.
 
-**Current cache version:** `abacus-ai-phase5-shell-v37`.
+**Current cache version:** `abacus-ai-phase5-shell-v40`.
 
 Whenever a boot-critical asset changes, the service-worker cache/version must be intentionally bumped and verified.
 
@@ -277,7 +280,7 @@ Record the final commit/branch and important architectural decision in this file
 
 ## 16. Current work state
 
-The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local child progress passport + parent-facing progress/value layer**.
+The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local child progress passport + parent-facing progress/value layer + mobile bead interaction polish**.
 
 Next work should continue toward:
 - excellent beginner teaching
