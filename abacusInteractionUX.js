@@ -12,7 +12,7 @@
   if(!document.getElementById(STYLE)){
     const s=document.createElement('style');s.id=STYLE;s.textContent=`
       .abacus-wrap{user-select:none;-webkit-user-select:none}
-      .abacus-inner{}
+      .abacus-inner{background:linear-gradient(180deg,#6B4226,#4F301B);box-shadow:inset 0 2px 0 rgba(255,255,255,.08)}
       .abacus .bead{position:relative;z-index:5;cursor:pointer;touch-action:none;-webkit-tap-highlight-color:transparent}
       .abacus .bead.lower,.abacus .bead.upper{transition:transform .2s ease,filter .15s ease,box-shadow .15s ease}
       .abacus .bead.lower.active{transform:translateY(-118px)}
