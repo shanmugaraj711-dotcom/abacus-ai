@@ -11,8 +11,8 @@
 
   if(!document.getElementById(STYLE)){
     const s=document.createElement('style');s.id=STYLE;s.textContent=`
-      .abacus-wrap{touch-action:none;user-select:none;-webkit-user-select:none}
-      .abacus-inner{touch-action:none}
+      .abacus-wrap{user-select:none;-webkit-user-select:none}
+      .abacus-inner{}
       .abacus .bead{position:relative;z-index:5;cursor:pointer;touch-action:none;-webkit-tap-highlight-color:transparent}
       .abacus .bead.lower,.abacus .bead.upper{transition:transform .2s ease,filter .15s ease,box-shadow .15s ease}
       .abacus .bead.lower.active{transform:translateY(-118px)}
@@ -24,6 +24,7 @@
       .demo-card .demo-abacus .abacus-wrap .bead{cursor:default}
       .foundation-lesson .rod-column:nth-child(2),.demo-card .demo-abacus .rod-column:nth-child(2){display:none}
       .foundation-lesson .lesson-list{display:none}
+      .lesson-demo-display{margin:8px auto 0;padding:8px 12px;border-radius:12px;background:#FFF7E7;border:1px solid #E2C89A;color:#6B4226;text-align:center;font-size:12px;font-weight:900}.lesson-demo-display strong{font-size:20px;margin-left:5px}.lesson-demo-display span{margin-right:4px}
       @media(max-width:520px){
         .abacus{padding:16px 10px;border-width:7px;border-radius:19px}
         .abacus-inner{gap:8px;padding:13px 8px}
