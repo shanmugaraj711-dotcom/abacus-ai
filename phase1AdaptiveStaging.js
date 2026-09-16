@@ -1,8 +1,28 @@
-// Phase 1 staging-only adaptive harness. Never ship to production without explicit QA approval.
+// Phase 1 staging-only adaptive audit helper.
+// IMPORTANT: this helper is passive. It must never replace the real challenge flow.
 (function(){
  const KEY='abacus-ai-phase1-wrong-count-v1';
  const load=()=>{try{return Number(localStorage.getItem(KEY)||0)}catch{return 0}};
  const save=n=>{try{localStorage.setItem(KEY,String(n))}catch{}};
- function install(){document.addEventListener('click',e=>{const btn=e.target.closest('#check');if(!btn)return;const p=document.querySelector('.problem');const m=p?.textContent.match(/(\d+)\s*([+−-])\s*(\d+)/);if(!m)return;e.preventDefault();e.stopImmediatePropagation();let value=0;document.querySelectorAll('[data-lower]').forEach(x=>{if(x.classList.contains('active'))value+=Math.pow(10,Number(x.dataset.lower))});document.querySelectorAll('[data-upper]').forEach(x=>{if(x.classList.contains('active'))value+=5*Math.pow(10,Number(x.dataset.upper))});const a=Number(m[1]),b=Number(m[3]),answer=m[2]==='+'?a+b:a-b;const level=Number((document.querySelector('.practice-meta')?.textContent.match(/LEVEL\s+(\d+)/i)||[])[1]||1);const rule=level<=4?'direct':level<=8?'small':level<=12?'big':'mixed';let wrong=load();try{const raw=JSON.parse(localStorage.getItem('abacus-ai-progress-v2')||'{}');raw.rules=raw.rules||{};raw.rules[rule]=raw.rules[rule]||{correct:0,wrong:0};raw.levels=raw.levels||{};raw.levels[level]=raw.levels[level]||{correct:0,wrong:0,completed:false};if(value===answer){raw.rules[rule].correct++;raw.levels[level].correct++;raw.streak=Number(raw.streak||0)+1;wrong=0;if(raw.streak>=3){raw.levels[level].completed=true;raw.currentLevel=Math.min(15,level+1);raw.streak=0}raw.wrongCount=0;localStorage.setItem('abacus-ai-progress-v2',JSON.stringify(raw));save(0);alert(raw.currentLevel>level?`Level ${raw.currentLevel} unlocked! ⭐`:'Great! Keep going. 🌟');location.reload();return}raw.rules[rule].wrong++;raw.levels[level].wrong++;raw.streak=0;wrong=Math.min(2,wrong+1);if(wrong>=2){raw.currentLevel=Math.max(1,level-1);raw.wrongCount=0;save(0);localStorage.setItem('abacus-ai-progress-v2',JSON.stringify(raw));alert(level>1?`Two misses — let's practise Level ${level-1} again. 🌱`:`Two misses — Level 1 is our starting floor. Let's practise it together. 🌱`);location.reload();return}raw.wrongCount=wrong;localStorage.setItem('abacus-ai-progress-v2',JSON.stringify(raw));save(wrong);alert('Not yet. One more careful try — look at the beads. 🌟');location.reload()}catch{save(wrong)}},true)}
+ function install(){
+  if(window.__abacusAdaptiveAuditInstalled)return;
+  window.__abacusAdaptiveAuditInstalled=true;
+  document.addEventListener('click',e=>{
+   const btn=e.target.closest('#check');
+   if(!btn)return;
+   const p=document.querySelector('.problem');
+   const m=p?.textContent.match(/(\d+)\s*([+−-])\s*(\d+)/);
+   if(!m)return;
+   let value=0;
+   document.querySelectorAll('[data-lower]').forEach(x=>{if(x.classList.contains('active'))value+=Math.pow(10,Number(x.dataset.lower))});
+   document.querySelectorAll('[data-upper]').forEach(x=>{if(x.classList.contains('active'))value+=5*Math.pow(10,Number(x.dataset.upper))});
+   const a=Number(m[1]),b=Number(m[3]),answer=m[2]==='+'?a+b:a-b;
+   if(value===answer){save(0);return;}
+   save(Math.min(2,load()+1));
+   // Do NOT preventDefault, stop propagation, alert, reload, or mutate progress.
+   // challengeApp.js owns the real result/level progression.
+  },true);
+ }
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
+ window.Phase1AdaptiveStaging={load,reset:()=>save(0),passive:true};
 })();
