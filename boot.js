@@ -4,7 +4,9 @@
   if(!app)return;
   try{history.scrollRestoration='manual'}catch{}
   const resetScroll=()=>{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0};
-  const scrollObserver=new MutationObserver(()=>requestAnimationFrame(resetScroll));scrollObserver.observe(app,{childList:true,subtree:false});
+  let scrollFrame=0;
+  const scheduleResetScroll=()=>{if(scrollFrame)return;scrollFrame=requestAnimationFrame(()=>{scrollFrame=0;resetScroll()})};
+  const scrollObserver=new MutationObserver(scheduleResetScroll);scrollObserver.observe(app,{childList:true,subtree:false});
   window.addEventListener('pageshow',resetScroll);
   const read=()=>{try{return JSON.parse(localStorage.getItem(PROFILE)||'null')}catch{return null}};
   const fail=()=>{app.innerHTML='<div class="screen onboarding center"><div style="max-width:520px;margin:auto"><div style="font-size:56px">🧮</div><h1>Babi is waking up…</h1><p>We could not start Abacus World.</p><button class="primary" type="button" onclick="location.reload()">Try Again</button></div></div>';resetScroll()};
@@ -20,5 +22,5 @@
   async function startApp(){try{await import('./challengeApp.js');resetScroll();if('requestIdleCallback' in window)requestIdleCallback(loadEnhancements,{timeout:2500});else setTimeout(loadEnhancements,1200)}catch(err){console.error('Core app failed to start',err);fail()}}
   const profile=read();
   if(profile){app.innerHTML='<div class="screen onboarding center"><div style="margin:auto"><div style="font-size:52px">🧮</div><h1>Babi is waking up…</h1></div></div>';startApp()}else{voicePicker();let age='',exp='',busy=false;const next=document.getElementById('obNext'),name=document.getElementById('childName');if(!next||!name)return;const ages=[...document.querySelectorAll('[data-age]')],exps=[...document.querySelectorAll('[data-exp]')],ready=()=>{next.disabled=!(name.value.trim()&&age&&exp)};ages.forEach(b=>b.onclick=()=>{age=b.dataset.age;ages.forEach(x=>x.classList.toggle('selected',x===b));ready()});exps.forEach(b=>b.onclick=()=>{exp=b.dataset.exp;exps.forEach(x=>x.classList.toggle('selected',x===b));ready()});name.oninput=ready;next.onclick=async()=>{if(busy||next.disabled)return;busy=true;next.disabled=true;const p={name:name.value.trim(),age,experience:exp,createdAt:Date.now()};try{localStorage.setItem(PROFILE,JSON.stringify(p))}catch{busy=false;next.disabled=false;return}if(exp==='known'){await import('./challengeApp.js').catch(fail);return}startApp()}}
-  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260917-v51').catch(()=>{})});
+  window.addEventListener('load',()=>{if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js?v=20260917-v52').catch(()=>{})});
 })();
