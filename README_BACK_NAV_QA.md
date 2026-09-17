@@ -1,0 +1,1 @@
+Back navigation QA is covered by globalBackNav.js and the beginner journey's page-specific navigation.

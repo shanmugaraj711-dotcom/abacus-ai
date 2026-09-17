@@ -1,0 +1,1 @@
+Phase 1 QA artifacts live in this branch. Validate the adaptive contract and boundary cases on the Cloudflare branch preview before merging to main.

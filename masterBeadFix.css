@@ -1,16 +1,16 @@
-/* Master bead hit-area/stacking fix: the rod pseudo-element must never intercept taps. */
-.screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .rod-column:before{pointer-events:none;z-index:0}
-.screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .rod-column{isolation:isolate}
-.screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .upper-zone,
-.screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .lower-zone{z-index:8;pointer-events:auto}
-.screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .bead{position:relative;z-index:10;pointer-events:auto;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;cursor:pointer}
-.screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .bead.lower.active{transform:translateY(-118px)!important}
-.screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .bead.upper.active{transform:translateY(50px)!important}
+/* Master Practice: keep the rod behind the beads and make every bead a real touch target. */
+.practice-meta ~ .abacus-wrap:not(.pex-abacus) .rod-column{isolation:isolate}
+.practice-meta ~ .abacus-wrap:not(.pex-abacus) .rod-column:before{pointer-events:none;z-index:0}
+.practice-meta ~ .abacus-wrap:not(.pex-abacus) .upper-zone,
+.practice-meta ~ .abacus-wrap:not(.pex-abacus) .lower-zone{position:relative;z-index:8;pointer-events:auto}
+.practice-meta ~ .abacus-wrap:not(.pex-abacus) .bead{position:relative;z-index:10;pointer-events:auto;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;cursor:pointer}
+.practice-meta ~ .abacus-wrap:not(.pex-abacus) .bead.lower.active{transform:translateY(-118px)!important}
+.practice-meta ~ .abacus-wrap:not(.pex-abacus) .bead.upper.active{transform:translateY(50px)!important}
 @media(max-width:520px){
- .screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .bead.lower.active{transform:translateY(-102px)!important}
- .screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .bead.upper.active{transform:translateY(43px)!important}
+ .practice-meta ~ .abacus-wrap:not(.pex-abacus) .bead.lower.active{transform:translateY(-105px)!important}
+ .practice-meta ~ .abacus-wrap:not(.pex-abacus) .bead.upper.active{transform:translateY(44px)!important}
 }
 @media(max-width:360px){
- .screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .bead.lower.active{transform:translateY(-88px)!important}
- .screen:has(.practice-meta) .abacus-wrap:not(.pex-abacus) .bead.upper.active{transform:translateY(36px)!important}
+ .practice-meta ~ .abacus-wrap:not(.pex-abacus) .bead.lower.active{transform:translateY(-88px)!important}
+ .practice-meta ~ .abacus-wrap:not(.pex-abacus) .bead.upper.active{transform:translateY(36px)!important}
 }
