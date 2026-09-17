@@ -50,13 +50,15 @@
     qa('.rod-column',root).forEach(column=>{
       const lower=qa('.lower-zone .bead',column);
       renderRod(column,lower.filter(b=>b.classList.contains('active')).length);
-      const upper=q('.upper-zone .bead',column);
-      if(upper)upper.classList.toggle('active',upper.classList.contains('active'));
     });
   }
 
+  function isPractice(root){
+    return !!root.closest('.practice-meta,.problem,.actions') && !!q('.problem');
+  }
+
   function install(root){
-    if(!root||root.dataset.abxUnified==='1')return;
+    if(!root||root.dataset.abxUnified==='1'||isPractice(root))return;
     root.dataset.abxUnified='1';
     let down=null;
     root.addEventListener('pointerdown',e=>{
@@ -75,9 +77,9 @@
   }
 
   function scan(){
-    // Practice has a dedicated state->DOM renderer. Never attach the generic
-    // adapter here, otherwise drag/tap events can be processed twice.
-    qa('.abacus-wrap:not(.pex-abacus)').forEach(install);
+    qa('.abacus-wrap:not(.pex-abacus)').forEach(root=>{
+      if(!isPractice(root))install(root);
+    });
     const lesson=q('.lesson-card');
     if(lesson){
       const title=q('h1',lesson)?.textContent?.trim()||'';
