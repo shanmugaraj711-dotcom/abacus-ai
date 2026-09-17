@@ -9,7 +9,6 @@
 ## 1. Non-negotiable source hierarchy
 
 When working on Abacus AI, use this order of authority:
-
 1. The current GitHub repository and the explicitly selected branch.
 2. This `SOURCE_OF_TRUTH.md` checkpoint for project architecture, decisions and constraints.
 3. `ARCHITECTURE.md` and the approved build specification for product intent.
@@ -20,11 +19,12 @@ Never substitute another workspace/project for the GitHub repository. Never inve
 
 ## 2. Current verified Git state
 
-- Active branch: `phase5-performance-final`
-- Latest verified commit: `ca82484f0548ebb9009f7fe9da4fa076c76215d5`
-- Latest change: mobile bead interaction hardening, guided-demo boundary polish, and PWA cache v41.
+- Development branch: `phase5-performance-final`
+- QA branch checkpoint: `22aeee2c0b97cefa8dcf5dc4ac6772a83ad19148`
+- Main release checkpoint: `015b05b81226f7e827071ecc2b2b5d7a458a6c33`
+- Latest QA change: removed competing lesson/practice state paths from boot, kept `challengeApp.js` authoritative, and bumped PWA cache to v57.
 - Core stabilization commit: `07ff16bc68bc4a3c6fbc7b30d25dcfc2993c323e` (historical stabilization checkpoint)
-- The active branch and `main` have diverged. Do not merge, rebase, or replace either branch without an explicit engineering reason and inspection of the diff.
+- `main` and the development branch had diverged before the release merge; the release was promoted with an explicit two-parent merge commit after inspecting the unique main-side changes.
 
 ## 3. Product north star
 
@@ -41,7 +41,7 @@ index.html
    ↓
 boot.js
    ↓
-challengeApp.js  ← current active experience/navigation core
+challengeApp.js  ← authoritative experience/navigation + lesson/practice state
    ↓
 abacusEngine.js ← deterministic math/abacus engine
 
@@ -51,8 +51,8 @@ Optional enhancement layer:
    kidUi.js
    sessionSummary.js
    homeBabi.js
-   learnPracticeUX.js  ← teaching/practice presentation adapter
-   abacusInteractionUX.js ← mobile bead interaction + guided-demo adapter
+   learnPracticeUX.js  ← presentation adapter
+   abacusInteractionUX.js ← mobile bead interaction + presentation adapter
    v1ProgressUX.js     ← child local progress presentation adapter
    parentProgressUX.js ← parent read-only progress/value adapter
 
@@ -120,7 +120,6 @@ The current code stores these gates in progress state:
 ## 7. Learning progression
 
 15-level curriculum:
-
 - Levels 1–2: direct addition
 - Levels 3–4: direct subtraction
 - Levels 5–6: small-friend addition
@@ -159,7 +158,6 @@ Current mobile interaction gate:
 - Foundation lesson screens focus on the ONES rod; the second rod is hidden there to reduce first-lesson noise.
 
 Future changes to Learn must preserve the principle:
-
 **Explain → Demonstrate → Child tries → Check understanding → Unlock Practice**
 
 Do not turn Learn into a screen that merely displays arithmetic questions.
@@ -207,7 +205,7 @@ Test / Exam / Competition remain future destinations and must not pretend to be 
 
 `sw.js` is responsible for caching the shell and boot-critical assets.
 
-**Current cache version:** `abacus-ai-phase5-shell-v41`.
+**Current cache version:** `abacus-ai-phase5-shell-v57`.
 
 Whenever a boot-critical asset changes, the service-worker cache/version must be intentionally bumped and verified.
 
@@ -216,7 +214,6 @@ Offline operation is a release gate, not an optional enhancement.
 ## 12. Quality rules
 
 Before declaring a change complete:
-
 - Inspect the actual current branch.
 - Understand the existing implementation before editing.
 - Prefer modifying the authoritative existing path over creating a parallel implementation.
@@ -258,35 +255,24 @@ until the appropriate validation gate is passed.
 ## 15. Future engineering protocol
 
 For every new Abacus request:
-
 ### A. Re-anchor
 Verify repository, branch and current files first.
-
 ### B. Cross-check
-Cross-check the requested change against:
-- current implementation
-- `ARCHITECTURE.md`
-- approved build specification
-- tests
-- existing feature modules
-- current deployment assumptions
-- PromptStudioAI engineering reference patterns where relevant
-
+Cross-check the requested change against current implementation, `ARCHITECTURE.md`, approved build specification, tests, existing feature modules, current deployment assumptions, and PromptStudioAI engineering reference patterns where relevant.
 ### C. Decide the smallest authoritative change
 Do not create another competing implementation when the existing architecture can be extended.
-
 ### D. Implement
 Change only what is required, preserving offline-first behavior and interaction performance.
-
 ### E. Verify
 Run/review relevant tests and inspect the resulting code path. For user-facing changes, verify the complete flow, not just the changed function.
-
 ### F. Checkpoint
 Record the final commit/branch and important architectural decision in this file when the change materially changes the product architecture.
 
 ## 16. Current work state
 
-The current baseline is **stabilized core + guided learning gate + hardened Learn/Practice UX + local child progress passport + parent-facing progress/value layer + hardened mobile bead interaction**.
+The current baseline is **QA-verified stabilized core + guided learning gate + hardened Learn/Practice UX + local child progress passport + parent-facing progress/value layer + hardened mobile bead interaction**.
+
+The QA release also removed two competing loaded implementations (`lessonStateMachine.js` and `practiceEntryUX.js`) from the boot path. They remain in the repository as legacy files and are not loaded by the current app.
 
 Next work should continue toward:
 - excellent beginner teaching
