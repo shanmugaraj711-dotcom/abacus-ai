@@ -53,12 +53,12 @@
     });
   }
 
-  function isPractice(root){
-    return !!root.closest('.practice-meta,.problem,.actions') && !!q('.problem');
+  function isPractice(){
+    return !!q('.practice-meta',app)||!!q('.problem',app);
   }
 
   function install(root){
-    if(!root||root.dataset.abxUnified==='1'||isPractice(root))return;
+    if(!root||root.dataset.abxUnified==='1'||isPractice())return;
     root.dataset.abxUnified='1';
     let down=null;
     root.addEventListener('pointerdown',e=>{
@@ -77,9 +77,8 @@
   }
 
   function scan(){
-    qa('.abacus-wrap:not(.pex-abacus)').forEach(root=>{
-      if(!isPractice(root))install(root);
-    });
+    const practice=isPractice();
+    if(!practice)qa('.abacus-wrap:not(.pex-abacus)').forEach(install);
     const lesson=q('.lesson-card');
     if(lesson){
       const title=q('h1',lesson)?.textContent?.trim()||'';
