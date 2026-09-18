@@ -128,9 +128,9 @@ function nextMission() {
   const lvl = Math.min(state.unlocked, MAX_LEVEL);
   const need = LESSON_FOR_LEVEL[lvl] || 11;
   const lesson = LESSONS.find(l => l.id <= need && !lessonDone(l.id));
-  if (lesson && state.profile.experience !== 'known') return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கத்துக்க' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)) };
+  if (lesson && state.profile.experience !== 'known') return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கத்துக்க' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
   const L = LEVELS[lvl];
-  return { href: `#/level/${lvl}`, emoji: L.emoji, label: `${lang() === 'ta' ? 'பயிற்சி' : 'Practise'} — ${lvl}: ${lvName(L)}`, say: T('missionPractise', lvName(L)) };
+  return { href: `#/level/${lvl}`, emoji: L.emoji, label: `${lang() === 'ta' ? 'பயிற்சி' : 'Practise'} — ${lvl}: ${lvName(L)}`, say: T('missionPractise', lvName(L)), kind: 'level', voiceTitle: voiceLang() === 'ta' ? (L.nameTa || L.name) : L.name };
 }
 
 function home() {
@@ -156,7 +156,9 @@ function home() {
     </nav>
     ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>My Stickers</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
     <a class="grownups" href="#/parents">👨‍👩‍👧 Grown-ups corner</a>` });
-  setTimeout(() => say(V('hello', state.profile.name, m.say)), 250);
+  setTimeout(() => say(voiceLang() === 'ta'
+    ? (m.kind === 'lesson' ? V('missionLearn', m.voiceTitle) : V('missionPractise', m.voiceTitle))
+    : V('hello', state.profile.name, m.say)), 250);
 }
 
 function free() {
@@ -364,7 +366,7 @@ function levelIntro(id) {
       : `<button class="btn primary wide" data-start>Start ▶</button>`}
     </section>` });
   $('[data-start]').onclick = () => practice(id);
-  say(V('levelIntro', id, lvName(L), lvTip(L)));
+  say(V('levelIntro', id, voiceLang() === 'ta' ? (L.nameTa || L.name) : L.name, voiceLang() === 'ta' ? (L.tipTa || L.tip) : L.tip));
 }
 
 function practice(id) {
