@@ -30,7 +30,8 @@ export const go = hash => { if (location.hash === hash) router(); else location.
 // Language: Babi's words come from js/i18n.js, so bubble text and voice always match.
 export const lang = () => (state.profile?.lang === 'ta' ? 'ta' : 'en');
 export const T = (key, ...args) => t(lang(), key, ...args);
-export const say = text => speakRaw(text, lang());
+export const voiceLang = () => (state.profile?.voiceLang === 'ta' ? 'ta' : 'en');
+export const say = text => speakRaw(text, voiceLang());
 export const lessonTitle = L => (lang() === 'ta' && L.titleTa) || L.title;
 export const lvName = L => (lang() === 'ta' && L.nameTa) || L.name;
 export const lvTip = L => (lang() === 'ta' && L.tipTa) || L.tip;
