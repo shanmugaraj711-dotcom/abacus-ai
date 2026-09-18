@@ -31,6 +31,7 @@ export const go = hash => { if (location.hash === hash) router(); else location.
 export const lang = () => (state.profile?.lang === 'ta' ? 'ta' : 'en');
 export const T = (key, ...args) => t(lang(), key, ...args);
 export const voiceLang = () => (state.profile?.voiceLang === 'ta' ? 'ta' : 'en');
+export const V = (key, ...args) => t(voiceLang(), key, ...args);
 export const say = text => speakRaw(text, voiceLang());
 export const lessonTitle = L => (lang() === 'ta' && L.titleTa) || L.title;
 export const lvName = L => (lang() === 'ta' && L.nameTa) || L.name;
@@ -85,17 +86,19 @@ export async function playDemo(view, a, b, op, textEl, tok, speed = 1500) {
   const plan = planMoves(a, b, op);
   view.lock(true); view.set(a);
   const intro = T('startWith', a, sign(op), b);
-  textEl.textContent = intro; say(intro);
+  const voiceIntro = V('startWith', a, sign(op), b);
+  textEl.textContent = intro; say(voiceIntro);
   await wait(speed); if (!alive(tok)) return false;
   for (const st of plan.steps) {
     const line = T('step', st);
     view.highlight(st.rod); view.set(st.value); sfx.bead();
-    textEl.textContent = line; say(line);
+    textEl.textContent = line; say(V('step', st));
     await wait(Math.max(speed, line.length * 55)); if (!alive(tok)) return false;
   }
   view.highlight(null);
   const end = T('sumIs', a, sign(op), b, plan.answer);
-  textEl.textContent = end; say(end); view.celebrate();
+  const voiceEnd = V('sumIs', a, sign(op), b, plan.answer);
+  textEl.textContent = end; say(voiceEnd); view.celebrate();
   return true;
 }
 
