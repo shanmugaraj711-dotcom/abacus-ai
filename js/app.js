@@ -44,7 +44,7 @@ function stickers() {
 
 // ---------- screens ----------
 function welcome() {
-  const draft = { name: state.profile?.name || '', avatar: '🦁', lang: 'en' };
+  const draft = { name: state.profile?.name || '', avatar: '🦁', lang: 'en', voiceLang: 'en' };
   app.innerHTML = `
   <main class="view welcome">
     <div class="hero">
@@ -65,12 +65,17 @@ function welcome() {
         <button type="button" class="choice" data-exp="new"><b>🌱 I'm new</b><small>Teach me from the start</small></button>
         <button type="button" class="choice" data-exp="known"><b>🚀 I know it</b><small>Quick check, then skip ahead</small></button>
       </div>
-      <label ${isOn('tamil') ? '' : 'hidden'}>Babi's language</label>
+      <label ${isOn('tamil') ? '' : 'hidden'}>What should Babi speak?</label>
       <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
-        <button type="button" class="choice on" data-lang="en"><b>English</b><small>Babi speaks English</small></button>
-        <button type="button" class="choice" data-lang="ta"><b>தமிழ்</b><small>Babi தமிழ்ல பேசுவாரு</small></button>
+        <button type="button" class="choice on" data-voice-lang="en"><b>English audio</b></button>
+        <button type="button" class="choice" data-voice-lang="ta"><b>Tamil audio</b></button>
       </div>
-      <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will show Tamil words without speaking. Buttons stay in English.</p>
+      <label ${isOn('tamil') ? '' : 'hidden'}>What should the screen show?</label>
+      <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
+        <button type="button" class="choice on" data-content-lang="en"><b>English content</b></button>
+        <button type="button" class="choice" data-content-lang="ta"><b>Tamil content</b></button>
+      </div>
+      <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will stay quiet until a Tamil voice is available.</p>
       <button class="btn primary wide" id="start" disabled>Let's go! →</button>
     </section>
     <button class="linkish" id="demo">👀 Grown-up? Open a demo with sample progress</button>
@@ -80,21 +85,26 @@ function welcome() {
   $('#kidName').addEventListener('input', ready);
   $$('[data-avatar]').forEach(b => b.onclick = () => { draft.avatar = b.dataset.avatar; $$('[data-avatar]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); });
   $$('[data-exp]').forEach(b => b.onclick = () => { exp = b.dataset.exp; $$('[data-exp]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); ready(); });
-  $$('[data-lang]').forEach(b => b.onclick = () => {
-    draft.lang = b.dataset.lang; $$('[data-lang]').forEach(x => x.classList.toggle('on', x === b));
-    state.profile = { ...(state.profile || {}), lang: draft.lang }; sfx.tap();
-    const note = $('#langNote');
-    if (note) note.hidden = !(draft.lang === 'ta' && !hasVoice('ta'));
+  $('[data-voice-lang]').forEach(b => b.onclick = () => {
+    draft.voiceLang = b.dataset.voiceLang; $('[data-voice-lang]').forEach(x => x.classList.toggle('on', x === b));
+    state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
+    const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
+    say(t(draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
+  });
+  $('[data-content-lang]').forEach(b => b.onclick = () => {
+    draft.lang = b.dataset.contentLang; $('[data-content-lang]').forEach(x => x.classList.toggle('on', x === b));
+    state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
+    const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
     say(t(draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
   });
   $('#start').onclick = () => {
-    state.profile = { name: $('#kidName').value.trim().slice(0, 18), avatar: draft.avatar, experience: exp, lang: draft.lang };
+    state.profile = { name: $('#kidName').value.trim().slice(0, 18), avatar: draft.avatar, experience: exp, lang: draft.lang, voiceLang: draft.voiceLang };
     saveNow(); sfx.good(); say(T('welcomeKid', state.profile.name));
     go(exp === 'known' ? '#/check' : '#/home');
   };
   $('#demo').onclick = () => {
     Object.assign(state, {
-      profile: { name: 'Aru', avatar: '🐼', experience: 'new', lang: 'en' },
+      profile: { name: 'Aru', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
       lessonsDone: [1, 2, 3, 4, 5, 6, 7, 8], unlocked: 5,
       levels: { 1: { stars: 3, best: 8, plays: 3 }, 2: { stars: 3, best: 8, plays: 2 }, 3: { stars: 2, best: 6, plays: 2 }, 4: { stars: 1, best: 5, plays: 2 } },
       games: { race: 11, mystery: 8, match: 16 },
@@ -552,12 +562,17 @@ function dashboard() {
       <h3>Settings</h3>
       <label class="switch"><input type="checkbox" id="setSound" ${state.settings.sound ? 'checked' : ''}> Sound effects</label>
       <label class="switch"><input type="checkbox" id="setVoice" ${state.settings.voice ? 'checked' : ''}> Babi talks out loud</label>
-      <label for="setLang">Babi's language</label>
-      <div class="two" id="setLang">
-        <button type="button" class="choice ${state.profile.lang !== 'ta' ? 'on' : ''}" data-setlang="en"><b>English</b></button>
-        <button type="button" class="choice ${state.profile.lang === 'ta' ? 'on' : ''}" data-setlang="ta"><b>தமிழ்</b></button>
+      <label for="setVoiceLang">Babi audio</label>
+      <div class="two" id="setVoiceLang">
+        <button type="button" class="choice ${state.profile.voiceLang !== 'ta' ? 'on' : ''}" data-setvoice-lang="en"><b>English audio</b></button>
+        <button type="button" class="choice ${state.profile.voiceLang === 'ta' ? 'on' : ''}" data-setvoice-lang="ta"><b>Tamil audio</b></button>
       </div>
-      <p class="muted tiny">Babi's lessons, hints and cheers follow this. Buttons and titles stay in English.${hasVoice('ta') ? '' : ' This phone has no Tamil voice installed, so Tamil is shown but not spoken.'}</p>
+      <label for="setContentLang">Screen content</label>
+      <div class="two" id="setContentLang">
+        <button type="button" class="choice ${state.profile.lang !== 'ta' ? 'on' : ''}" data-setcontent-lang="en"><b>English content</b></button>
+        <button type="button" class="choice ${state.profile.lang === 'ta' ? 'on' : ''}" data-setcontent-lang="ta"><b>Tamil content</b></button>
+      </div>
+      <p class="muted tiny">Choose them independently. Example: Tamil audio + English content. ${hasVoice('ta') ? '' : 'This phone has no Tamil voice installed.'}</p>
       <label for="setName">Child's name</label><input id="setName" maxlength="18" value="${esc(state.profile.name)}">
       <div class="row"><button class="btn" id="unlockAll">Unlock all levels</button><button class="btn danger" id="reset">Reset all progress</button></div>
     </section>
@@ -565,9 +580,14 @@ function dashboard() {
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
-  $$('[data-setlang]').forEach(b => b.onclick = () => {
-    state.profile.lang = b.dataset.setlang; save();
-    $$('[data-setlang]').forEach(x => x.classList.toggle('on', x === b));
+  $('[data-setvoice-lang]').forEach(b => b.onclick = () => {
+    state.profile.voiceLang = b.dataset.setvoiceLang; save();
+    $('[data-setvoice-lang]').forEach(x => x.classList.toggle('on', x === b));
+    if (state.profile.voiceLang === 'ta' && !hasVoice('ta')) stopTalking(); else say(T('praise'));
+  });
+  $('[data-setcontent-lang]').forEach(b => b.onclick = () => {
+    state.profile.lang = b.dataset.setcontentLang; save();
+    $('[data-setcontent-lang]').forEach(x => x.classList.toggle('on', x === b));
     say(T('praise'));
   });
   $('#setName').onchange = e => { const n = e.target.value.trim(); if (n) { state.profile.name = n.slice(0, 18); save(); } };
