@@ -32,7 +32,8 @@ export const lang = () => (state.profile?.lang === 'ta' ? 'ta' : 'en');
 export const T = (key, ...args) => t(lang(), key, ...args);
 export const voiceLang = () => (state.profile?.voiceLang === 'ta' ? 'ta' : 'en');
 export const V = (key, ...args) => t(voiceLang(), key, ...args);
-export const say = text => speakRaw(text, voiceLang());
+let lastSpokenText = '';
+export const say = text => { lastSpokenText = text || ''; speakRaw(text, voiceLang()); };
 export const lessonTitle = L => (lang() === 'ta' && L.titleTa) || L.title;
 export const lvName = L => (lang() === 'ta' && L.nameTa) || L.name;
 export const lvTip = L => (lang() === 'ta' && L.tipTa) || L.tip;
@@ -67,7 +68,7 @@ export function setBubble(text, mood = 'talk', speak = true, speechText = text) 
   if (speak) say(speechText);
 }
 // One global listener replays whatever Babi last said.
-app.addEventListener('click', e => { if (e.target.closest('[data-replay]')) say($('[data-say]')?.textContent); });
+app.addEventListener('click', e => { if (e.target.closest('[data-replay]')) say(lastSpokenText || $('[data-say]')?.textContent); });
 
 export function confetti() {
   if (reduceMotion) return;
