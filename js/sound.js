@@ -54,10 +54,20 @@ export function say(text, lang = 'en') {
   try {
     speechSynthesis.cancel();
     const clean = String(text).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').replace(/−/g, lang === 'ta' ? ' கழித்தல் ' : ' minus ').replace(/\+/g, lang === 'ta' ? ' கூட்டல் ' : ' plus ');
-    const u = new SpeechSynthesisUtterance(clean);
-    if (v) u.voice = v;
-    u.lang = tag; u.rate = lang === 'ta' ? 0.92 : 0.95; u.pitch = 1.15;
-    speechSynthesis.speak(u);
+    // Tamil Babi mode: keep the sentence in Tamil, but speak every numeric token
+    // with the English-India voice so 25/7/32 are heard as English numbers.
+    const parts = lang === 'ta'
+      ? clean.split(/(\d+(?:\.\d+)?)/g).filter(Boolean)
+      : [clean];
+    for (const part of parts) {
+      const numeric = /^\d+(?:\.\d+)?$/.test(part);
+      const partTag = numeric && lang === 'ta' ? VOICE_LANG.en : tag;
+      const partVoice = voiceFor(partTag);
+      const u = new SpeechSynthesisUtterance(part);
+      if (partVoice) u.voice = partVoice;
+      u.lang = partTag; u.rate = lang === 'ta' ? 0.92 : 0.95; u.pitch = 1.15;
+      speechSynthesis.speak(u);
+    }
   } catch {}
 }
 export function stopTalking() { try { speechSynthesis.cancel(); last = { text: '', at: 0 }; } catch {} }
