@@ -1,0 +1,26 @@
+{
+  "appName": "Abacus Buddy",
+  "centreName": "",
+  "ownerPin": "2580",
+  "freeLevels": 12,
+  "features": {
+    "learn": true,
+    "practice": true,
+    "play": true,
+    "freePlay": true,
+    "stickers": true,
+    "tests": true,
+    "exams": true,
+    "certificates": true,
+    "tamil": true,
+    "gameRace": true,
+    "gameMystery": true,
+    "gameMatch": true,
+    "gameFlash": true,
+    "gameSpeedRead": true,
+    "gameFriendDash": true,
+    "gameLadder": true
+  },
+  "test": { "questions": 20, "minutes": 5, "passMark": 80 },
+  "exam": { "questions": 30, "minutes": 8, "passMark": 75 }
+}
