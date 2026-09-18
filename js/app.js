@@ -245,10 +245,10 @@ function lesson(id) {
       let done = false;
       const v = createAbacus($('[data-abacus]'), { rods: s.rods, onChange: n => {
         if (done) return;
-        if (n === s.target) { done = true; v.lock(); $('[data-help]').hidden = true; v.celebrate(); sfx.good(); setBubble(`${T('praise')} ${T('thatIs', s.target)}`, 'cheer'); showNext(); }
+        if (n === s.target) { done = true; v.lock(); $('[data-help]').hidden = true; v.celebrate(); sfx.good(); setBubble(`${T('praise')} ${T('thatIs', s.target)}`, 'cheer', true, `${V('praise')} ${V('thatIs', s.target)}`); showNext(); }
       } });
       $('[data-help]').onclick = async () => {
-        if (done) return; v.lock(); v.set(s.target); v.celebrate(); setBubble(T('lookThisIs', s.target), 'talk');
+        if (done) return; v.lock(); v.set(s.target); v.celebrate(); setBubble(T('lookThisIs', s.target), 'talk', true, V('lookThisIs', s.target));
         await wait(2200); if (!alive(t) || done) return; v.set(0); v.lock(false);
       };
       bindNext(); say(line);
@@ -259,8 +259,8 @@ function lesson(id) {
         <div class="options">${s.options.map(o => `<button class="opt" data-opt="${o}">${o}</button>`).join('')}</div>${nextBtn('Next →', true)}`;
       const v = createAbacus($('[data-abacus]'), { rods: s.rods, value: s.value, interactive: false, readout: false, digits: false });
       $$('[data-opt]').forEach(b => b.onclick = () => {
-        if (+b.dataset.opt === s.value) { $$('[data-opt]').forEach(x => x.disabled = true); b.classList.add('right'); sfx.good(); v.celebrate(); setBubble(`${T('praise')} ${T('itIs', s.value)}`, 'cheer'); showNext(); }
-        else { b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('countAgain'), 'think'); }
+        if (+b.dataset.opt === s.value) { $$('[data-opt]').forEach(x => x.disabled = true); b.classList.add('right'); sfx.good(); v.celebrate(); setBubble(`${T('praise')} ${T('itIs', s.value)}`, 'cheer', true, `${V('praise')} ${V('itIs', s.value)}`); showNext(); }
+        else { b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('countAgain'), 'think', true, V('countAgain')); }
       });
       bindNext(); say(line);
     }
@@ -288,16 +288,16 @@ function lesson(id) {
         $$('.row button').forEach(b => b.disabled = true);
         const ok = await playDemo(v, s.a, s.b, s.op, $('[data-say]'), t, 1300);
         if (!ok) return; await wait(1400); if (!alive(t)) return;
-        v.set(s.a); v.lock(false); $$('.row button').forEach(b => b.disabled = false); setBubble(T('likeBabi'), 'happy');
+        v.set(s.a); v.lock(false); $$('.row button').forEach(b => b.disabled = false); setBubble(T('likeBabi'), 'happy', true, V('likeBabi'));
       };
       $('[data-check]').onclick = () => {
         if (v.value === answer) {
           v.lock(); v.celebrate(); sfx.good(); $$('.row button').forEach(b => b.disabled = true);
-          setBubble(`${T('praise')} ${T('sumIs', s.a, sign(s.op), s.b, answer)}`, 'cheer'); showNext();
+          setBubble(`${T('praise')} ${T('sumIs', s.a, sign(s.op), s.b, answer)}`, 'cheer', true, `${V('praise')} ${V('sumIs', s.a, sign(s.op), s.b, answer)}`); showNext();
         } else {
           tries++; v.shake(); sfx.oops();
           const hint = T('step', planMoves(s.a, s.b, s.op).steps[0]);
-          setBubble(tries === 1 ? `${T('tryAgain')} ${T('wrongValue', v.value)}` : T('clue', hint), 'think');
+          setBubble(tries === 1 ? `${T('tryAgain')} ${T('wrongValue', v.value)}` : T('clue', hint), 'think', true, tries === 1 ? `${V('tryAgain')} ${V('wrongValue', v.value)}` : V('clue', V('step', planMoves(s.a, s.b, s.op).steps[0])));
           if (tries >= 1) $('[data-show]').classList.add('pulse');
         }
       };
@@ -321,9 +321,9 @@ function lesson(id) {
         $$('[data-opt]').forEach(b => b.onclick = () => {
           if (+b.dataset.opt === right) {
             b.classList.add('right'); sfx.good(); $$('[data-opt]').forEach(x => x.disabled = true);
-            setBubble(`${T('praise')} ${T('friendRight', n, right, total)}`, 'cheer');
+            setBubble(`${T('praise')} ${T('friendRight', n, right, total)}`, 'cheer', true, `${V('praise')} ${V('friendRight', n, right, total)}`);
             q++; if (q < qs.length) setTimeout(() => alive(t) && ask(), 1100); else showNext();
-          } else { b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('friendHint', n, total), 'think'); }
+          } else { b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('friendHint', n, total), 'think', true, V('friendHint', n, total)); }
         });
       };
       ask(); bindNext(); say(line);
@@ -406,7 +406,7 @@ function practice(id) {
     const ok = await playDemo(v, p.a, p.b, p.op, $('[data-say]'), t, 1300);
     if (!ok) return; await wait(1500); if (!alive(t)) return;
     v.set(p.a); v.lock(false); buttons().forEach(b => b.disabled = false);
-    setBubble(T('yourTurn'), 'happy');
+    setBubble(T('yourTurn'), 'happy', true, V('yourTurn'));
   }
 
   $('[data-reset]').onclick = () => { v.set(session[idx].a); sfx.tap(); };
@@ -416,7 +416,7 @@ function practice(id) {
     const list = $('[data-plan]');
     list.innerHTML = plan.steps.map(st => `<li>${esc(T('step', st))}</li>`).join('') + `<li class="watch"><button class="btn small" data-watch>▶ ${lang() === 'ta' ? 'Babi பண்றத பாரு' : 'Watch Babi do it'}</button></li>`;
     list.hidden = false; $('[data-watch]').onclick = watch;
-    setBubble(T('step', plan.steps[0]), 'talk');
+    setBubble(T('step', plan.steps[0]), 'talk', true, V('step', plan.steps[0]));
   };
   $('[data-check]').onclick = async () => {
     const p = session[idx];
@@ -425,14 +425,14 @@ function practice(id) {
       results.push(clean); recordAnswer(p, clean);
       $$('[data-dots] i')[idx].classList.add(clean ? 'gold' : 'ok');
       v.lock(); v.celebrate(); sfx.good(); buttons().forEach(b => b.disabled = true);
-      setBubble(`${T('praise')} ${T('sumIs', p.a, sign(p.op), p.b, p.answer)}`, 'cheer');
+      setBubble(`${T('praise')} ${T('sumIs', p.a, sign(p.op), p.b, p.answer)}`, 'cheer', true, `${V('praise')} ${V('sumIs', p.a, sign(p.op), p.b, p.answer)}`);
       await wait(1300); if (!alive(t)) return;
       idx++; if (idx < session.length) show(); else end();
     } else {
       tries++; v.shake(); sfx.oops();
-      if (tries === 1) { recordMistake(p, v.value); setBubble(T('wrongSum', v.value, p.a, sign(p.op), p.b), 'think'); }
-      else if (tries === 2) { setBubble(T('clue', T('step', planMoves(p.a, p.b, p.op).steps[0])), 'think'); $('[data-help]').classList.add('pulse'); }
-      else { setBubble(T('watchTogether'), 'happy'); watch(); }
+      if (tries === 1) { recordMistake(p, v.value); setBubble(T('wrongSum', v.value, p.a, sign(p.op), p.b), 'think', true, V('wrongSum', v.value, p.a, sign(p.op), p.b)); }
+      else if (tries === 2) { setBubble(T('clue', T('step', planMoves(p.a, p.b, p.op).steps[0])), 'think', true, V('clue', V('step', planMoves(p.a, p.b, p.op).steps[0]))); $('[data-help]').classList.add('pulse'); }
+      else { setBubble(T('watchTogether'), 'happy', true, V('watchTogether')); watch(); }
     }
   };
   show();
