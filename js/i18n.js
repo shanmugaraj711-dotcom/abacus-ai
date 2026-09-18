@@ -100,6 +100,13 @@ const S = {
   timeUp: { en: (n) => `Time's up! You solved ${n}.`, ta: (n) => `நேரம் முடிஞ்சது! நீ ${n} கணக்கு போட்ட.` },
   stickerCount: { en: (got, all) => `You have ${got} of ${all} stickers. Keep going!`, ta: (got, all) => `உன்கிட்ட ${all}ல ${got} ஸ்டிக்கர் இருக்கு. தொடர்ந்து பண்ணு!` },
   welcomeKid: { en: (name) => `Hi ${name}! Let's play with the abacus.`, ta: (name) => `ஹாய் ${name}! அபாகஸ் விளையாடலாம்.` },
+  // --- tests and game reactions ---
+  readyTest: { en: () => 'Ready for a real test?', ta: () => 'நிஜமான டெஸ்டுக்கு ரெடியா?' },
+  testPassed: { en: () => 'Well done! You passed.', ta: () => 'சூப்பரா பண்ண! நீ பாஸ் பண்ணிட்ட!' },
+  testRetry: { en: () => 'Good effort. Try once more.', ta: () => 'நல்ல முயற்சி. இன்னொரு முறை முயற்சி பண்ணு.' },
+  wasNumber: { en: (n) => `It was ${n}.`, ta: (n) => `அது ${n}.` },
+  wasNumberLook: { en: (n) => `It was ${n}. Look again.`, ta: (n) => `அது ${n}. மறுபடி பாரு.` },
+  wasNumberClimb: { en: (n) => `It was ${n}. Keep climbing!`, ta: (n) => `அது ${n}. தொடர்ந்து ஏறு!` },
   resultMsg: {
     en: (stars) => stars === 3 ? 'Perfect beads!' : stars === 2 ? 'Great work!' : stars === 1 ? 'Good job — keep going!' : 'You worked hard! Practise again to get a star.',
     ta: (stars) => stars === 3 ? 'அத்தனையும் சரி!' : stars === 2 ? 'நல்லா பண்ணின!' : stars === 1 ? 'நல்லா போகுது — தொடர்ந்து பண்ணு!' : 'நல்லா முயற்சி பண்ண! இன்னொரு முறை பண்ணா நட்சத்திரம் கிடைக்கும்.',
