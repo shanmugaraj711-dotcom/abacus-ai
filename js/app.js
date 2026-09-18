@@ -85,14 +85,14 @@ function welcome() {
   $('#kidName').addEventListener('input', ready);
   $$('[data-avatar]').forEach(b => b.onclick = () => { draft.avatar = b.dataset.avatar; $$('[data-avatar]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); });
   $$('[data-exp]').forEach(b => b.onclick = () => { exp = b.dataset.exp; $$('[data-exp]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); ready(); });
-  $('[data-voice-lang]').forEach(b => b.onclick = () => {
-    draft.voiceLang = b.dataset.voiceLang; $('[data-voice-lang]').forEach(x => x.classList.toggle('on', x === b));
+  $$('[data-voice-lang]').forEach(b => b.onclick = () => {
+    draft.voiceLang = b.dataset.voiceLang; $$('[data-voice-lang]').forEach(x => x.classList.toggle('on', x === b));
     state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
     const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
     say(t(draft.voiceLang || draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
   });
-  $('[data-content-lang]').forEach(b => b.onclick = () => {
-    draft.lang = b.dataset.contentLang; $('[data-content-lang]').forEach(x => x.classList.toggle('on', x === b));
+  $$('[data-content-lang]').forEach(b => b.onclick = () => {
+    draft.lang = b.dataset.contentLang; $$('[data-content-lang]').forEach(x => x.classList.toggle('on', x === b));
     state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
     const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
     say(t(draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
@@ -583,14 +583,14 @@ function dashboard() {
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
-  $('[data-setvoice-lang]').forEach(b => b.onclick = () => {
+  $$('[data-setvoice-lang]').forEach(b => b.onclick = () => {
     state.profile.voiceLang = b.dataset.setvoiceLang; save();
-    $('[data-setvoice-lang]').forEach(x => x.classList.toggle('on', x === b));
+    $$('[data-setvoice-lang]').forEach(x => x.classList.toggle('on', x === b));
     if (state.profile.voiceLang === 'ta' && !hasVoice('ta')) stopTalking(); else say(V('praise'));
   });
-  $('[data-setcontent-lang]').forEach(b => b.onclick = () => {
+  $$('[data-setcontent-lang]').forEach(b => b.onclick = () => {
     state.profile.lang = b.dataset.setcontentLang; save();
-    $('[data-setcontent-lang]').forEach(x => x.classList.toggle('on', x === b));
+    $$('[data-setcontent-lang]').forEach(x => x.classList.toggle('on', x === b));
     say(V('praise'));
   });
   $('#setName').onchange = e => { const n = e.target.value.trim(); if (n) { state.profile.name = n.slice(0, 18); save(); } };
