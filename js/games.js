@@ -217,7 +217,7 @@ function runFlash(mode) {
       b.classList.add(right ? 'right' : 'wrong');
       $$('[data-dots] i')[round].classList.add(right ? 'gold' : 'miss');
       if (right) { score++; sfx.good(); setBubble(T('praise'), 'cheer', true, V('praise')); }
-      else { sfx.oops(); setBubble(`It was ${total}.`, 'think', true, `It was ${total}.`); }
+      else { sfx.oops(); setBubble(T('wasNumber', total), 'think', true, V('wasNumber', total)); }
       await wait(1100); if (!alive(tok)) return;
       round++;
       if (round < 8) ask();
@@ -255,7 +255,7 @@ function runSpeed(mode) {
       const right = +b.dataset.opt === target;
       $$('[data-opt]').forEach(x => x.disabled = true); b.classList.add(right ? 'right' : 'wrong');
       $$('[data-dots] i')[round].classList.add(right ? 'gold' : 'miss');
-      if (right) { score++; sfx.good(); setBubble(T('praise'), 'cheer', true, V('praise')); } else { sfx.oops(); v.set(target); $('[data-cover]').hidden = true; setBubble(`It was ${target}. Look again.`, 'think', true, `It was ${target}. Look again.`); }
+      if (right) { score++; sfx.good(); setBubble(T('praise'), 'cheer', true, V('praise')); } else { sfx.oops(); v.set(target); $('[data-cover]').hidden = true; setBubble(T('wasNumberLook', target), 'think', true, V('wasNumberLook', target)); }
       await wait(right ? 900 : 1800); if (!alive(tok)) return;
       round++;
       if (round < 10) ask();
@@ -326,7 +326,7 @@ function runLadder(mode) {
   const loseLife = () => {
     lives--; sfx.oops(); v.shake();
     $('[data-lives]').textContent = '❤️'.repeat(Math.max(0, lives)) + '🖤'.repeat(3 - Math.max(0, lives));
-    if (lives > 0) { setBubble(`It was ${p.answer}. Keep climbing!`, 'think', true, `It was ${p.answer}. Keep climbing!`); next(); return; }
+    if (lives > 0) { setBubble(T('wasNumberClimb', p.answer), 'think', true, V('wasNumberClimb', p.answer)); next(); return; }
     clearTimers();
     gameOver({ game: G('ladder'), mode, title: `You reached rung ${rung}!`, line: `Hardest sums you beat: Level ${levelFor()}.`, best: saveBest('ladder', mode, rung), again: runLadder });
   };
