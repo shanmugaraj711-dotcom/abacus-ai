@@ -99,7 +99,7 @@ function welcome() {
   });
   $('#start').onclick = () => {
     state.profile = { name: $('#kidName').value.trim().slice(0, 18), avatar: draft.avatar, experience: exp, lang: draft.lang, voiceLang: draft.voiceLang };
-    saveNow(); sfx.good(); say(T('welcomeKid', state.profile.name));
+    saveNow(); sfx.good(); say(V('welcomeKid', state.profile.name));
     go(exp === 'known' ? '#/check' : '#/home');
   };
   $('#demo').onclick = () => {
@@ -156,7 +156,7 @@ function home() {
     </nav>
     ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>My Stickers</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
     <a class="grownups" href="#/parents">👨‍👩‍👧 Grown-ups corner</a>` });
-  setTimeout(() => say(T('hello', state.profile.name, m.say)), 250);
+  setTimeout(() => say(V('hello', state.profile.name, m.say)), 250);
 }
 
 function free() {
@@ -217,7 +217,7 @@ function lesson(id) {
           <a class="btn ghost wide" href="#/home">Home</a>
         </div>
       </section>`;
-    say(T('lessonDone', state.profile.name));
+    say(V('lessonDone', state.profile.name));
   }
 
   function step() {
@@ -251,7 +251,7 @@ function lesson(id) {
         if (done) return; v.lock(); v.set(s.target); v.celebrate(); setBubble(T('lookThisIs', s.target), 'talk', true, V('lookThisIs', s.target));
         await wait(2200); if (!alive(t) || done) return; v.set(0); v.lock(false);
       };
-      bindNext(); say(line);
+      bindNext(); say(voiceLine);
     }
 
     if (s.t === 'read') {
@@ -262,7 +262,7 @@ function lesson(id) {
         if (+b.dataset.opt === s.value) { $$('[data-opt]').forEach(x => x.disabled = true); b.classList.add('right'); sfx.good(); v.celebrate(); setBubble(`${T('praise')} ${T('itIs', s.value)}`, 'cheer', true, `${V('praise')} ${V('itIs', s.value)}`); showNext(); }
         else { b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('countAgain'), 'think', true, V('countAgain')); }
       });
-      bindNext(); say(line);
+      bindNext(); say(voiceLine);
     }
 
     if (s.t === 'demo') {
@@ -274,7 +274,7 @@ function lesson(id) {
         const ok = await playDemo(v, s.a, s.b, s.op, $('[data-say]'), t);
         if (!ok) return; btn.disabled = false; btn.textContent = '↺ Watch again'; showNext();
       };
-      bindNext(); say(line);
+      bindNext(); say(voiceLine);
     }
 
     if (s.t === 'solve') {
@@ -301,7 +301,7 @@ function lesson(id) {
           if (tries >= 1) $('[data-show]').classList.add('pulse');
         }
       };
-      bindNext(); say(line);
+      bindNext(); say(voiceLine);
     }
 
     if (s.t === 'friends') {
@@ -326,7 +326,7 @@ function lesson(id) {
           } else { b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('friendHint', n, total), 'think', true, V('friendHint', n, total)); }
         });
       };
-      ask(); bindNext(); say(line);
+      ask(); bindNext(); say(voiceLine);
     }
   }
   step();
@@ -364,7 +364,7 @@ function levelIntro(id) {
       : `<button class="btn primary wide" data-start>Start ▶</button>`}
     </section>` });
   $('[data-start]').onclick = () => practice(id);
-  say(T('levelIntro', id, lvName(L), lvTip(L)));
+  say(V('levelIntro', id, lvName(L), lvTip(L)));
 }
 
 function practice(id) {
@@ -462,7 +462,7 @@ function practice(id) {
         </div>
       </section>`;
     $('[data-again]').onclick = () => practice(id);
-    say(msg);
+    say(V('resultMsg', s));
   }
 }
 
@@ -495,7 +495,7 @@ function check() {
     $('.view').innerHTML = `<section class="done-card">${babi('cheer', 'big bob')}<h2 class="display">Nice, ${kidName()}!</h2>
       <p class="lead">You can start at <b>Level ${lvl}: ${esc(lvName(LEVELS[lvl]))}</b>.</p>
       <div class="stack"><a class="btn primary wide" href="#/level/${lvl}">Start Level ${lvl} →</a><a class="btn ghost wide" href="#/home">Home</a></div></section>`;
-    say(T('startAt', lvl));
+    say(V('startAt', lvl));
   };
   $('[data-reset]').onclick = () => v.set(qs[idx].a);
   $('[data-skip]').onclick = () => next(false);
@@ -584,12 +584,12 @@ function dashboard() {
   $('[data-setvoice-lang]').forEach(b => b.onclick = () => {
     state.profile.voiceLang = b.dataset.setvoiceLang; save();
     $('[data-setvoice-lang]').forEach(x => x.classList.toggle('on', x === b));
-    if (state.profile.voiceLang === 'ta' && !hasVoice('ta')) stopTalking(); else say(T('praise'));
+    if (state.profile.voiceLang === 'ta' && !hasVoice('ta')) stopTalking(); else say(V('praise'));
   });
   $('[data-setcontent-lang]').forEach(b => b.onclick = () => {
     state.profile.lang = b.dataset.setcontentLang; save();
     $('[data-setcontent-lang]').forEach(x => x.classList.toggle('on', x === b));
-    say(T('praise'));
+    say(V('praise'));
   });
   $('#setName').onchange = e => { const n = e.target.value.trim(); if (n) { state.profile.name = n.slice(0, 18); save(); } };
   $('#unlockAll').onclick = e => { state.unlocked = MAX_LEVEL; save(); e.currentTarget.textContent = 'All levels open ✓'; e.currentTarget.disabled = true; };
