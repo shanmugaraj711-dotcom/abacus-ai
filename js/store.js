@@ -4,7 +4,7 @@ const OLD_PROFILE = 'abacus-ai-profile-v2';
 
 const fresh = () => ({
   v: 3,
-  profile: null, // {name, avatar, experience, lang}
+  profile: null, // {name, avatar, experience, lang, voiceLang}
   settings: { sound: true, voice: true },
   lessonsDone: [],
   levels: {},     // id -> {stars, best, plays}
@@ -24,12 +24,13 @@ function load() {
     // Migrate the child's name from the old app so nobody has to start over.
     try {
       const old = JSON.parse(localStorage.getItem(OLD_PROFILE) || 'null');
-      if (old && old.name) base.profile = { name: String(old.name).slice(0, 18), avatar: '🦁', experience: old.experience === 'known' ? 'known' : 'new', lang: localStorage.getItem('abacus-ai-language') === 'ta' ? 'ta' : 'en' };
+      if (old && old.name) base.profile = { name: String(old.name).slice(0, 18), avatar: '🦁', experience: old.experience === 'known' ? 'known' : 'new', lang: localStorage.getItem('abacus-ai-language') === 'ta' ? 'ta' : 'en', voiceLang: localStorage.getItem('abacus-ai-language') === 'ta' ? 'ta' : 'en' };
     } catch {}
     return base;
   }
   // Deep-merge so new fields added later never crash old saves.
-  return { ...base, ...data, settings: { ...base.settings, ...data.settings }, stats: { ...base.stats, ...data.stats, byRule: { ...base.stats.byRule, ...(data.stats?.byRule || {}) } }, games: { ...base.games, ...data.games }, exams: Array.isArray(data.exams) ? data.exams : [], stickersSeen: Array.isArray(data.stickersSeen) ? data.stickersSeen : [] };
+  const profile = data.profile ? { ...data.profile, voiceLang: data.profile.voiceLang === 'ta' ? 'ta' : (data.profile.voiceLang === 'en' ? 'en' : (data.profile.lang === 'ta' ? 'ta' : 'en')) } : null;
+  return { ...base, ...data, profile, settings: { ...base.settings, ...data.settings }, stats: { ...base.stats, ...data.stats, byRule: { ...base.stats.byRule, ...(data.stats?.byRule || {}) } }, games: { ...base.games, ...data.games }, exams: Array.isArray(data.exams) ? data.exams : [], stickersSeen: Array.isArray(data.stickersSeen) ? data.stickersSeen : [] };
 }
 
 export const state = load();
