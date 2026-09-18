@@ -1,0 +1,29 @@
+name: Extract Abacus Buddy ZIP
+
+on:
+  push:
+    branches:
+      - test/abacus-buddy-zip-20260918
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract ZIP into repository root
+        run: |
+          set -e
+          rm -rf /tmp/abacus-extract
+          mkdir -p /tmp/abacus-extract
+          unzip -q abacus-buddy.zip -d /tmp/abacus-extract
+          test -d /tmp/abacus-extract/abacus-buddy
+          cp -a /tmp/abacus-extract/abacus-buddy/. .
+          rm -rf /tmp/abacus-extract abacus-buddy.zip .github/workflows/extract-abacus.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Extract Abacus Buddy ZIP" || exit 0
+          git push origin HEAD:test/abacus-buddy-zip-20260918
