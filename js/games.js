@@ -6,7 +6,7 @@ import { sfx } from './sound.js';
 import { createAbacus, miniAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { isOn } from './config.js';
-import { $, $, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, voiceLang, go } from './ui.js';
+import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, voiceLang, go } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
 const pickOne = a => a[rnd(a.length)];
@@ -64,7 +64,7 @@ function gameOver({ game, mode, title, line, best, again }) {
     </div></section>`;
   $('[data-again]').onclick = () => { newToken(); clearTimers(); again(mode); };
   $('[data-modes]').onclick = () => { newToken(); clearTimers(); modePicker(game, again); };
-  say(voiceLang() === 'ta' ? V('gameDone') : title);
+  say(title);
 }
 
 const G = id => GAMES.find(g => g.id === id);
@@ -136,7 +136,7 @@ function runMystery(mode) {
       } else { clean = false; b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('mysteryHint'), 'think', true, V('mysteryHint')); }
     });
   };
-  ask(); say(V('mysteryQ'));
+  ask(); say(T('mysteryQ'));
 }
 
 /* ---------------- 3. Bead Match ---------------- */
