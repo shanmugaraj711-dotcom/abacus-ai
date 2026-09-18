@@ -7,7 +7,7 @@ import { sfx } from './sound.js';
 import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { cfg, isOn, brand } from './config.js';
-import { $, $$, shell, bubble, setBubble, confetti, say, T, wait, alive, currentToken, newToken, every, clearTimers, esc, mmss, lvName, kidName, go, stars } from './ui.js';
+import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, mmss, lvName, kidName, go, stars } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
 const passedLevels = () => LEVELS.slice(1).filter(L => (state.levels[L.id]?.stars || 0) >= 1).map(L => L.id);
