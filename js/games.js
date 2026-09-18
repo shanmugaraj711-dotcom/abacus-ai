@@ -6,7 +6,7 @@ import { sfx } from './sound.js';
 import { createAbacus, miniAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { isOn } from './config.js';
-import { $, $$, shell, bubble, setBubble, confetti, say, T, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, go } from './ui.js';
+import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, go } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
 const pickOne = a => a[rnd(a.length)];
@@ -128,12 +128,12 @@ function runMystery(mode) {
         if (clean) score++;
         $$('[data-dots] i')[round].classList.add(clean ? 'gold' : 'ok');
         b.classList.add('right'); $$('[data-opt]').forEach(x => x.disabled = true); sfx.good(); v.celebrate();
-        setBubble(`${T('praise')} ${T('itIs', target)}`, 'cheer');
+        setBubble(`${T('praise')} ${T('itIs', target)}`, 'cheer', true, `${V('praise')} ${V('itIs', target)}`);
         await wait(1000); if (!alive(tok)) return;
         round++;
-        if (round < 10) { setBubble(T('mysteryQ'), 'think', false); ask(); }
+        if (round < 10) { setBubble(T('mysteryQ'), 'think', false, V('mysteryQ')); ask(); }
         else gameOver({ game: G('mystery'), mode, title: `${score}/10!`, line: 'Great bead reading.', best: saveBest('mystery', mode, score), again: runMystery });
-      } else { clean = false; b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('mysteryHint'), 'think'); }
+      } else { clean = false; b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('mysteryHint'), 'think', true, V('mysteryHint')); }
     });
   };
   ask(); say(T('mysteryQ'));
@@ -216,8 +216,8 @@ function runFlash(mode) {
       $$('[data-opt]').forEach(x => x.disabled = true);
       b.classList.add(right ? 'right' : 'wrong');
       $$('[data-dots] i')[round].classList.add(right ? 'gold' : 'miss');
-      if (right) { score++; sfx.good(); setBubble(T('praise'), 'cheer'); }
-      else { sfx.oops(); setBubble(`It was ${total}.`, 'think'); }
+      if (right) { score++; sfx.good(); setBubble(T('praise'), 'cheer', true, V('praise')); }
+      else { sfx.oops(); setBubble(`It was ${total}.`, 'think', true, `It was ${total}.`); }
       await wait(1100); if (!alive(tok)) return;
       round++;
       if (round < 8) ask();
@@ -255,7 +255,7 @@ function runSpeed(mode) {
       const right = +b.dataset.opt === target;
       $$('[data-opt]').forEach(x => x.disabled = true); b.classList.add(right ? 'right' : 'wrong');
       $$('[data-dots] i')[round].classList.add(right ? 'gold' : 'miss');
-      if (right) { score++; sfx.good(); setBubble(T('praise'), 'cheer'); } else { sfx.oops(); v.set(target); $('[data-cover]').hidden = true; setBubble(`It was ${target}. Look again.`, 'think'); }
+      if (right) { score++; sfx.good(); setBubble(T('praise'), 'cheer', true, V('praise')); } else { sfx.oops(); v.set(target); $('[data-cover]').hidden = true; setBubble(`It was ${target}. Look again.`, 'think', true, `It was ${target}. Look again.`); }
       await wait(right ? 900 : 1800); if (!alive(tok)) return;
       round++;
       if (round < 10) ask();
@@ -326,13 +326,13 @@ function runLadder(mode) {
   const loseLife = () => {
     lives--; sfx.oops(); v.shake();
     $('[data-lives]').textContent = '❤️'.repeat(Math.max(0, lives)) + '🖤'.repeat(3 - Math.max(0, lives));
-    if (lives > 0) { setBubble(`It was ${p.answer}. Keep climbing!`, 'think'); next(); return; }
+    if (lives > 0) { setBubble(`It was ${p.answer}. Keep climbing!`, 'think', true, `It was ${p.answer}. Keep climbing!`); next(); return; }
     clearTimers();
     gameOver({ game: G('ladder'), mode, title: `You reached rung ${rung}!`, line: `Hardest sums you beat: Level ${levelFor()}.`, best: saveBest('ladder', mode, rung), again: runLadder });
   };
   $('[data-reset]').onclick = () => { v.set(p.a); sfx.tap(); };
   $('[data-check]').onclick = () => {
-    if (v.value === p.answer) { rung++; sfx.good(); v.celebrate(); setBubble(T('praise'), 'cheer'); next(); }
+    if (v.value === p.answer) { rung++; sfx.good(); v.celebrate(); setBubble(T('praise'), 'cheer', true, V('praise')); next(); }
     else loseLife();
   };
   next();
