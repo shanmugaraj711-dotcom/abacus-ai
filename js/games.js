@@ -64,7 +64,7 @@ function gameOver({ game, mode, title, line, best, again }) {
     </div></section>`;
   $('[data-again]').onclick = () => { newToken(); clearTimers(); again(mode); };
   $('[data-modes]').onclick = () => { newToken(); clearTimers(); modePicker(game, again); };
-  say(title);
+  say(voiceLang() === 'ta' ? V('gameDone') : title);
 }
 
 const G = id => GAMES.find(g => g.id === id);
@@ -136,7 +136,7 @@ function runMystery(mode) {
       } else { clean = false; b.classList.add('wrong'); b.disabled = true; sfx.oops(); setBubble(T('mysteryHint'), 'think', true, V('mysteryHint')); }
     });
   };
-  ask(); say(T('mysteryQ'));
+  ask(); say(V('mysteryQ'));
 }
 
 /* ---------------- 3. Bead Match ---------------- */
