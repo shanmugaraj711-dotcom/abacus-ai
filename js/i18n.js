@@ -107,6 +107,7 @@ const S = {
   wasNumber: { en: (n) => `It was ${n}.`, ta: (n) => `அது ${n}.` },
   wasNumberLook: { en: (n) => `It was ${n}. Look again.`, ta: (n) => `அது ${n}. மறுபடி பாரு.` },
   wasNumberClimb: { en: (n) => `It was ${n}. Keep climbing!`, ta: (n) => `அது ${n}. தொடர்ந்து ஏறு!` },
+  gameDone: { en: () => 'Game complete!', ta: () => 'கேம் முடிஞ்சது!' },
   resultMsg: {
     en: (stars) => stars === 3 ? 'Perfect beads!' : stars === 2 ? 'Great work!' : stars === 1 ? 'Good job — keep going!' : 'You worked hard! Practise again to get a star.',
     ta: (stars) => stars === 3 ? 'அத்தனையும் சரி!' : stars === 2 ? 'நல்லா பண்ணின!' : stars === 1 ? 'நல்லா போகுது — தொடர்ந்து பண்ணு!' : 'நல்லா முயற்சி பண்ண! இன்னொரு முறை பண்ணா நட்சத்திரம் கிடைக்கும்.',

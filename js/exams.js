@@ -57,7 +57,7 @@ export function testCentre() {
     <h3 class="sec">Exams & competition</h3>
     <div class="exams">${items.filter(e => e.group !== 'test').map(card).join('')}</div>
     ${isOn('certificates') ? `<a class="sticker-link" href="#/certificates"><span>🏅</span><b>My Certificates</b><em>${certs}</em></a>` : ''}` });
-  say('Ready for a real test?');
+  say(V('readyTest'));
 }
 
 /* ---------------- the exam runner ---------------- */
@@ -113,7 +113,7 @@ export function runExam(id) {
         <a class="btn ghost wide" href="#/tests">Back to Test Centre</a>
       </div></section>`;
     $('[data-again]').onclick = () => runExam(id);
-    say(passed ? 'Well done! You passed.' : 'Good effort. Try once more.');
+    say(passed ? V('testPassed') : V('testRetry'));
   };
 
   const show = async () => {

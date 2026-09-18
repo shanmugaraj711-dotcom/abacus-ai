@@ -95,7 +95,7 @@ function welcome() {
     draft.lang = b.dataset.contentLang; $$('[data-content-lang]').forEach(x => x.classList.toggle('on', x === b));
     state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
     const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
-    say(t(draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
+    say(t(draft.voiceLang || draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
   });
   $('#start').onclick = () => {
     state.profile = { name: $('#kidName').value.trim().slice(0, 18), avatar: draft.avatar, experience: exp, lang: draft.lang, voiceLang: draft.voiceLang };
@@ -399,7 +399,7 @@ function practice(id) {
     v.set(p.a); v.lock(false); v.highlight(null);
     buttons().forEach(b => { b.disabled = false; b.classList.remove('pulse'); });
     $$('[data-dots] i').forEach((d, k) => d.classList.toggle('now', k === idx));
-    setBubble(`${p.a} ${sign(p.op)} ${p.b} = ?`, 'talk');
+    setBubble(`${p.a} ${sign(p.op)} ${p.b} = ?`, 'talk', true, `${p.a} ${sign(p.op)} ${p.b}`);
   }
 
   async function watch() {
