@@ -8,7 +8,7 @@ import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
 import {
   app, esc, $, $$, wait, newToken, currentToken, alive, every, clearTimers, setRouter, go,
-  lang, T, say, lessonTitle, lvName, lvTip, kidName, lessonDone, AVATARS, stars, mmss,
+  lang, T, V, say, voiceLang, lessonTitle, lvName, lvTip, kidName, lessonDone, AVATARS, stars, mmss,
   shell, bubble, setBubble, confetti, playDemo,
 } from './ui.js';
 import { playRoom, openGame } from './games.js';
@@ -39,7 +39,7 @@ function stickers() {
     ${bubble(T('stickerCount', got.size, STICKERS.length), 'happy')}
     <div class="stickers">${STICKERS.map(x => `<div class="sticker ${got.has(x.id) ? 'got' : ''}"><span>${got.has(x.id) ? x.e : '❔'}</span><b>${x.name}</b><small>${got.has(x.id) ? 'Got it!' : x.how}</small></div>`).join('')}</div>` });
   state.stickersSeen = [...got]; save();
-  say(T('stickerCount', got.size, STICKERS.length));
+  say(V('stickerCount', got.size, STICKERS.length));
 }
 
 // ---------- screens ----------
@@ -89,7 +89,7 @@ function welcome() {
     draft.voiceLang = b.dataset.voiceLang; $('[data-voice-lang]').forEach(x => x.classList.toggle('on', x === b));
     state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
     const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
-    say(t(draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
+    say(t(draft.voiceLang || draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
   });
   $('[data-content-lang]').forEach(b => b.onclick = () => {
     draft.lang = b.dataset.contentLang; $('[data-content-lang]').forEach(x => x.classList.toggle('on', x === b));
@@ -231,11 +231,12 @@ function lesson(id) {
     const showNext = () => { const b = $('[data-next]'); if (b) { b.hidden = false; b.focus({ preventScroll: true }); } };
 
     const line = (lang() === 'ta' && s.ta) || s.say;
+    const voiceLine = (voiceLang() === 'ta' && s.ta) || s.say;
     if (s.t === 'talk') {
       box.innerHTML = `${bubble(line)}<div data-abacus></div>${nextBtn()}`;
       const v = createAbacus($('[data-abacus]'), { rods: s.rods, value: s.value, interactive: false });
       v.showParts(!!s.parts); if (s.highlight != null) v.highlight(s.highlight);
-      bindNext(); say(line);
+      bindNext(); say(voiceLine);
     }
 
     if (s.t === 'build') {
