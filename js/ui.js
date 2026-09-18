@@ -61,10 +61,10 @@ export function shell({ title = '', back = '', body = '', cls = '' }) {
 export function bubble(text, mood = 'talk') {
   return `<div class="talk"><div class="talk-babi">${babi(mood)}</div><p class="talk-text" data-say>${esc(text)}</p><button class="round small" data-replay aria-label="Hear it again">🔊</button></div>`;
 }
-export function setBubble(text, mood = 'talk', speak = true) {
+export function setBubble(text, mood = 'talk', speak = true, speechText = text) {
   const el = $('[data-say]'); if (el) el.textContent = text;
   const b = $('.talk-babi'); if (b) b.innerHTML = babi(mood);
-  if (speak) say(text);
+  if (speak) say(speechText);
 }
 // One global listener replays whatever Babi last said.
 app.addEventListener('click', e => { if (e.target.closest('[data-replay]')) say($('[data-say]')?.textContent); });
