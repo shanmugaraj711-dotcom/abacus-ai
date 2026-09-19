@@ -11,11 +11,11 @@ import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, curr
 const rnd = n => Math.floor(Math.random() * n);
 const pickOne = a => a[rnd(a.length)];
 const MODES = [
-  { id: 'kid', name: 'Kid', nameTa: 'சின்னவங்க', emoji: '🐣' },
-  { id: 'star', name: 'Star', nameTa: 'ஸ்டார்', emoji: '⭐' },
-  { id: 'master', name: 'Master', nameTa: 'மாஸ்டர்', emoji: '🔥' },
+  { id: 'kid', nameKey: 'modeKid', emoji: '🐣' },
+  { id: 'star', nameKey: 'modeStar', emoji: '⭐' },
+  { id: 'master', nameKey: 'modeMaster', emoji: '🔥' },
 ];
-const modeName = m => (lang() === 'ta' && m.nameTa) || m.name;
+const modeName = m => T(m.nameKey);
 
 export const GAMES = [
   { id: 'race', flag: 'gameRace', emoji: '🏁', name: 'Bead Race', desc: 'Solve as many sums as you can in 60 seconds', best: 'sums', cls: 'race' },

@@ -100,6 +100,11 @@ const S = {
   timeUp: { en: (n) => `Time's up! You solved ${n}.`, ta: (n) => `நேரம் முடிஞ்சது! நீ ${n} கணக்கு போட்ட.` },
   stickerCount: { en: (got, all) => `You have ${got} of ${all} stickers. Keep going!`, ta: (got, all) => `உன்கிட்ட ${all}ல ${got} ஸ்டிக்கர் இருக்கு. தொடர்ந்து பண்ணு!` },
   welcomeKid: { en: (name) => `Hi ${name}! Let's play with the abacus.`, ta: (name) => `ஹாய் ${name}! அபாகஸ் விளையாடலாம்.` },
+  // --- game difficulty modes ---
+  modeKid: { en: () => 'Kid', ta: () => 'சின்னவங்க' },
+  modeStar: { en: () => 'Star', ta: () => 'ஸ்டார்' },
+  modeMaster: { en: () => 'Master', ta: () => 'மாஸ்டர்' },
+
   // --- tests and game reactions ---
   readyTest: { en: () => 'Ready for a real test?', ta: () => 'நிஜமான டெஸ்டுக்கு ரெடியா?' },
   testPassed: { en: () => 'Well done! You passed.', ta: () => 'சூப்பரா பண்ண! நீ பாஸ் பண்ணிட்ட!' },
