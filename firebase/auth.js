@@ -1,0 +1,129 @@
+/**
+ * firebase/auth.js
+ * Phase 1 — Firebase Phone Auth initialisation and helpers.
+ *
+ * Exports:
+ *   initFirebase()              → initialises app + auth once
+ *   getAuthInstance()           → returns the Firebase Auth instance
+ *   setupRecaptcha(containerId) → creates invisible reCAPTCHA verifier
+ *   sendOtp(phone, verifier)    → wraps signInWithPhoneNumber
+ *   verifyOtp(confirmationResult, otp) → wraps confirmationResult.confirm
+ *   signOut()                   → signs the user out
+ *   onAuthChange(callback)      → onAuthStateChanged listener
+ */
+
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getAuth,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+import FIREBASE_CONFIG, { isConfigured } from "./config.js";
+
+// Module-level singletons
+let _app  = null;
+let _auth = null;
+
+/**
+ * Initialise Firebase once.  Safe to call multiple times.
+ * Throws a descriptive error if the config is still placeholder.
+ */
+export function initFirebase() {
+  if (!isConfigured()) {
+    throw new Error(
+      "[Phase 1] Firebase is not configured. " +
+        "Open firebase/config.js and replace every REPLACE_ME value " +
+        "with your real Firebase project credentials."
+    );
+  }
+
+  if (getApps().length === 0) {
+    _app = initializeApp(FIREBASE_CONFIG);
+  } else {
+    _app = getApps()[0];
+  }
+
+  _auth = getAuth(_app);
+
+  // Required for Phone Auth: tell Firebase about the current domain.
+  // No-op when already set; harmless to call multiple times.
+  return { app: _app, auth: _auth };
+}
+
+/** Returns the cached Auth instance (call initFirebase first). */
+export function getAuthInstance() {
+  if (!_auth) throw new Error("[Phase 1] Call initFirebase() before getAuthInstance().");
+  return _auth;
+}
+
+/**
+ * Create (or re-create) an invisible reCAPTCHA verifier.
+ * @param {string} containerId  — id of an empty <div> in the DOM
+ * @returns {RecaptchaVerifier}
+ */
+export function setupRecaptcha(containerId) {
+  const auth = getAuthInstance();
+
+  // Clear any previous verifier to allow clean resend
+  if (window._abacusRecaptchaVerifier) {
+    try { window._abacusRecaptchaVerifier.clear(); } catch (_) { /* ignore */ }
+    window._abacusRecaptchaVerifier = null;
+  }
+
+  const verifier = new RecaptchaVerifier(auth, containerId, {
+    size: "invisible",
+    callback: () => {
+      // reCAPTCHA solved — signInWithPhoneNumber will proceed
+    },
+    "expired-callback": () => {
+      // reCAPTCHA expired — the UI will handle this via error state
+      window.dispatchEvent(new CustomEvent("abacus:recaptcha-expired"));
+    },
+  });
+
+  window._abacusRecaptchaVerifier = verifier;
+  return verifier;
+}
+
+/**
+ * Send an OTP to the given phone number.
+ * @param {string} phone       — E.164 format, e.g. "+919876543210"
+ * @param {RecaptchaVerifier} verifier
+ * @returns {Promise<ConfirmationResult>}
+ */
+export async function sendOtp(phone, verifier) {
+  const auth = getAuthInstance();
+  return signInWithPhoneNumber(auth, phone, verifier);
+}
+
+/**
+ * Verify the OTP entered by the user.
+ * @param {ConfirmationResult} confirmationResult — from sendOtp()
+ * @param {string} otp — 6-digit code
+ * @returns {Promise<UserCredential>}
+ */
+export async function verifyOtp(confirmationResult, otp) {
+  return confirmationResult.confirm(otp.trim());
+}
+
+/**
+ * Sign the current user out.
+ * @returns {Promise<void>}
+ */
+export async function signOut() {
+  const auth = getAuthInstance();
+  return firebaseSignOut(auth);
+}
+
+/**
+ * Subscribe to auth state changes.
+ * @param {function(User|null): void} callback
+ * @returns {Unsubscribe}
+ */
+export function onAuthChange(callback) {
+  const auth = getAuthInstance();
+  return onAuthStateChanged(auth, callback);
+}
