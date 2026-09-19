@@ -248,7 +248,15 @@ function runSpeed(mode) {
     await wait(setup.ms); if (!alive(tok)) return;
     $('[data-cover]').hidden = false; v.set(0);
     const opts = new Set([target]);
-    while (opts.size < 4) { const n = Math.max(1, target + pickOne([-11, -10, -9, -5, -1, 1, 5, 9, 10, 11])); if (n <= setup.max) opts.add(n); }
+    // Build a finite option pool. The old random loop could become infinite
+    // in Kid mode (max 9), leaving the game with no buttons after a blink.
+    const candidates = [];
+    for (let n = 1; n <= setup.max; n++) if (n !== target) candidates.push(n);
+    candidates.sort((a, b) => Math.abs(a - target) - Math.abs(b - target) || a - b);
+    for (const n of candidates) {
+      if (opts.size >= 4) break;
+      opts.add(n);
+    }
     $('[data-opts]').hidden = false;
     $('[data-opts]').innerHTML = [...opts].sort((a, b) => a - b).map(o => `<button class="opt" data-opt="${o}">${o}</button>`).join('');
     $$('[data-opt]').forEach(b => b.onclick = async () => {
