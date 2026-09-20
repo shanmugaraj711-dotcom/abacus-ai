@@ -28,7 +28,7 @@ let _resendCooldown = 0;
  * @param {Object} opts
  * @param {string} opts.phoneInputId      — id of the <input type="tel">
  * @param {string} opts.sendBtnId         — id of the Send OTP <button>
- * @param {string} opts.recaptchaId       — id of the invisible reCAPTCHA <div>
+ * @param {string} opts.recaptchaId       — id of the button used by invisible reCAPTCHA
  * @param {string} opts.errorId           — id of the error <p>
  * @param {string} opts.resendCountdownId — id of the resend countdown <span>
  */
@@ -63,6 +63,8 @@ export function initSignIn({ phoneInputId, sendBtnId, recaptchaId, errorId, rese
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 async function handleSend({ phoneInput, sendBtn, recaptchaId, errorEl, countdownEl }) {
+  // Block keyboard/automation re-entry while the button is disabled (including cooldown).
+  if (sendBtn.disabled) return;
   clearError(errorEl);
 
   const raw   = phoneInput.value.trim();
@@ -96,8 +98,8 @@ async function handleSend({ phoneInput, sendBtn, recaptchaId, errorEl, countdown
 
 /**
  * Normalise a phone string to E.164.
- * Accepts:  +919876543210  |  +91 98765 43210  |  09876543210 (treated as-is)
- * Returns null if obviously invalid.
+ * Accepts: +919876543210 or +91 98765 43210.
+ * Returns null if the value is not E.164-compatible.
  */
 function normalisePhone(raw) {
   // Strip spaces and dashes
