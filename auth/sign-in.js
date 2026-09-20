@@ -158,6 +158,9 @@ function friendlyError(err) {
     "auth/missing-phone-number":   "Please enter a phone number.",
     "auth/network-request-failed": "Network error. Check your connection and try again.",
     "auth/operation-not-allowed":  "Phone Auth is not enabled for this Firebase project. Enable it in the Firebase Console.",
+    "auth/unauthorized-domain":     "This website address is not authorized in Firebase Authentication. Add this domain in Firebase Console → Authentication → Settings → Authorized domains.",
+    "auth/missing-app-credential":  "App verification could not be completed. Please refresh the page and try again.",
+    "auth/app-check-token-is-invalid":"App verification failed. Please refresh the page and try again.",
   };
   return map[code] ?? `Error: ${err?.message ?? "Unknown error. Please try again."}`;
 }
