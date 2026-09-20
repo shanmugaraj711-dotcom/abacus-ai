@@ -35,7 +35,7 @@ export function initAuthUI() {
   initSignIn({
     phoneInputId:      "phase1-phone",
     sendBtnId:         "phase1-send-btn",
-    recaptchaId:       "phase1-recaptcha",
+    recaptchaId:       "phase1-send-btn",
     errorId:           "phase1-phone-error",
     resendCountdownId: "phase1-resend-countdown",
   });
