@@ -10,7 +10,7 @@ const DEFAULTS = {
   appName: 'Abacus Buddy',
   centreName: '',          // shown on certificates, e.g. "Sunshine Abacus Academy"
   ownerPin: '2580',        // opens the owner console at #/admin
-  freeLevels: 12,          // levels playable without a code; the rest show "coming soon"
+  freeLevels: 3,          // levels playable without a code; the rest show "coming soon"
   features: {
     learn: true, practice: true, play: true, freePlay: true, stickers: true,
     tests: true, exams: true, certificates: true,
