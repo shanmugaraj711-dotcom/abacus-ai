@@ -377,11 +377,11 @@ function practiceMap() {
   shell({ title: 'Practise', back: '#/home', body: `
     ${bubble(T('pickLevel'), 'happy')}
     <div class="levels">${LEVELS.slice(1).map(L => {
-      const open = levelAllowed(L.id), rec = state.levels[L.id];
-      return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${open ? `href="#/level/${L.id}"` : 'aria-disabled="true"'}>
-        <span class="lv-emoji">${open ? L.emoji : '🔒'}</span>
+      const open = levelAllowed(L.id), paywall = !open && L.id > freeMax(), rec = state.levels[L.id];
+      return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${open ? `href="#/level/${L.id}"` : paywall ? 'href="#/unlock"' : 'aria-disabled="true"'}>
+        <span class="lv-emoji">${open ? L.emoji : paywall ? '🔐' : '🔒'}</span>
         <span class="lv-body"><small>Level ${L.id}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
-        ${stars(rec?.stars || 0)}
+        ${paywall ? '<strong>₹499 unlock</strong>' : stars(rec?.stars || 0)}
       </a>`;
     }).join('')}</div>` });
 
