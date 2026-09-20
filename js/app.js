@@ -6,6 +6,8 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
+import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
+import { getAuthInstance } from '../firebase/auth.js';
 import {
   app, esc, $, $$, wait, newToken, currentToken, alive, every, clearTimers, setRouter, go,
   lang, T, V, say, voiceLang, lessonTitle, lvName, lvTip, kidName, lessonDone, AVATARS, stars, mmss,
@@ -32,6 +34,42 @@ const STICKERS = [
   { id: 'exam', e: '📝', name: 'Test Passed', how: 'Pass any test or exam', ok: () => state.exams.some(r => r.passed) },
 ];
 const earned = () => STICKERS.filter(x => x.ok());
+const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 3));
+const playableMax = () => isPaid() ? MAX_LEVEL : freeMax();
+const levelAllowed = id => id >= 1 && id <= playableMax();
+
+function unlock() {
+  const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
+  shell({ title: 'Unlock Levels 4–15', back: '#/home', body: `
+    <section class="card intro">
+      ${babi('happy', 'big bob')}
+      <p class="eyebrow">Abacus Buddy lifetime unlock</p>
+      <h2 class="display">Levels 4–15</h2>
+      <p class="lead">One-time payment of <b>₹499</b>. No subscription.</p>
+      <ul class="muted"><li>Levels 1–3 stay free.</li><li>Levels 4–15 unlock permanently for this account.</li><li>Payment is processed securely by Razorpay.</li></ul>
+      <div class="stack">
+        ${signedIn ? `<button class="btn primary wide" id="buy">Unlock for ₹499</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../#unlock">Sign in to unlock</a>`}
+        <a class="btn ghost wide" href="#/home">Not now</a>
+      </div>
+      <p class="muted tiny center" id="pay-status"></p>
+    </section>` });
+  const buy = $('#buy');
+  if (buy) buy.onclick = async () => {
+    buy.disabled = true; buy.textContent = 'Opening secure checkout…';
+    const msg = $('#pay-status');
+    try {
+      await buyUnlock({
+        onSuccess: () => { if (msg) msg.textContent = 'Payment verified ✓ Levels 4–15 are unlocked.'; },
+        onError: e => { if (msg) msg.textContent = e.message; },
+      });
+      if (isPaid()) setTimeout(() => go('#/practice'), 700);
+    } catch (e) {
+      if (msg) msg.textContent = e.message;
+      buy.disabled = false; buy.textContent = 'Unlock for ₹499';
+    }
+  };
+}
+
 
 function stickers() {
   const got = new Set(earned().map(x => x.id));
@@ -125,7 +163,7 @@ const testLine = () => {
 };
 
 function nextMission() {
-  const lvl = Math.min(state.unlocked, MAX_LEVEL);
+  const lvl = Math.min(state.unlocked, playableMax());
   const need = LESSON_FOR_LEVEL[lvl] || 11;
   const lesson = LESSONS.find(l => l.id <= need && !lessonDone(l.id));
   if (lesson && state.profile.experience !== 'known') return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கத்துக்க' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
@@ -339,7 +377,7 @@ function practiceMap() {
   shell({ title: 'Practise', back: '#/home', body: `
     ${bubble(T('pickLevel'), 'happy')}
     <div class="levels">${LEVELS.slice(1).map(L => {
-      const open = L.id <= state.unlocked, rec = state.levels[L.id];
+      const open = levelAllowed(L.id), rec = state.levels[L.id];
       return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${open ? `href="#/level/${L.id}"` : 'aria-disabled="true"'}>
         <span class="lv-emoji">${open ? L.emoji : '🔒'}</span>
         <span class="lv-body"><small>Level ${L.id}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
@@ -350,7 +388,8 @@ function practiceMap() {
 }
 
 function levelIntro(id) {
-  const L = LEVELS[id]; if (!L || id > state.unlocked) return go('#/practice');
+  const L = LEVELS[id]; if (!L) return go('#/practice');
+  if (!levelAllowed(id)) return go('#/unlock');
   const needLesson = LESSON_FOR_LEVEL[id], lessonNeeded = needLesson && !lessonDone(needLesson);
   const LL = LESSONS.find(l => l.id === needLesson);
   shell({ title: `Level ${id}`, back: '#/practice', body: `
@@ -446,7 +485,7 @@ function practice(id) {
     state.stats.seconds += Math.min(1800, Math.round((Date.now() - started) / 1000));
     let unlockedNew = false;
     if (s >= 1 && id === state.unlocked && id < MAX_LEVEL) { state.unlocked = id + 1; unlockedNew = true; }
-    const canNext = id < MAX_LEVEL && id + 1 <= state.unlocked;
+    const canNext = id < MAX_LEVEL && levelAllowed(id + 1);
     saveNow();
     if (s >= 2) { sfx.star(); confetti(); } else sfx.good();
     const msg = T('resultMsg', s);
@@ -617,6 +656,7 @@ function route() {
     free: () => (isOn('freePlay') ? free() : home()),
     learn: () => (isOn('learn') ? learnMap() : home()),
     practice: () => (isOn('practice') ? practiceMap() : home()),
+    unlock,
     play: () => (isOn('play') ? playRoom() : home()),
     lesson: () => lesson(n),
     level: () => levelIntro(n),
@@ -633,7 +673,7 @@ function route() {
 window.addEventListener('hashchange', route);
 setRouter(route);
 // Read config.json (feature switches) first, then show the first screen.
-loadConfig().then(route, route);
+loadConfig().then(async () => { await refreshEntitlement(); route(); }, route);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.__NO_SW__) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
