@@ -48,8 +48,7 @@ export function initFirebase() {
 
   _auth = getAuth(_app);
 
-  // Required for Phone Auth: tell Firebase about the current domain.
-  // No-op when already set; harmless to call multiple times.
+  // Firebase uses the current browser origin for Phone Auth verification.
   return { app: _app, auth: _auth };
 }
 
@@ -60,8 +59,8 @@ export function getAuthInstance() {
 }
 
 /**
- * Create (or re-create) an invisible reCAPTCHA verifier.
- * @param {string} containerId  — id of an empty <div> in the DOM
+ * Create (or reuse) an invisible reCAPTCHA verifier.
+ * @param {string} elementId — id of the button that starts sign-in
  * @returns {RecaptchaVerifier}
  */
 export function setupRecaptcha(containerId) {
@@ -74,7 +73,7 @@ export function setupRecaptcha(containerId) {
     return window._abacusRecaptchaVerifier;
   }
 
-  const verifier = new RecaptchaVerifier(auth, containerId, {
+  const verifier = new RecaptchaVerifier(auth, elementId, {
     size: "invisible",
     callback: () => {
       // reCAPTCHA solved — signInWithPhoneNumber will proceed
