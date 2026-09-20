@@ -9,7 +9,7 @@ function json(data,status=200){return new Response(JSON.stringify(data),{status,
 function b64u(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
 function ub64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
 async function sha256(s){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(s))}
-async function hmac(secret,msg){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);return b64u(await crypto.subtle.sign("HMAC",k,new TextEncoder().encode(msg)))}
+async function hmac(secret,msg){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);const a=new Uint8Array(await crypto.subtle.sign("HMAC",k,new TextEncoder().encode(msg)));return [...a].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function eq(a,b){if(!a||!b||a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0}
 function parseJwt(t){const p=t.split(".");if(p.length!==3)throw Error("invalid token");return {h:JSON.parse(new TextDecoder().decode(ub64(p[0]))),c:JSON.parse(new TextDecoder().decode(ub64(p[1]))),s:p[2]}}
 async function firebaseUser(env,token){
@@ -24,7 +24,7 @@ async function googleToken(env){
   const s=await sa(env), now=Math.floor(Date.now()/1000);
   const head=b64u(new TextEncoder().encode(JSON.stringify({alg:"RS256",typ:"JWT"})));
   const claim=b64u(new TextEncoder().encode(JSON.stringify({iss:s.client_email,scope:"https://www.googleapis.com/auth/datastore",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600})));
-  const key=await crypto.subtle.importKey("pkcs8",ub64(s.private_key.replace("-----BEGIN PRIVATE KEY-----","").replace("-----END PRIVATE KEY-----","").replace(/\\s/g,"")),{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
+  const key=await crypto.subtle.importKey("pkcs8",ub64(s.private_key.replace("-----BEGIN PRIVATE KEY-----","").replace("-----END PRIVATE KEY-----","").replace(/\s/g,"")),{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
   const sig=b64u(await crypto.subtle.sign("RSASSA-PKCS1-v1_5",key,new TextEncoder().encode(head+"."+claim)));
   const r=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:"grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion="+head+"."+claim+"."+sig});
   if(!r.ok)throw Error("Firebase service authentication failed");
@@ -60,6 +60,8 @@ async function main(req,env){
     const user=await bearer(req,env), b=await req.json(), payload=String(b.razorpay_order_id)+"|"+String(b.razorpay_payment_id);
     const sig=await hmac(env.RAZORPAY_KEY_SECRET,payload);if(!eq(sig,String(b.razorpay_signature)))return json({error:"Invalid payment signature"},400);
     const order=await razor(env,"/orders/"+encodeURIComponent(b.razorpay_order_id));if(Number(order.amount)!==PRICE||order.currency!=="INR"||order.notes?.uid!==user.uid)return json({error:"Order validation failed"},400);
+    const payment=await razor(env,"/payments/"+encodeURIComponent(b.razorpay_payment_id));
+    if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==PRICE||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
     await firestorePut(env,user.uid,{orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id});return json({paid:true});
   }
   if(path==="/api/user-status"&&req.method==="GET"){const user=await bearer(req,env);return json({paid:!!(await firestoreGet(env,user.uid))});}
