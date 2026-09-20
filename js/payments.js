@@ -1,7 +1,7 @@
 // Paid unlock integration for Abacus Buddy.
 // Business model: free levels 1-3, one-time ₹499 unlock for levels 4-15.
 
-import { initFirebase, getAuthInstance } from "../firebase/auth.js";
+import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
 
 let paid = false;
 let checked = false;
@@ -11,7 +11,10 @@ export const isPaid = () => paid;
 export async function refreshEntitlement() {
   try {
     initFirebase();
-    const user = getAuthInstance().currentUser;
+    const user = await new Promise(resolve => {
+      let settled = false;
+      const unsubscribe = onAuthChange(u => { if (!settled) { settled = true; unsubscribe(); resolve(u); } });
+    });
     if (!user) { paid = false; checked = true; return false; }
     const token = await user.getIdToken();
     const res = await fetch("/api/user-status", {
