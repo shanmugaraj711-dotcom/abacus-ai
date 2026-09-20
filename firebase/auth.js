@@ -63,7 +63,7 @@ export function getAuthInstance() {
  * @param {string} elementId — id of the button that starts sign-in
  * @returns {RecaptchaVerifier}
  */
-export function setupRecaptcha(containerId) {
+export function setupRecaptcha(elementId) {
   const auth = getAuthInstance();
 
   // Reuse the same verifier for the whole page lifetime.
