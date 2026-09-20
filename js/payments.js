@@ -13,7 +13,8 @@ export async function refreshEntitlement() {
     initFirebase();
     const user = await new Promise(resolve => {
       let settled = false;
-      const unsubscribe = onAuthChange(u => { if (!settled) { settled = true; unsubscribe(); resolve(u); } });
+      let unsubscribe = () => {};
+      unsubscribe = onAuthChange(u => { if (!settled) { settled = true; unsubscribe(); resolve(u); } });
     });
     if (!user) { paid = false; checked = true; return false; }
     const token = await user.getIdToken();
