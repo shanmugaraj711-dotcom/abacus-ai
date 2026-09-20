@@ -67,10 +67,11 @@ export function getAuthInstance() {
 export function setupRecaptcha(containerId) {
   const auth = getAuthInstance();
 
-  // Clear any previous verifier to allow clean resend
+  // Reuse the same verifier for the whole page lifetime.
+  // Recreating it on every click can make Firebase throw
+  // "reCAPTCHA has already been rendered in this element".
   if (window._abacusRecaptchaVerifier) {
-    try { window._abacusRecaptchaVerifier.clear(); } catch (_) { /* ignore */ }
-    window._abacusRecaptchaVerifier = null;
+    return window._abacusRecaptchaVerifier;
   }
 
   const verifier = new RecaptchaVerifier(auth, containerId, {
