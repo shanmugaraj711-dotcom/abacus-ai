@@ -61,7 +61,7 @@ async function main(req,env){
     const user=await bearer(req,env), b=await req.json(), payload=String(b.razorpay_order_id)+"|"+String(b.razorpay_payment_id);
     const keySecret=String(env.RAZORPAY_KEY_SECRET||"").trim();
     const sig=(await hmac(keySecret,payload)).toLowerCase(), gotSig=String(b.razorpay_signature||"").trim().toLowerCase();if(!eq(sig,gotSig))return json({error:"Invalid payment signature"},400);
-    const order=await razor(env,"/orders/"+encodeURIComponent(b.razorpay_order_id));if(Number(order.amount)!==PRICE||order.currency!=="INR"||order.notes?.uid!==user.uid)return json({error:"Order validation failed"},400);
+    const order=await razor(env,"/orders/"+encodeURIComponent(b.razorpay_order_id));if(Number(order.amount)!==PRICE||order.currency!=="INR"||order.notes?.uid!==user.uid||order.notes?.product!==PRODUCT)return json({error:"Order validation failed"},400);
     const payment=await razor(env,"/payments/"+encodeURIComponent(b.razorpay_payment_id));
     if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==PRICE||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
     await firestorePut(env,user.uid,{orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id});return json({paid:true});
@@ -73,7 +73,7 @@ async function main(req,env){
     const want=(await hmac(sec,raw)).toLowerCase();
     if(!sec||!eq(got,want))return json({error:"Invalid webhook signature"},400);
     const e=JSON.parse(raw), p=e.payload?.payment?.entity, o=e.payload?.order?.entity, pay=p||null, ord=o||null;
-    if(e.event==="payment.captured"||e.event==="order.paid"){const amount=Number(pay?.amount??ord?.amount),currency=pay?.currency??ord?.currency,uid=pay?.notes?.uid??ord?.notes?.uid;if(amount===PRICE&&currency==="INR"&&uid){await firestorePut(env,uid,{orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});}}
+    if(e.event==="payment.captured"||e.event==="order.paid"){const amount=Number(pay?.amount??ord?.amount),currency=pay?.currency??ord?.currency,uid=pay?.notes?.uid??ord?.notes?.uid,product=pay?.notes?.product??ord?.notes?.product;if(amount===PRICE&&currency==="INR"&&uid&&product===PRODUCT){await firestorePut(env,uid,{orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});}}
     return json({ok:true});
   }
   return json({error:"Not found"},404);
