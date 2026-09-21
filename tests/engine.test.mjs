@@ -90,4 +90,13 @@ t('MAX_LEVEL is 15 and Tamil translations exist for all levels', () => {
     assert.ok(L.tipTa && L.tipTa.trim().length > 0, `Level ${id} missing tipTa`);
   }
 });
+t('adaptive progression contract: 3 correct advances, 2 wrong drops, max 15, floor 1', () => {
+  assert.equal(E.getNextLevel(5, 2, 0), 5);
+  assert.equal(E.getNextLevel(5, 3, 0), 6);
+  assert.equal(E.getNextLevel(5, 0, 1), 5);
+  assert.equal(E.getNextLevel(5, 0, 2), 4);
+  assert.equal(E.getNextLevel(1, 0, 2), 1);
+  assert.equal(E.getNextLevel(15, 3, 0), 15);
+  assert.equal(E.getNextLevel(15, 0, 2), 14);
+});
 console.log(`\nAll ${n} test groups passed`);

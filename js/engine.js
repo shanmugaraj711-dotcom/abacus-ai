@@ -162,6 +162,13 @@ export function starsFor(firstTryCorrect, total) {
   return pct >= 0.9 ? 3 : pct >= 0.7 ? 2 : pct >= 0.4 ? 1 : 0;
 }
 
+export function getNextLevel(currentLevel, streak = 0, wrongCount = 0) {
+  const level = Math.min(MAX_LEVEL, Math.max(1, Math.floor(Number(currentLevel) || 1)));
+  if (streak >= 3) return Math.min(MAX_LEVEL, level + 1);
+  if (wrongCount >= 2) return Math.max(1, level - 1);
+  return level;
+}
+
 export const LITTLE_FRIEND = n => 5 - n;
 export const BIG_FRIEND = n => 10 - n;
 export const sign = op => (op === 'add' ? '+' : '−');
