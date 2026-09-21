@@ -44,7 +44,8 @@ async function firestorePut(env,uid,data){
   return true;
 }
 async function razor(env,path,opts={}){
-  const auth=btoa(env.RAZORPAY_KEY_ID+":"+env.RAZORPAY_KEY_SECRET);
+  const keyId=String(env.RAZORPAY_KEY_ID||"").trim(), keySecret=String(env.RAZORPAY_KEY_SECRET||"").trim();
+  const auth=btoa(keyId+":"+keySecret);
   const r=await fetch("https://api.razorpay.com/v1"+path,{...opts,headers:{authorization:"Basic "+auth,"content-type":"application/json",...(opts.headers||{})}});
   const d=await r.json();if(!r.ok)throw Error(d.error?.description||"Razorpay request failed");return d;
 }
@@ -58,7 +59,8 @@ async function main(req,env){
   }
   if(path==="/api/verify-payment"&&req.method==="POST"){
     const user=await bearer(req,env), b=await req.json(), payload=String(b.razorpay_order_id)+"|"+String(b.razorpay_payment_id);
-    const sig=await hmac(env.RAZORPAY_KEY_SECRET,payload);if(!eq(sig,String(b.razorpay_signature)))return json({error:"Invalid payment signature"},400);
+    const keySecret=String(env.RAZORPAY_KEY_SECRET||"").trim();
+    const sig=(await hmac(keySecret,payload)).toLowerCase(), gotSig=String(b.razorpay_signature||"").trim().toLowerCase();if(!eq(sig,gotSig))return json({error:"Invalid payment signature"},400);
     const order=await razor(env,"/orders/"+encodeURIComponent(b.razorpay_order_id));if(Number(order.amount)!==PRICE||order.currency!=="INR"||order.notes?.uid!==user.uid)return json({error:"Order validation failed"},400);
     const payment=await razor(env,"/payments/"+encodeURIComponent(b.razorpay_payment_id));
     if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==PRICE||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
@@ -66,7 +68,12 @@ async function main(req,env){
   }
   if(path==="/api/user-status"&&req.method==="GET"){const user=await bearer(req,env);return json({paid:!!(await firestoreGet(env,user.uid))});}
   if(path==="/api/razorpay-webhook"&&req.method==="POST"){
-    const raw=await req.text(), got=req.headers.get("x-razorpay-signature")||"", want=await hmac(env.RAZORPAY_WEBHOOK_SECRET,raw);if(!eq(got,want))return json({error:"Invalid webhook signature"},400);
+    const raw=await req.text(), got=String(req.headers.get("x-razorpay-signature")||"").trim().toLowerCase();
+    const sec=String(env.RAZORPAY_WEBHOOK_SECRET||"").trim(), altSec=String(env.RAZORPAY_KEY_SECRET||"").trim();
+    let valid=false;
+    if(sec&&eq(got,(await hmac(sec,raw)).toLowerCase()))valid=true;
+    else if(altSec&&eq(got,(await hmac(altSec,raw)).toLowerCase()))valid=true;
+    if(!valid)return json({error:"Invalid webhook signature"},400);
     const e=JSON.parse(raw), p=e.payload?.payment?.entity, o=e.payload?.order?.entity, pay=p||null, ord=o||null;
     if(e.event==="payment.captured"||e.event==="order.paid"){const amount=Number(pay?.amount??ord?.amount),currency=pay?.currency??ord?.currency,uid=pay?.notes?.uid??ord?.notes?.uid;if(amount===PRICE&&currency==="INR"&&uid){await firestorePut(env,uid,{orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});}}
     return json({ok:true});
