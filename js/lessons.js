@@ -67,4 +67,4 @@ export const LESSONS = [
 ];
 
 // Which lesson teaches the trick a practice level needs.
-export const LESSON_FOR_LEVEL = { 1: 6, 2: 6, 3: 7, 4: 7, 5: 8, 6: 9, 7: 9, 8: 10, 9: 11, 10: 11, 11: 10, 12: 11 };
+export const LESSON_FOR_LEVEL = { 1: 6, 2: 6, 3: 7, 4: 7, 5: 8, 6: 9, 7: 9, 8: 10, 9: 11, 10: 11, 11: 10, 12: 11, 13: 9, 14: 11, 15: 11 };
