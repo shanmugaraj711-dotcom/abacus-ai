@@ -121,6 +121,9 @@ export const LEVELS = [
   { id: 10, name: 'Big Friends Mix', emoji: '🐬', ops: ['add', 'sub'], rules: ['big'], a: [1, 18], b: [1, 9], tip: 'Carry and borrow like a pro.', nameTa: 'பிக் ஃபிரெண்ட்ஸ் கலவை', tipTa: 'கேரியும் பாரோவும் நல்லா வரும்.' },
   { id: 11, name: 'Two-Digit Adding', emoji: '🚀', ops: ['add'], rules: ['direct', 'small', 'big'], a: [10, 60], b: [1, 9], tip: 'Bigger numbers, same friends.', nameTa: 'இரண்டு இலக்க கூட்டல்', tipTa: 'பெரிய எண், அதே ஃபிரெண்ட்ஸ்.' },
   { id: 12, name: 'Abacus Champion', emoji: '👑', ops: ['add', 'sub'], rules: ['direct', 'small', 'big'], a: [10, 89], b: [2, 9], tip: 'Everything you know!', nameTa: 'அபாகஸ் சாம்பியன்', tipTa: 'நீ கத்துக்கிட்ட எல்லாமே!' },
+  { id: 13, name: 'Mixed Direct & Small Friends', emoji: '🎯', ops: ['add', 'sub'], rules: ['direct', 'small'], a: [10, 89], b: [1, 9], tip: 'Direct moves mixed with Little Friends.', nameTa: 'நேரடி & லிட்டில் ஃபிரெண்ட்ஸ் கலவை', tipTa: 'நேரடி நகர்வுகளும் லிட்டில் ஃபிரெண்ட்ஸும் கலந்த பயிற்சி.' },
+  { id: 14, name: 'Mixed Small & Big Friends', emoji: '⚡', ops: ['add', 'sub'], rules: ['small', 'big'], a: [10, 89], b: [1, 9], tip: 'Switch smoothly between Little and Big Friends.', nameTa: 'லிட்டில் & பிக் ஃபிரெண்ட்ஸ் கலவை', tipTa: 'லிட்டில் மற்றும் பிக் ஃபிரெண்ட்ஸ் இரண்டும் கலந்த பயிற்சி.' },
+  { id: 15, name: 'Full Mixed Mastery', emoji: '🏆', ops: ['add', 'sub'], rules: ['direct', 'small', 'big'], a: [10, 89], b: [1, 9], tip: 'Master all soroban rules with complete confidence!', nameTa: 'முழுமையான கலவை தேர்ச்சி', tipTa: 'அனைத்து சூத்திரங்களிலும் முழுமையான தேர்ச்சி!' },
 ];
 export const MAX_LEVEL = LEVELS.length - 1;
 
