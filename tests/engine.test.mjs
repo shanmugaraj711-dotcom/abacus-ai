@@ -43,4 +43,51 @@ t('sessions have no duplicates', () => {
 });
 t('stars', () => { assert.equal(E.starsFor(8, 8), 3); assert.equal(E.starsFor(6, 8), 2); assert.equal(E.starsFor(4, 8), 1); assert.equal(E.starsFor(1, 8), 0); });
 t('little friend steps are two moves', () => { assert.equal(E.planMoves(4, 3, 'add').steps.length, 2); });
+t('Level 13: Mixed direct + small friend', () => {
+  const L = E.LEVELS[13];
+  assert.equal(L.id, 13);
+  assert.deepEqual(L.rules, ['direct', 'small']);
+  assert.deepEqual(L.ops, ['add', 'sub']);
+  assert.ok(L.name && L.tip && L.nameTa && L.tipTa);
+  const pool = E.problemPool(13);
+  assert.ok(pool.length >= 8);
+  const rules = new Set(pool.map(p => p.rule));
+  assert.ok(rules.has('direct'), 'Level 13 must include direct');
+  assert.ok(rules.has('small'), 'Level 13 must include small');
+  assert.ok(!rules.has('big'), 'Level 13 must NOT include big');
+});
+t('Level 14: Mixed small + big friend', () => {
+  const L = E.LEVELS[14];
+  assert.equal(L.id, 14);
+  assert.deepEqual(L.rules, ['small', 'big']);
+  assert.deepEqual(L.ops, ['add', 'sub']);
+  assert.ok(L.name && L.tip && L.nameTa && L.tipTa);
+  const pool = E.problemPool(14);
+  assert.ok(pool.length >= 8);
+  const rules = new Set(pool.map(p => p.rule));
+  assert.ok(rules.has('small'), 'Level 14 must include small');
+  assert.ok(rules.has('big'), 'Level 14 must include big');
+  assert.ok(!rules.has('direct'), 'Level 14 must NOT include direct');
+});
+t('Level 15: Full mixed mastery', () => {
+  const L = E.LEVELS[15];
+  assert.equal(L.id, 15);
+  assert.deepEqual(L.rules, ['direct', 'small', 'big']);
+  assert.deepEqual(L.ops, ['add', 'sub']);
+  assert.ok(L.name && L.tip && L.nameTa && L.tipTa);
+  const pool = E.problemPool(15);
+  assert.ok(pool.length >= 8);
+  const rules = new Set(pool.map(p => p.rule));
+  assert.ok(rules.has('direct'), 'Level 15 must include direct');
+  assert.ok(rules.has('small'), 'Level 15 must include small');
+  assert.ok(rules.has('big'), 'Level 15 must include big');
+});
+t('MAX_LEVEL is 15 and Tamil translations exist for all levels', () => {
+  assert.equal(E.MAX_LEVEL, 15);
+  for (let id = 1; id <= E.MAX_LEVEL; id++) {
+    const L = E.LEVELS[id];
+    assert.ok(L.nameTa && L.nameTa.trim().length > 0, `Level ${id} missing nameTa`);
+    assert.ok(L.tipTa && L.tipTa.trim().length > 0, `Level ${id} missing tipTa`);
+  }
+});
 console.log(`\nAll ${n} test groups passed`);
