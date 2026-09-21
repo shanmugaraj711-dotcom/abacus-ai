@@ -69,11 +69,9 @@ async function main(req,env){
   if(path==="/api/user-status"&&req.method==="GET"){const user=await bearer(req,env);return json({paid:!!(await firestoreGet(env,user.uid))});}
   if(path==="/api/razorpay-webhook"&&req.method==="POST"){
     const raw=await req.text(), got=String(req.headers.get("x-razorpay-signature")||"").trim().toLowerCase();
-    const sec=String(env.RAZORPAY_WEBHOOK_SECRET||"").trim(), altSec=String(env.RAZORPAY_KEY_SECRET||"").trim();
-    let valid=false;
-    if(sec&&eq(got,(await hmac(sec,raw)).toLowerCase()))valid=true;
-    else if(altSec&&eq(got,(await hmac(altSec,raw)).toLowerCase()))valid=true;
-    if(!valid)return json({error:"Invalid webhook signature"},400);
+    const sec=String(env.RAZORPAY_WEBHOOK_SECRET||"").trim();
+    const want=(await hmac(sec,raw)).toLowerCase();
+    if(!sec||!eq(got,want))return json({error:"Invalid webhook signature"},400);
     const e=JSON.parse(raw), p=e.payload?.payment?.entity, o=e.payload?.order?.entity, pay=p||null, ord=o||null;
     if(e.event==="payment.captured"||e.event==="order.paid"){const amount=Number(pay?.amount??ord?.amount),currency=pay?.currency??ord?.currency,uid=pay?.notes?.uid??ord?.notes?.uid;if(amount===PRICE&&currency==="INR"&&uid){await firestorePut(env,uid,{orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});}}
     return json({ok:true});
