@@ -71,7 +71,11 @@ export async function buyUnlock({ onSuccess, onError } = {}) {
         name: "Abacus Buddy",
         description: "Lifetime unlock — Levels 4–15",
         order_id: order.orderId,
-        prefill: { contact: user.phoneNumber || "" },
+        prefill: {
+          contact: user.phoneNumber || "",
+          email: user.email || "",
+          name: user.displayName || "",
+        },
         theme: { color: "#FFC53D" },
         handler: async (response) => {
           try {

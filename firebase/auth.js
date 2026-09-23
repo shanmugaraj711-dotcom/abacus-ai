@@ -19,6 +19,10 @@ import {
   signInWithPhoneNumber,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 import FIREBASE_CONFIG, { isConfigured } from "./config.js";
@@ -54,7 +58,18 @@ export function initFirebase() {
 
 /** Returns the cached Auth instance (call initFirebase first). */
 export function getAuthInstance() {
-  if (!_auth) throw new Error("[Phase 1] Call initFirebase() before getAuthInstance().");
+  if (!_auth) {
+    initFirebase();
+  }
+  if (typeof window !== "undefined" && window.__mockUser) {
+    return new Proxy(_auth, {
+      get(target, prop, receiver) {
+        if (prop === "currentUser") return window.__mockUser;
+        const val = Reflect.get(target, prop, receiver);
+        return typeof val === "function" ? val.bind(target) : val;
+      },
+    });
+  }
   return _auth;
 }
 
@@ -126,4 +141,43 @@ export async function signOut() {
 export function onAuthChange(callback) {
   const auth = getAuthInstance();
   return onAuthStateChanged(auth, callback);
+}
+
+/**
+ * Create a Google Auth Provider configured for account selection.
+ * @returns {GoogleAuthProvider}
+ */
+export function getGoogleProvider() {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  return provider;
+}
+
+/**
+ * Sign in with Google using a popup.
+ * @returns {Promise<UserCredential>}
+ */
+export async function signInWithGoogle() {
+  const auth = getAuthInstance();
+  const provider = getGoogleProvider();
+  return signInWithPopup(auth, provider);
+}
+
+/**
+ * Sign in with Google using a redirect (useful for mobile browsers or when popups are blocked).
+ * @returns {Promise<void>}
+ */
+export async function signInWithGoogleRedirect() {
+  const auth = getAuthInstance();
+  const provider = getGoogleProvider();
+  return signInWithRedirect(auth, provider);
+}
+
+/**
+ * Check if the user is returning from a Google redirect sign-in.
+ * @returns {Promise<UserCredential|null>}
+ */
+export async function getGoogleRedirectResult() {
+  const auth = getAuthInstance();
+  return getRedirectResult(auth);
 }

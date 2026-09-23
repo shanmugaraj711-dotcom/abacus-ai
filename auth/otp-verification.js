@@ -12,9 +12,27 @@
 
 import { verifyOtp } from "../firebase/auth.js";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+export const MAX_OTP_ATTEMPTS = 5;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let _confirmationResult = null;
 let _phone              = null;
+let _failedOtpAttempts  = 0;
+
+export function getFailedAttempts() {
+  return _failedOtpAttempts;
+}
+
+export function getConfirmationResult() {
+  return _confirmationResult;
+}
+
+export function resetOtpState() {
+  _confirmationResult = null;
+  _phone              = null;
+  _failedOtpAttempts  = 0;
+}
 
 // ── Exported entry point ──────────────────────────────────────────────────────
 
@@ -56,8 +74,18 @@ export function initOtpVerification({
 
   // Show OTP section when OTP has been sent
   window.addEventListener("abacus:otp-sent", (e) => {
-    _confirmationResult = e.detail.confirmationResult;
-    _phone              = e.detail.phone;
+    _confirmationResult = e.detail?.confirmationResult ?? null;
+    _phone              = e.detail?.phone ?? null;
+    _failedOtpAttempts  = 0;
+
+    if (otpInput) {
+      otpInput.value    = "";
+      otpInput.disabled = false;
+    }
+    if (verifyBtn) {
+      setButtonState(verifyBtn, false, "Verify OTP");
+    }
+    clearError(errorEl);
 
     if (phoneDisplay) phoneDisplay.textContent = _phone;
 
@@ -88,7 +116,7 @@ export function initOtpVerification({
   // Back / change number
   if (backBtn) {
     backBtn.addEventListener("click", () => {
-      resetState(otpSection, otpInput, errorEl);
+      resetState(otpSection, otpInput, errorEl, verifyBtn);
       if (onBack) onBack();
     });
   }
@@ -106,8 +134,14 @@ async function handleVerify({ otpInput, verifyBtn, errorEl, onSignedIn }) {
     return;
   }
 
-  if (!_confirmationResult) {
-    setError(errorEl, "Session expired. Please go back and request a new OTP.");
+  if (!_confirmationResult || _failedOtpAttempts >= MAX_OTP_ATTEMPTS) {
+    _confirmationResult = null;
+    setButtonState(verifyBtn, true, "Session Expired");
+    if (otpInput) otpInput.disabled = true;
+    setError(
+      errorEl,
+      `Maximum incorrect attempts reached (${MAX_OTP_ATTEMPTS}). This verification session has expired. Please request a new code.`
+    );
     return;
   }
 
@@ -115,26 +149,62 @@ async function handleVerify({ otpInput, verifyBtn, errorEl, onSignedIn }) {
 
   try {
     const credential = await verifyOtp(_confirmationResult, otp);
+    _failedOtpAttempts = 0;
     setButtonState(verifyBtn, false, "Verify OTP");
 
     if (onSignedIn) onSignedIn(credential);
   } catch (err) {
-    setButtonState(verifyBtn, false, "Verify OTP");
-    setError(errorEl, friendlyError(err));
-    console.error("[Phase 1 otp] verifyOtp error:", err);
+    _failedOtpAttempts += 1;
+    console.error(`[Phase 1 otp] verifyOtp error (attempt ${_failedOtpAttempts}/${MAX_OTP_ATTEMPTS}):`, err);
 
-    // On expired session, clear stored result so user knows to resend
-    if (err?.code === "auth/session-expired" || err?.code === "auth/code-expired") {
+    if (_failedOtpAttempts >= MAX_OTP_ATTEMPTS) {
       _confirmationResult = null;
+      setButtonState(verifyBtn, true, "Session Expired");
+      if (otpInput) otpInput.disabled = true;
+      setError(
+        errorEl,
+        `Maximum incorrect attempts reached (${MAX_OTP_ATTEMPTS}). This verification session has expired. Please request a new code.`
+      );
+      window.dispatchEvent(
+        new CustomEvent("abacus:otp-session-expired", {
+          detail: { attempts: _failedOtpAttempts, phone: _phone },
+        })
+      );
+    } else {
+      setButtonState(verifyBtn, false, "Verify OTP");
+      const remaining = MAX_OTP_ATTEMPTS - _failedOtpAttempts;
+      const attemptNote = `${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`;
+
+      if (err?.code === "auth/invalid-verification-code") {
+        setError(errorEl, `Incorrect code. ${attemptNote}`);
+      } else {
+        setError(errorEl, `${friendlyError(err)} (${attemptNote})`);
+      }
+
+      // On expired session from Firebase, clear stored result so user knows to resend
+      if (err?.code === "auth/session-expired" || err?.code === "auth/code-expired") {
+        _confirmationResult = null;
+        setButtonState(verifyBtn, true, "Session Expired");
+        if (otpInput) otpInput.disabled = true;
+      }
     }
   }
 }
 
-function resetState(otpSection, otpInput, errorEl) {
+function resetState(otpSection, otpInput, errorEl, verifyBtn) {
   _confirmationResult = null;
   _phone              = null;
-  otpInput.value      = "";
-  otpSection.hidden   = true;
+  _failedOtpAttempts  = 0;
+  if (otpInput) {
+    otpInput.value    = "";
+    otpInput.disabled = false;
+  }
+  if (verifyBtn) {
+    setButtonState(verifyBtn, false, "Verify OTP");
+  }
+  if (otpSection) {
+    otpSection.hidden = true;
+  }
   clearError(errorEl);
 }
 

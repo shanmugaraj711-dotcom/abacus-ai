@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<title>Phone Auth — Phase 1 Test · Abacus Buddy</title>
+<title>Sign In · Abacus Buddy</title>
 
 <!-- Fonts (same as main app) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@600;700;800&display=swap">
 
-<!-- Phase 1 isolated stylesheet — does NOT import or modify css/app.css -->
+<!-- Auth stylesheet — does NOT import or modify css/app.css -->
 <link rel="stylesheet" href="../auth-ui/auth.css">
 
 <!--
@@ -28,9 +28,9 @@
 
     <!-- ── Header ─────────────────────────────────────────────────── -->
     <div class="phase1-header">
-      <div class="phase1-badge">Phase 1 · Auth Test</div>
-      <h1 class="phase1-title">🔐 Phone Sign-In</h1>
-      <p class="phase1-subtitle">Firebase Phone Auth — isolated test surface</p>
+      <div class="phase1-badge">Parent Access</div>
+      <h1 class="phase1-title">🔐 Parent Sign-In</h1>
+      <p class="phase1-subtitle">Enter your mobile number to unlock Levels 4–15</p>
     </div>
 
     <!-- ── Config blocker (shown when firebase/config.js is unconfigured) ── -->
@@ -51,19 +51,74 @@
 
     <!-- ── Step 1: Phone number entry ─────────────────────────────── -->
     <section id="phase1-signin-section" hidden>
-      <div class="phase1-field">
-        <label class="phase1-label" for="phase1-phone">Phone number</label>
-        <input
-          id="phase1-phone"
-          class="phase1-input"
-          type="tel"
-          inputmode="tel"
-          autocomplete="tel"
-          placeholder="+91 98765 43210"
-          aria-describedby="phase1-phone-hint phase1-phone-error"
+      <!-- Google Sign-In (Primary Parent Experience) -->
+      <div class="phase1-google-wrapper">
+        <button
+          id="phase1-google-btn"
+          class="phase1-google-btn"
+          type="button"
+          aria-label="Sign in with Google"
         >
+          <svg class="phase1-google-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>Sign in with Google</span>
+        </button>
+      </div>
+
+      <div class="phase1-info-card">
+        <ul>
+          <li>One-time purchase of ₹499 permanently linked to your Google account</li>
+          <li>Instant 1-tap sign-in — no SMS or OTP delays</li>
+        </ul>
+      </div>
+
+      <div class="phase1-divider">
+        <span>or sign in with phone</span>
+      </div>
+
+      <div class="phase1-field">
+        <label class="phase1-label" for="phase1-phone">Mobile Number</label>
+        <div class="phase1-phone-row">
+          <select
+            id="phase1-country"
+            class="phase1-country-select"
+            aria-label="Country code"
+          >
+            <option value="+91" selected>🇮🇳 +91 (India)</option>
+            <option value="+1">🇺🇸 +1 (US/Canada)</option>
+            <option value="+44">🇬🇧 +44 (UK)</option>
+            <option value="+971">🇦🇪 +971 (UAE)</option>
+            <option value="+65">🇸🇬 +65 (Singapore)</option>
+            <option value="+60">🇲🇾 +60 (Malaysia)</option>
+            <option value="+61">🇦🇺 +61 (Australia)</option>
+            <option value="+966">🇸🇦 +966 (Saudi Arabia)</option>
+            <option value="+974">🇶🇦 +974 (Qatar)</option>
+            <option value="+968">🇴🇲 +968 (Oman)</option>
+            <option value="+965">🇰🇼 +965 (Kuwait)</option>
+            <option value="+973">🇧🇭 +973 (Bahrain)</option>
+            <option value="+49">🇩🇪 +49 (Germany)</option>
+            <option value="+33">🇫🇷 +33 (France)</option>
+            <option value="+81">🇯🇵 +81 (Japan)</option>
+            <option value="+64">🇳🇿 +64 (New Zealand)</option>
+          </select>
+          <input
+            id="phase1-phone"
+            class="phase1-input phase1-phone-input"
+            type="tel"
+            inputmode="numeric"
+            autocomplete="tel-national"
+            placeholder="98765 43210"
+            maxlength="16"
+            autofocus
+            aria-describedby="phase1-phone-hint phase1-phone-error"
+          >
+        </div>
         <span id="phase1-phone-hint" class="phase1-hint">
-          Include country code, e.g. +91 for India
+          Enter 10-digit mobile number
         </span>
       </div>
 
@@ -139,12 +194,20 @@
         <div class="phase1-success-icon">✅</div>
         <h2>Signed In Successfully</h2>
         <ul class="phase1-user-info">
-          <li><strong>Phone:</strong> <span id="phase1-user-phone"></span></li>
+          <li id="phase1-user-name-row"><strong>Account:</strong> <span id="phase1-user-display-name"></span></li>
+          <li><strong>Phone / Email:</strong> <span id="phase1-user-phone"></span></li>
           <li><strong>UID:</strong> <span id="phase1-user-uid"
             style="font-size:.78rem;word-break:break-all"></span></li>
         </ul>
         <p class="phase1-token-line" id="phase1-token-status">Fetching ID token…</p>
         <div class="phase1-btn-row">
+          <a
+            id="phase1-continue-btn"
+            class="phase1-btn phase1-btn-primary"
+            href="../#unlock"
+          >
+            Continue to Unlock Levels 4–15 →
+          </a>
           <button
             id="phase1-signout-btn"
             class="phase1-btn phase1-btn-danger"
@@ -159,7 +222,7 @@
   </div><!-- /.phase1-card -->
 
   <p class="phase1-footer">
-    Abacus Buddy — Phase 1 Auth Test Surface ·
+    Abacus Buddy ·
     <a href="../index.html">Back to app</a>
   </p>
 </div><!-- /.phase1-shell -->
