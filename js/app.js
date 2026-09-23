@@ -7,7 +7,7 @@ import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
 import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
-import { getAuthInstance } from '../firebase/auth.js';
+import { getAuthInstance, signInWithGoogle } from '../firebase/auth.js';
 import {
   app, esc, $, $$, wait, newToken, currentToken, alive, every, clearTimers, setRouter, go,
   lang, T, V, say, voiceLang, lessonTitle, lvName, lvTip, kidName, lessonDone, AVATARS, stars, mmss,
@@ -40,32 +40,58 @@ const levelAllowed = id => id >= 1 && id <= playableMax();
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
-  shell({ title: 'Unlock Levels 4–15', back: '#/home', body: `
+  const isTa = lang() === 'ta';
+  const ctaText = isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to unlock with Google';
+  shell({ title: isTa ? 'லெவல் 4–15 திறக்கவும்' : 'Unlock Levels 4–15', back: '#/practice', body: `
     <section class="card intro">
       ${babi('happy', 'big bob')}
-      <p class="eyebrow">Abacus Buddy lifetime unlock</p>
-      <h2 class="display">Levels 4–15</h2>
-      <p class="lead">One-time payment of <b>₹499</b>. No subscription.</p>
-      <ul class="muted"><li>Levels 1–3 stay free.</li><li>Levels 4–15 unlock permanently for this account.</li><li>Payment is processed securely by Razorpay.</li></ul>
+      <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்' : 'Abacus Buddy lifetime unlock'}</p>
+      <h2 class="display">${isTa ? 'லெவல்கள் 4–15' : 'Levels 4–15'}</h2>
+      <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <b>₹499</b> மட்டும். சந்தா ஏதும் இல்லை.' : 'One-time payment of <b>₹499</b>. No subscription.'}</p>
+      <ul class="muted">
+        <li>${isTa ? 'லெவல்கள் 1–3 எப்போதும் இலவசம்.' : 'Levels 1–3 stay free.'}</li>
+        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 4–15 நிரந்தரமாக திறக்கப்படும்.' : 'Levels 4–15 unlock permanently for this account.'}</li>
+        <li>${isTa ? 'Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்.' : 'Payment is processed securely by Razorpay.'}</li>
+      </ul>
       <div class="stack">
-        ${signedIn ? `<button class="btn primary wide" id="buy">Unlock for ₹499</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../#unlock">Sign in to unlock</a>`}
-        <a class="btn ghost wide" href="#/home">Not now</a>
+        ${signedIn ? `<button class="btn primary wide" id="buy">${isTa ? '₹499 செலுத்தி திறக்கவும்' : 'Unlock for ₹499'}</button>` : `<a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a>`}
+        <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
       </div>
       <p class="muted tiny center" id="pay-status"></p>
     </section>` });
+
+  const signinBtn = $('#signin-btn');
+  if (signinBtn) {
+    signinBtn.onclick = async (e) => {
+      if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
+        try {
+          signinBtn.textContent = isTa ? 'Google உள்நுழைகிறது…' : 'Connecting to Google…';
+          const cred = await signInWithGoogle();
+          if (cred?.user) {
+            e.preventDefault();
+            unlock();
+            return;
+          }
+        } catch (err) {
+          console.warn('[Unlock] Popup sign-in fallback to sign-in page:', err);
+        }
+      }
+    };
+  }
+
   const buy = $('#buy');
   if (buy) buy.onclick = async () => {
-    buy.disabled = true; buy.textContent = 'Opening secure checkout…';
+    buy.disabled = true; buy.textContent = isTa ? 'பாதுகாப்பான கட்டண முறை திறக்கிறது…' : 'Opening secure checkout…';
     const msg = $('#pay-status');
     try {
       await buyUnlock({
-        onSuccess: () => { if (msg) msg.textContent = 'Payment verified ✓ Levels 4–15 are unlocked.'; },
+        onSuccess: () => { if (msg) msg.textContent = isTa ? 'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 4–15 திறக்கப்பட்டன.' : 'Payment verified ✓ Levels 4–15 are unlocked.'; },
         onError: e => { if (msg) msg.textContent = e.message; },
       });
       if (isPaid()) setTimeout(() => go('#/practice'), 700);
     } catch (e) {
       if (msg) msg.textContent = e.message;
-      buy.disabled = false; buy.textContent = 'Unlock for ₹499';
+      buy.disabled = false; buy.textContent = isTa ? '₹499 செலுத்தி திறக்கவும்' : 'Unlock for ₹499';
     }
   };
 }
@@ -158,52 +184,67 @@ function welcome() {
 const GAME_COUNT = () => ['gameRace', 'gameMystery', 'gameMatch', 'gameFlash', 'gameSpeedRead', 'gameFriendDash', 'gameLadder'].filter(isOn).length;
 const examsOpen = () => (isOn('tests') || isOn('exams')) && examList().length > 0;
 const testLine = () => {
+  const isTa = lang() === 'ta';
   const passed = state.exams.filter(r => r.passed).length;
+  if (isTa) return passed ? `${passed} சான்றிதழ் வென்றீர்கள்` : 'தேர்வை முயற்சி செய்';
   return passed ? `${passed} certificate${passed === 1 ? '' : 's'} earned` : 'Try a real test';
 };
 
 function nextMission() {
+  if (state.unlocked > freeMax() && !isPaid()) {
+    const nextLv = freeMax() + 1;
+    return {
+      href: '#/unlock',
+      emoji: '🔐',
+      label: lang() === 'ta' ? `லெவல் ${nextLv} திற` : `Unlock Level ${nextLv}–${MAX_LEVEL}`,
+      say: lang() === 'ta' ? `லெவல் ${nextLv} திறக்கலாம்!` : `Ready to unlock Level ${nextLv}?`,
+      kind: 'unlock',
+      voiceTitle: lang() === 'ta' ? `லெவல் ${nextLv} திற` : `Unlock Level ${nextLv}`,
+    };
+  }
   const lvl = Math.min(state.unlocked, playableMax());
   const need = LESSON_FOR_LEVEL[lvl] || 11;
   const lesson = LESSONS.find(l => l.id <= need && !lessonDone(l.id));
-  if (lesson && state.profile.experience !== 'known') return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கத்துக்க' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
+  if (lesson && state.profile.experience !== 'known') return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கற்றல்' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
   const L = LEVELS[lvl];
   return { href: `#/level/${lvl}`, emoji: L.emoji, label: `${lang() === 'ta' ? 'பயிற்சி' : 'Practise'} — ${lvl}: ${lvName(L)}`, say: T('missionPractise', lvName(L)), kind: 'level', voiceTitle: voiceLang() === 'ta' ? (L.nameTa || L.name) : L.name };
 }
 
 function home() {
+  const isTa = lang() === 'ta';
   const m = nextMission(), sk = streak();
   shell({ body: `
     <section class="hello">
       <div class="kid-avatar">${esc(state.profile.avatar)}</div>
-      <div><p class="eyebrow">Welcome back</p><h2 class="display">Hi, ${kidName()}!</h2></div>
-      <span class="chip ${sk ? 'fire' : ''}">🔥 ${sk} day${sk === 1 ? '' : 's'}</span>
+      <div><p class="eyebrow">${isTa ? 'மீண்டும் வருக' : 'Welcome back'}</p><h2 class="display">Hi, ${kidName()}!</h2></div>
+      <span class="chip ${sk ? 'fire' : ''}">🔥 ${sk} ${isTa ? 'நாள்' : `day${sk === 1 ? '' : 's'}`}</span>
     </section>
     <a class="mission" href="${m.href}">
       <div class="mission-babi">${babi('happy', 'bob')}</div>
-      <div><p class="eyebrow">Babi says do this next</p><b>${m.emoji} ${esc(m.label)}</b></div>
+      <div><p class="eyebrow">${isTa ? 'பாபி அடுத்ததா இதை பண்ண சொல்றாரு' : 'Babi says do this next'}</p><b>${m.emoji} ${esc(m.label)}</b></div>
       <span class="go">▶</span>
     </a>
-    ${(() => { const fresh = earned().filter(x => !state.stickersSeen.includes(x.id)); return fresh.length ? `<a class="new-sticker" href="#/stickers"><span>${fresh[0].e}</span><div><b>New sticker!</b><small>${esc(fresh[0].name)} — tap to see</small></div></a>` : ''; })()}
+    ${(() => { const fresh = earned().filter(x => !state.stickersSeen.includes(x.id)); return fresh.length ? `<a class="new-sticker" href="#/stickers"><span>${fresh[0].e}</span><div><b>${isTa ? 'புதிய ஸ்டிக்கர்!' : 'New sticker!'}</b><small>${esc(fresh[0].name)} — ${isTa ? 'பார்க்க தொடவும்' : 'tap to see'}</small></div></a>` : ''; })()}
     <nav class="tiles">
-      ${isOn('learn') ? `<a class="tile learn" href="#/learn"><span>📘</span><b>Learn</b><small>${state.lessonsDone.length} of ${LESSONS.length} lessons</small></a>` : ''}
-      ${isOn('practice') ? `<a class="tile practice" href="#/practice"><span>🎯</span><b>Practise</b><small>Level ${Math.min(state.unlocked, MAX_LEVEL)} open</small></a>` : ''}
-      ${isOn('play') ? `<a class="tile play" href="#/play"><span>🎮</span><b>Play</b><small>${GAME_COUNT()} bead games</small></a>` : ''}
-      ${examsOpen() ? `<a class="tile tests" href="#/tests"><span>📝</span><b>Tests</b><small>${testLine()}</small></a>` : ''}
-      ${isOn('freePlay') ? `<a class="tile free" href="#/free"><span>✋</span><b>Free Play</b><small>Just move beads</small></a>` : ''}
+      ${isOn('learn') ? `<a class="tile learn" href="#/learn"><span>📘</span><b>${isTa ? 'கற்றல்' : 'Learn'}</b><small>${isTa ? `${state.lessonsDone.length}/${LESSONS.length} பாடங்கள்` : `${state.lessonsDone.length} of ${LESSONS.length} lessons`}</small></a>` : ''}
+      ${isOn('practice') ? `<a class="tile practice" href="#/practice"><span>🎯</span><b>${isTa ? 'பயிற்சி' : 'Practise'}</b><small>${isTa ? `லெவல் ${Math.min(state.unlocked, MAX_LEVEL)} தயார்` : `Level ${Math.min(state.unlocked, MAX_LEVEL)} open`}</small></a>` : ''}
+      ${isOn('play') ? `<a class="tile play" href="#/play"><span>🎮</span><b>${isTa ? 'விளையாட்டு' : 'Play'}</b><small>${isTa ? `${GAME_COUNT()} மணி விளையாட்டுகள்` : `${GAME_COUNT()} bead games`}</small></a>` : ''}
+      ${examsOpen() ? `<a class="tile tests" href="#/tests"><span>📝</span><b>${isTa ? 'தேர்வுகள்' : 'Tests'}</b><small>${testLine()}</small></a>` : ''}
+      ${isOn('freePlay') ? `<a class="tile free" href="#/free"><span>✋</span><b>${isTa ? 'சுய பயிற்சி' : 'Free Play'}</b><small>${isTa ? 'மணிகளை நகர்த்தி பழகு' : 'Just move beads'}</small></a>` : ''}
     </nav>
-    ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>My Stickers</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
-    <a class="grownups" href="#/parents">👨‍👩‍👧 Grown-ups corner</a>` });
+    ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>${isTa ? 'என் ஸ்டிக்கர்கள்' : 'My Stickers'}</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
+    <a class="grownups" href="#/parents">👨‍👩‍👧 ${isTa ? 'பெற்றோருக்கான பகுதி' : 'Grown-ups corner'}</a>` });
   setTimeout(() => say(voiceLang() === 'ta'
     ? (m.kind === 'lesson' ? V('missionLearn', m.voiceTitle) : V('missionPractise', m.voiceTitle))
     : V('hello', state.profile.name, m.say)), 250);
 }
 
 function free() {
-  shell({ title: 'Free Play', back: '#/home', body: `
+  const isTa = lang() === 'ta';
+  shell({ title: isTa ? 'சுய பயிற்சி' : 'Free Play', back: '#/home', body: `
     ${bubble(T('freePlay'), 'happy')}
     <div data-abacus></div>
-    <div class="row center"><button class="btn" id="clear">↺ Clear</button><button class="btn" id="rods">Use 3 rods</button></div>` });
+    <div class="row center"><button class="btn" id="clear">↺ ${isTa ? 'அழி' : 'Clear'}</button><button class="btn" id="rods">${isTa ? '3 ராடுகள் பயன்படுத்து' : 'Use 3 rods'}</button></div>` });
 
   let rods = 2;
   const build = () => {
@@ -211,13 +252,20 @@ function free() {
     $('#clear').onclick = () => { v.set(0); $('[data-say]').textContent = T('allClear'); };
   };
   build();
-  $('#rods').onclick = e => { rods = rods === 2 ? 3 : 2; e.currentTarget.textContent = rods === 2 ? 'Use 3 rods' : 'Use 2 rods'; build(); };
+  $('#rods').onclick = e => {
+    rods = rods === 2 ? 3 : 2;
+    e.currentTarget.textContent = isTa
+      ? (rods === 2 ? '3 ராடுகள் பயன்படுத்து' : '2 ராடுகள் பயன்படுத்து')
+      : (rods === 2 ? 'Use 3 rods' : 'Use 2 rods');
+    build();
+  };
 }
 
 // ---------- Learn ----------
 function learnMap() {
+  const isTa = lang() === 'ta';
   const known = state.profile.experience === 'known';
-  shell({ title: 'Learn', back: '#/home', body: `
+  shell({ title: isTa ? 'கற்றல்' : 'Learn', back: '#/home', body: `
     ${bubble(T('pickLesson'), 'happy')}
     <ol class="path">${LESSONS.map((l, i) => {
       const done = lessonDone(l.id), open = known || i === 0 || lessonDone(LESSONS[i - 1].id);
@@ -225,7 +273,7 @@ function learnMap() {
       return `<li class="stone ${done ? 'done' : ''} ${next ? 'next' : ''} ${open ? '' : 'locked'}">
         <a ${open ? `href="#/lesson/${l.id}"` : 'aria-disabled="true"'}>
           <span class="stone-emoji">${open ? l.emoji : '🔒'}</span>
-          <span><small>Lesson ${l.id}</small><b>${esc(lessonTitle(l))}</b></span>
+          <span><small>${isTa ? `பாடம் ${l.id}` : `Lesson ${l.id}`}</small><b>${esc(lessonTitle(l))}</b></span>
           <span class="stone-end">${done ? '✅' : next ? '▶' : ''}</span>
         </a></li>`;
     }).join('')}</ol>` });
@@ -239,6 +287,7 @@ function lesson(id) {
 
 
   function finish() {
+    const isTa = lang() === 'ta';
     const first = !lessonDone(id);
     if (first) { state.lessonsDone.push(id); L.unlocks.forEach(lv => { state.unlocked = Math.max(state.unlocked, lv); }); markDay(); save(); }
     sfx.star(); confetti();
@@ -248,13 +297,13 @@ function lesson(id) {
     $('[data-step]').innerHTML = `
       <section class="done-card">
         ${babi('cheer', 'big bob')}
-        <h2 class="display">Lesson done!</h2>
-        <p class="lead">You learned <b>${esc(lessonTitle(L))}</b>. ${first ? 'You earned a star ★' : ''}</p>
-        ${lv ? `<p class="unlock">🎯 Practice Level ${lv} is open!</p>` : ''}
+        <h2 class="display">${isTa ? 'பாடம் முடிந்தது!' : 'Lesson done!'}</h2>
+        <p class="lead">${isTa ? `<b>${esc(lessonTitle(L))}</b> கற்றுக்கொண்டீர்கள். ${first ? 'ஒரு நட்சத்திரம் கிடைத்தது ★' : ''}` : `You learned <b>${esc(lessonTitle(L))}</b>. ${first ? 'You earned a star ★' : ''}`}</p>
+        ${lv ? `<p class="unlock">${isTa ? `🎯 பயிற்சி லெவல் ${lv} திறக்கப்பட்டது!` : `🎯 Practice Level ${lv} is open!`}</p>` : ''}
         <div class="stack">
-          ${lv ? `<a class="btn primary wide" href="#/level/${lv}">Practise it now →</a>` : ''}
-          ${nextL ? `<a class="btn ${lv ? '' : 'primary'} wide" href="#/lesson/${nextL.id}">Next lesson: ${esc(lessonTitle(nextL))}</a>` : ''}
-          <a class="btn ghost wide" href="#/home">Home</a>
+          ${lv ? `<a class="btn primary wide" href="#/level/${lv}">${isTa ? 'இப்போதே பயிற்சி செய் →' : 'Practise it now →'}</a>` : ''}
+          ${nextL ? `<a class="btn ${lv ? '' : 'primary'} wide" href="#/lesson/${nextL.id}">${isTa ? 'அடுத்த பாடம்:' : 'Next lesson:'} ${esc(lessonTitle(nextL))}</a>` : ''}
+          <a class="btn ghost wide" href="#/home">${isTa ? 'முகப்பு' : 'Home'}</a>
         </div>
       </section>`;
     say(V('lessonDone', state.profile.name));
@@ -266,7 +315,10 @@ function lesson(id) {
     const s = L.steps[i];
     $('.progress i').style.width = `${(i / L.steps.length) * 100}%`;
     const box = $('[data-step]');
-    const nextBtn = (label = 'Next →', hidden = false) => `<button class="btn primary wide" data-next ${hidden ? 'hidden' : ''}>${label}</button>`;
+    const nextBtn = (label = 'Next →', hidden = false) => {
+      const lbl = (lang() === 'ta' && label === 'Next →') ? 'அடுத்து →' : label;
+      return `<button class="btn primary wide" data-next ${hidden ? 'hidden' : ''}>${lbl}</button>`;
+    };
     const bindNext = () => { const b = $('[data-next]'); if (b) b.onclick = () => { sfx.tap(); stopTalking(); i++; step(); }; };
     const showNext = () => { const b = $('[data-next]'); if (b) { b.hidden = false; b.focus({ preventScroll: true }); } };
 
@@ -280,8 +332,8 @@ function lesson(id) {
     }
 
     if (s.t === 'build') {
-      box.innerHTML = `${bubble(line)}<div class="goal">Make <b>${s.target}</b></div><div data-abacus></div>
-        <div class="row center"><button class="btn" data-help>🙋 Show me</button></div>${nextBtn('Next →', true)}`;
+      box.innerHTML = `${bubble(line)}<div class="goal">${lang() === 'ta' ? `<b>${s.target}</b> உருவாக்கு` : `Make <b>${s.target}</b>`}</div><div data-abacus></div>
+        <div class="row center"><button class="btn" data-help>🙋 ${lang() === 'ta' ? 'எனக்கு காட்டு' : 'Show me'}</button></div>${nextBtn('Next →', true)}`;
       let done = false;
       const v = createAbacus($('[data-abacus]'), { rods: s.rods, onChange: n => {
         if (done) return;
@@ -307,12 +359,12 @@ function lesson(id) {
 
     if (s.t === 'demo') {
       box.innerHTML = `${bubble(line)}<div class="equation">${s.a} ${sign(s.op)} ${s.b}</div><div data-abacus></div>
-        <div class="row center"><button class="btn primary" data-play>▶ ${lang() === 'ta' ? 'Babi பண்றத பாரு' : 'Watch Babi'}</button></div>${nextBtn('Next →', true)}`;
+        <div class="row center"><button class="btn primary" data-play>▶ ${lang() === 'ta' ? 'பாபி பண்றத பாரு' : 'Watch Babi'}</button></div>${nextBtn('Next →', true)}`;
       const v = createAbacus($('[data-abacus]'), { rods: 2, value: s.a, interactive: false });
       $('[data-play]').onclick = async e => {
         const btn = e.currentTarget; btn.disabled = true;
         const ok = await playDemo(v, s.a, s.b, s.op, $('[data-say]'), t);
-        if (!ok) return; btn.disabled = false; btn.textContent = '↺ Watch again'; showNext();
+        if (!ok) return; btn.disabled = false; btn.textContent = lang() === 'ta' ? '↺ திரும்ப பாரு' : '↺ Watch again'; showNext();
       };
       bindNext(); say(voiceLine);
     }
@@ -320,7 +372,7 @@ function lesson(id) {
     if (s.t === 'solve') {
       const answer = s.op === 'add' ? s.a + s.b : s.a - s.b;
       box.innerHTML = `${bubble(line)}<div class="equation">${s.a} ${sign(s.op)} ${s.b} = <b>?</b></div><div data-abacus></div>
-        <div class="row center"><button class="btn" data-reset>↺ Reset</button><button class="btn" data-show>🙋 Show me</button><button class="btn primary" data-check>✓ Check</button></div>${nextBtn('Next →', true)}`;
+        <div class="row center"><button class="btn" data-reset>↺ ${lang() === 'ta' ? 'மீட்டமை' : 'Reset'}</button><button class="btn" data-show>🙋 ${lang() === 'ta' ? 'எனக்கு காட்டு' : 'Show me'}</button><button class="btn primary" data-check>✓ ${lang() === 'ta' ? 'சரிபார்' : 'Check'}</button></div>${nextBtn('Next →', true)}`;
       let tries = 0;
       const v = createAbacus($('[data-abacus]'), { rods: 2, value: s.a });
       $('[data-reset]').onclick = () => { v.set(s.a); sfx.tap(); };
@@ -374,35 +426,37 @@ function lesson(id) {
 
 // ---------- Practice ----------
 function practiceMap() {
-  shell({ title: 'Practise', back: '#/home', body: `
+  const isTa = lang() === 'ta';
+  shell({ title: isTa ? 'பயிற்சி' : 'Practise', back: '#/home', body: `
     ${bubble(T('pickLevel'), 'happy')}
     <div class="levels">${LEVELS.slice(1).map(L => {
       const open = levelAllowed(L.id), paywall = !open && L.id > freeMax(), rec = state.levels[L.id];
       return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${open ? `href="#/level/${L.id}"` : paywall ? 'href="#/unlock"' : 'aria-disabled="true"'}>
         <span class="lv-emoji">${open ? L.emoji : paywall ? '🔐' : '🔒'}</span>
-        <span class="lv-body"><small>Level ${L.id}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
-        ${paywall ? '<strong>₹499 unlock</strong>' : stars(rec?.stars || 0)}
+        <span class="lv-body"><small>${isTa ? `லெவல் ${L.id}` : `Level ${L.id}`}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
+        ${paywall ? `<strong>${isTa ? '₹499 செலுத்தி திற' : '₹499 unlock'}</strong>` : stars(rec?.stars || 0)}
       </a>`;
     }).join('')}</div>` });
 
 }
 
 function levelIntro(id) {
+  const isTa = lang() === 'ta';
   const L = LEVELS[id]; if (!L) return go('#/practice');
   if (!levelAllowed(id)) return go('#/unlock');
   const needLesson = LESSON_FOR_LEVEL[id], lessonNeeded = needLesson && !lessonDone(needLesson);
   const LL = LESSONS.find(l => l.id === needLesson);
-  shell({ title: `Level ${id}`, back: '#/practice', body: `
+  shell({ title: isTa ? `லெவல் ${id}` : `Level ${id}`, back: '#/practice', body: `
     <section class="intro card">
       <div class="lv-big">${L.emoji}</div>
-      <p class="eyebrow">Level ${id}</p>
+      <p class="eyebrow">${isTa ? `லெவல் ${id}` : `Level ${id}`}</p>
       <h2 class="display">${esc(lvName(L))}</h2>
       <p class="lead">${esc(lvTip(L))}</p>
-      <p class="muted">8 sums · build each answer with beads</p>
-      ${lessonNeeded ? `<div class="notice">${babi('think')}<p>This uses a new trick! Babi can teach <b>${esc(lessonTitle(LL))}</b> first.</p></div>
-        <a class="btn primary wide" href="#/lesson/${needLesson}">📘 Learn the trick first</a>
-        <button class="btn wide" data-start>I'm ready — start</button>`
-      : `<button class="btn primary wide" data-start>Start ▶</button>`}
+      <p class="muted">${isTa ? '8 கணக்குகள் · மணிகளால் பதிலை உருவாக்கவும்' : '8 sums · build each answer with beads'}</p>
+      ${lessonNeeded ? `<div class="notice">${babi('think')}<p>${isTa ? `இதுல ஒரு புது வித்தை இருக்கு! முதல்ல பாபி <b>${esc(lessonTitle(LL))}</b> கற்றுக்கொடுப்பார்.` : `This uses a new trick! Babi can teach <b>${esc(lessonTitle(LL))}</b> first.`}</p></div>
+        <a class="btn primary wide" href="#/lesson/${needLesson}">📘 ${isTa ? 'முதலில் வித்தையை கற்றுக்கொள்' : 'Learn the trick first'}</a>
+        <button class="btn wide" data-start>${isTa ? 'தயார் — ஆரம்பிக்கலாம்' : "I'm ready — start"}</button>`
+      : `<button class="btn primary wide" data-start>${isTa ? 'ஆரம்பி ▶' : 'Start ▶'}</button>`}
     </section>` });
   $('[data-start]').onclick = () => practice(id);
   say(V('levelIntro', id, voiceLang() === 'ta' ? (L.nameTa || L.name) : L.name, voiceLang() === 'ta' ? (L.tipTa || L.tip) : L.tip));
@@ -420,9 +474,9 @@ function practice(id) {
     <p class="muted center" data-start-note></p>
     <div data-abacus></div>
     <div class="row center">
-      <button class="btn" data-reset>↺ Reset</button>
-      <button class="btn" data-help>💡 Help</button>
-      <button class="btn primary" data-check>✓ Check</button>
+      <button class="btn" data-reset>↺ ${lang() === 'ta' ? 'மீட்டமை' : 'Reset'}</button>
+      <button class="btn" data-help>💡 ${lang() === 'ta' ? 'உதவி' : 'Help'}</button>
+      <button class="btn primary" data-check>✓ ${lang() === 'ta' ? 'சரிபார்' : 'Check'}</button>
     </div>
     ${bubble(T('buildAnswer'), 'happy')}
     <ol class="plan" data-plan hidden></ol>` });
@@ -455,7 +509,7 @@ function practice(id) {
     const p = session[idx]; helped = true;
     const plan = planMoves(p.a, p.b, p.op);
     const list = $('[data-plan]');
-    list.innerHTML = plan.steps.map(st => `<li>${esc(T('step', st))}</li>`).join('') + `<li class="watch"><button class="btn small" data-watch>▶ ${lang() === 'ta' ? 'Babi பண்றத பாரு' : 'Watch Babi do it'}</button></li>`;
+    list.innerHTML = plan.steps.map(st => `<li>${esc(T('step', st))}</li>`).join('') + `<li class="watch"><button class="btn small" data-watch>▶ ${lang() === 'ta' ? 'பாபி பண்றத பாரு' : 'Watch Babi do it'}</button></li>`;
     list.hidden = false; $('[data-watch]').onclick = watch;
     setBubble(T('step', plan.steps[0]), 'talk', true, V('step', plan.steps[0]));
   };
@@ -479,6 +533,7 @@ function practice(id) {
   show();
 
   function end() {
+    const isTa = lang() === 'ta';
     const s = starsFor(firstTry, session.length);
     const rec = state.levels[id] || { stars: 0, best: 0, plays: 0 };
     rec.plays++; rec.stars = Math.max(rec.stars, s); rec.best = Math.max(rec.best, firstTry); state.levels[id] = rec;
@@ -486,20 +541,31 @@ function practice(id) {
     let unlockedNew = false;
     if (s >= 1 && id === state.unlocked && id < MAX_LEVEL) { state.unlocked = id + 1; unlockedNew = true; }
     const canNext = id < MAX_LEVEL && levelAllowed(id + 1);
+    const needsUnlock = s >= 1 && id < MAX_LEVEL && !canNext && (id + 1 > freeMax());
     saveNow();
     if (s >= 2) { sfx.star(); confetti(); } else sfx.good();
     const msg = T('resultMsg', s);
+    const continueLabel = lang() === 'ta'
+      ? `லெவல் ${id + 1}க்கு தொடரவும் →`
+      : `Continue to Level ${id + 1} →`;
+    const nextLabel = lang() === 'ta' ? 'அடுத்த லெவல் →' : 'Next level →';
+    const unlockNote = lang() === 'ta'
+      ? `🌟 லெவல் ${id} முடிச்சாச்சு! லெவல் ${id + 1}க்கு போகலாமா?`
+      : `🌟 Level ${id} complete! Ready for Level ${id + 1}?`;
+
     $('.view').innerHTML = `
       <section class="done-card">
         ${babi(s ? 'cheer' : 'happy', 'big bob')}
         <h2 class="display">${msg}</h2>
         <div class="big-stars">${stars(s)}</div>
-        <p class="lead"><b>${firstTry}</b> of ${session.length} right on the first try</p>
-        ${unlockedNew ? `<p class="unlock">🎉 Level ${id + 1}: ${esc(lvName(LEVELS[id + 1]))} is open!</p>` : ''}
+        <p class="lead">${isTa ? `முதல் முயற்சியிலேயே ${session.length}ல் <b>${firstTry}</b> சரி` : `<b>${firstTry}</b> of ${session.length} right on the first try`}</p>
+        ${unlockedNew && canNext ? `<p class="unlock">${isTa ? `🎉 லெவல் ${id + 1}: ${esc(lvName(LEVELS[id + 1]))} திறக்கப்பட்டது!` : `🎉 Level ${id + 1}: ${esc(lvName(LEVELS[id + 1]))} is open!`}</p>` : ''}
+        ${needsUnlock ? `<p class="unlock">${unlockNote}</p>` : ''}
         <div class="stack">
-          ${canNext ? `<a class="btn primary wide" href="#/level/${id + 1}">Next level →</a>` : ''}
-          <button class="btn ${canNext ? '' : 'primary'} wide" data-again>↺ Play this level again</button>
-          <a class="btn ghost wide" href="#/home">Home</a>
+          ${canNext ? `<a class="btn primary wide" href="#/level/${id + 1}">${nextLabel}</a>` : ''}
+          ${needsUnlock ? `<a class="btn primary wide" href="#/unlock">${continueLabel}</a>` : ''}
+          <button class="btn ${canNext || needsUnlock ? '' : 'primary'} wide" data-again>↺ ${lang() === 'ta' ? 'இந்த லெவலை திரும்ப விளையாடு' : 'Play this level again'}</button>
+          <a class="btn ghost wide" href="#/home">${lang() === 'ta' ? 'முகப்பு' : 'Home'}</a>
         </div>
       </section>`;
     $('[data-again]').onclick = () => practice(id);
@@ -513,12 +579,12 @@ function check() {
   const probe = [1, 3, 5, 6, 8, 9];
   const qs = probe.map(l => ({ l, ...makeSession(l, 1)[0] }));
   let idx = 0; let passedUntil = 0; let failed = false;
-  shell({ title: 'Quick Check', back: '#/home', body: `
+  shell({ title: lang() === 'ta' ? 'விரைவு சோதனை' : 'Quick Check', back: '#/home', body: `
     ${bubble(T('quickCheck'), 'happy')}
     <div class="dots" data-dots>${qs.map(() => '<i></i>').join('')}</div>
     <div class="equation big" data-eq></div>
     <div data-abacus></div>
-    <div class="row center"><button class="btn" data-reset>↺ Reset</button><button class="btn" data-skip>I don't know</button><button class="btn primary" data-check>✓ Check</button></div>` });
+    <div class="row center"><button class="btn" data-reset>↺ ${lang() === 'ta' ? 'மீட்டமை' : 'Reset'}</button><button class="btn" data-skip>${lang() === 'ta' ? 'தெரியவில்லை' : "I don't know"}</button><button class="btn primary" data-check>✓ ${lang() === 'ta' ? 'சரிபார்' : 'Check'}</button></div>` });
 
   const v = createAbacus($('[data-abacus]'), { rods: 2 });
   const show = () => { const p = qs[idx]; $('[data-eq]').innerHTML = `${p.a} ${sign(p.op)} ${p.b} = <b>?</b>`; v.set(p.a); $$('[data-dots] i').forEach((d, k) => d.classList.toggle('now', k === idx)); say(`${p.a} ${sign(p.op)} ${p.b}`); };
@@ -533,9 +599,10 @@ function check() {
     LESSONS.forEach(l => { if (l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
     if (lvl > 1) [1, 2, 3, 4, 5].forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
     markDay(); saveNow(); sfx.star(); confetti();
-    $('.view').innerHTML = `<section class="done-card">${babi('cheer', 'big bob')}<h2 class="display">Nice, ${kidName()}!</h2>
-      <p class="lead">You can start at <b>Level ${lvl}: ${esc(lvName(LEVELS[lvl]))}</b>.</p>
-      <div class="stack"><a class="btn primary wide" href="#/level/${lvl}">Start Level ${lvl} →</a><a class="btn ghost wide" href="#/home">Home</a></div></section>`;
+    const isTa = lang() === 'ta';
+    $('.view').innerHTML = `<section class="done-card">${babi('cheer', 'big bob')}<h2 class="display">${isTa ? `அருமை, ${kidName()}!` : `Nice, ${kidName()}!`}</h2>
+      <p class="lead">${isTa ? `நீங்க <b>லெவல் ${lvl}: ${esc(lvName(LEVELS[lvl]))}</b>ல ஆரம்பிக்கலாம்.` : `You can start at <b>Level ${lvl}: ${esc(lvName(LEVELS[lvl]))}</b>.`}</p>
+      <div class="stack"><a class="btn primary wide" href="#/level/${lvl}">${isTa ? `லெவல் ${lvl} ஆரம்பி →` : `Start Level ${lvl} →`}</a><a class="btn ghost wide" href="#/home">${isTa ? 'முகப்பு' : 'Home'}</a></div></section>`;
     say(V('startAt', lvl));
   };
   $('[data-reset]').onclick = () => v.set(qs[idx].a);

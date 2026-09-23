@@ -33,7 +33,7 @@ export const T = (key, ...args) => t(lang(), key, ...args);
 export const voiceLang = () => (state.profile?.voiceLang === 'ta' ? 'ta' : 'en');
 export const V = (key, ...args) => t(voiceLang(), key, ...args);
 let lastSpokenText = '';
-export const say = text => { lastSpokenText = text || ''; speakRaw(text, voiceLang()); };
+export const say = text => { lastSpokenText = text || ''; return speakRaw(text, voiceLang()); };
 export const lessonTitle = L => (lang() === 'ta' && L.titleTa) || L.title;
 export const lvName = L => (lang() === 'ta' && L.nameTa) || L.name;
 export const lvTip = L => (lang() === 'ta' && L.tipTa) || L.tip;
@@ -88,18 +88,22 @@ export async function playDemo(view, a, b, op, textEl, tok, speed = 1500) {
   view.lock(true); view.set(a);
   const intro = T('startWith', a, sign(op), b);
   const voiceIntro = V('startWith', a, sign(op), b);
-  textEl.textContent = intro; say(voiceIntro);
-  await wait(speed); if (!alive(tok)) return false;
+  textEl.textContent = intro; await say(voiceIntro);
+  await wait(Math.min(speed, 600)); if (!alive(tok)) return false;
   for (const st of plan.steps) {
     const line = T('step', st);
-    view.highlight(st.rod); view.set(st.value); sfx.bead();
-    textEl.textContent = line; say(V('step', st));
-    await wait(Math.max(speed, line.length * 55)); if (!alive(tok)) return false;
+    view.highlight(st.rod);
+    textEl.textContent = line;
+    const speechPromise = say(V('step', st));
+    await wait(300); if (!alive(tok)) return false;
+    view.set(st.value); sfx.bead();
+    await speechPromise;
+    await wait(Math.max(400, speed - 300)); if (!alive(tok)) return false;
   }
   view.highlight(null);
   const end = T('sumIs', a, sign(op), b, plan.answer);
   const voiceEnd = V('sumIs', a, sign(op), b, plan.answer);
-  textEl.textContent = end; say(voiceEnd); view.celebrate();
+  textEl.textContent = end; await say(voiceEnd); view.celebrate();
   return true;
 }
 

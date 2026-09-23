@@ -49,7 +49,7 @@ const S = {
         case 'fiveAndPush': return `5 மணிய கீழ இறக்கி, ${n - 5} சின்ன மணிய மேல தள்ளு. அது ${n}!`;
         case 'fiveAndTake': return `5 மணிய மேல தூக்கிட்டு, ${n - 5} சின்ன மணிய கீழ இறக்கு.`;
         case 'lfAddIntro': return `சின்ன மணி போதலையே! லிட்டில் ஃபிரெண்ட்: ${n} + ${5 - n} = 5. அதனால 5 மணிய கீழ இறக்கு.`;
-        case 'lfAddTake': return `இப்போ ${5 - n} சின்ன மணிய கீழ இறக்கு — அது ${n}ஓட லிட்டில் ஃபிரெண்ட்.`;
+        case 'lfAddTake': return `இப்போ ${5 - n} சின்ன மணிய கீழ இறக்கு — அது ${n} உடைய லிட்டில் ஃபிரெண்ட்.`;
         case 'lfSubPush': return `சின்ன மணி போதலையே! லிட்டில் ஃபிரெண்ட்: ${n} + ${5 - n} = 5. அதனால ${5 - n} சின்ன மணிய மேல தள்ளு.`;
         case 'lfSubLift': return `இப்போ 5 மணிய மேல தூக்கிடு.`;
         case 'bfAddIntro': return `இந்த ராட்ல இடம் இல்லை! பிக் ஃபிரெண்ட்: ${n} + ${10 - n} = 10. இங்க ${10 - n} எடுத்துட்டு, 1 டென் சேர்க்கணும்.`;
@@ -62,13 +62,13 @@ const S = {
   // --- sums ---
   startWith: { en: (a, sg, b) => `${a} ${sg} ${b}. Start with ${a}.`, ta: (a, sg, b) => `${a} ${sg} ${b}. முதல்ல ${a} வை.` },
   sumIs: { en: (a, sg, b, ans) => `${a} ${sg} ${b} = ${ans}!`, ta: (a, sg, b, ans) => `${a} ${sg} ${b} = ${ans}!` },
-  babiPut: { en: (a, op, b) => `Babi put ${a} on the abacus. Now ${op === 'add' ? 'add' : 'take away'} ${b}.`, ta: (a, op, b) => `Babi ${a} வச்சிட்டாரு. இப்போ ${b} ${op === 'add' ? 'சேர்' : 'எடு'}.` },
+  babiPut: { en: (a, op, b) => `Babi put ${a} on the abacus. Now ${op === 'add' ? 'add' : 'take away'} ${b}.`, ta: (a, op, b) => `பாபி ${a} வச்சிட்டாரு. இப்போ ${b} ${op === 'add' ? 'சேர்' : 'எடு'}.` },
   wrongValue: { en: (v) => `The abacus says ${v}. Try again!`, ta: (v) => `அபாகஸ் ${v} காட்டுது. திரும்ப முயற்சி பண்ணு!` },
   wrongSum: { en: (v, a, sg, b) => `The abacus says ${v}, but we want ${a} ${sg} ${b}. Try again!`, ta: (v, a, sg, b) => `அபாகஸ் ${v} காட்டுது, ஆனா நமக்கு ${a} ${sg} ${b} வேணும். திரும்ப பண்ணு!` },
   clue: { en: (line) => `Clue: ${line}`, ta: (line) => `சின்ன உதவி: ${line}`},
-  watchTogether: { en: () => "Let's watch Babi do this one together.", ta: () => 'Babi இத பண்ணி காட்டுறாரு, பாரு.' },
+  watchTogether: { en: () => "Let's watch Babi do this one together.", ta: () => 'பாபி இத பண்ணி காட்டுறாரு, பாரு.' },
   yourTurn: { en: () => 'Your turn! Do the same moves.', ta: () => 'இப்போ உன் முறை! அதே மாதிரி பண்ணு.' },
-  likeBabi: { en: () => 'Now you do it, just like Babi!', ta: () => 'இப்போ நீயே பண்ணு, Babi மாதிரி!' },
+  likeBabi: { en: () => 'Now you do it, just like Babi!', ta: () => 'இப்போ நீயே பண்ணு, பாபி மாதிரி!' },
 
   // --- building and reading numbers ---
   thatIs: { en: (n) => `That is ${n}!`, ta: (n) => `அது ${n}!` },
@@ -79,9 +79,9 @@ const S = {
   freePlay: { en: () => 'Move any bead you like. I will tell you the number!', ta: () => 'எந்த மணியையும் நகர்த்து. நான் எண்ணை சொல்றேன்!' },
 
   // --- friends quiz ---
-  friendQ: { en: (kind, n) => `${kind === 'big' ? 'Big' : 'Little'} Friend of ${n} is…?`, ta: (kind, n) => `${n}ஓட ${kind === 'big' ? 'பிக்' : 'லிட்டில்'} ஃபிரெண்ட் எது?` },
-  friendRight: { en: (n, r, total) => `${n} and ${r} make ${total}.`, ta: (n, r, total) => `${n}ம் ${r}ம் சேர்ந்தா ${total}.` },
-  friendHint: { en: (n, total) => `Look at the pairs above. What goes with ${n} to make ${total}?`, ta: (n, total) => `மேல இருக்க ஜோடிகளை பாரு. ${n}ஓட எது சேர்ந்தா ${total} வரும்?` },
+  friendQ: { en: (kind, n) => `${kind === 'big' ? 'Big' : 'Little'} Friend of ${n} is…?`, ta: (kind, n) => `${n} உடைய ${kind === 'big' ? 'பிக்' : 'லிட்டில்'} ஃபிரெண்ட் எது?` },
+  friendRight: { en: (n, r, total) => `${n} and ${r} make ${total}.`, ta: (n, r, total) => `${n} மற்றும் ${r} சேர்ந்தா ${total}.` },
+  friendHint: { en: (n, total) => `Look at the pairs above. What goes with ${n} to make ${total}?`, ta: (n, total) => `மேல இருக்க ஜோடிகளை பாரு. ${n} உடன் எது சேர்ந்தா ${total} வரும்?` },
 
   // --- screens ---
   hello: { en: (name, mission) => `Hi ${name}! ${mission}`, ta: (name, mission) => `ஹாய் ${name}! ${mission}` },
@@ -91,7 +91,7 @@ const S = {
   pickLevel: { en: () => 'Pick a level. Get stars to open the next one!', ta: () => 'ஒரு லெவலை தேர்ந்தெடு. நட்சத்திரம் வாங்கினா அடுத்தது திறக்கும்!' },
   pickGame: { en: () => 'Pick a game! They use the same bead skills you learn.', ta: () => 'ஒரு கேம் தேர்ந்தெடு! நீ கத்துக்கிட்ட மணி வித்தைதான்!' },
   buildAnswer: { en: () => 'Build the answer with beads, then press Check.', ta: () => 'மணிகளால பதிலை உருவாக்கு, அப்புறம் Check அழுத்து.' },
-  lessonDone: { en: (name) => `Hooray ${name}! Lesson done!`, ta: (name) => `சபாஷ் ${name}! பாடம் முடிஞ்சது!` },
+  lessonDone: { en: (name) => `Awesome job, ${name}! Lesson done!`, ta: (name) => `சபாஷ் ${name}! பாடம் முடிஞ்சது!` },
   levelIntro: { en: (n, name, tip) => `Level ${n}. ${name}. ${tip}`, ta: (n, name, tip) => `லெவல் ${n}. ${name}. ${tip}` },
   quickCheck: { en: () => "Let's see what you already know. 6 quick sums!", ta: () => 'உனக்கு என்ன தெரியும்னு பாக்கலாம். 6 சின்ன கணக்கு!' },
   startAt: { en: (n) => `Great! You can start at level ${n}.`, ta: (n) => `சூப்பர்! நீ லெவல் ${n}ல ஆரம்பிக்கலாம்.` },
