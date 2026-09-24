@@ -42,38 +42,39 @@ import { initFirebase, getAuthInstance, onAuthChange, signInWithGoogle } from '.
 let _ownerToken = null; // cached id token (expires after 1h)
 let _ownerUser = null;
 
-async function ensureOwnerAuth() {
+async function ensureOwnerAuth(knownUser = null) {
   try {
     initFirebase();
   } catch (e) {
     return { ok: false, reason: 'Firebase not configured: ' + e.message };
   }
-  const auth = getAuthInstance();
 
-  // Firebase restores persisted auth asynchronously. Wait for the first
-  // auth-state callback before deciding that the owner is signed out.
-  const user = await new Promise(resolve => {
-    let unsubscribe;
-    unsubscribe = onAuthChange(currentUser => {
-      try { unsubscribe?.(); } catch {}
-      resolve(currentUser || null);
+  // If Google sign-in just returned a credential, use that user directly.
+  // Do not re-enter the auth observer here: Firebase persistence can lag the
+  // signInWithPopup() promise on mobile, causing a false signed-out result.
+  let user = knownUser;
+  if (!user) {
+    user = await new Promise(resolve => {
+      let unsubscribe;
+      unsubscribe = onAuthChange(currentUser => {
+        try { unsubscribe?.(); } catch {}
+        resolve(currentUser || null);
+      });
     });
-  });
+  }
   if (!user) return { ok: false, reason: 'not-signed-in' };
   try {
-    const token = await user.getIdToken();
-    // Probe a read-only admin endpoint to verify owner UID on the server
+    const token = await user.getIdToken(true);
     const res = await fetch('/api/admin/entitlements?limit=1', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: 'Bearer ' + token },
     });
     if (res.status === 403) return { ok: false, reason: 'not-owner' };
     if (res.status === 401) return { ok: false, reason: 'not-signed-in' };
-    if (!res.ok) return { ok: false, reason: `server-error:${res.status}` };
+    if (!res.ok) return { ok: false, reason: 'server-error:' + res.status };
     _ownerToken = token;
     _ownerUser = user;
     return { ok: true, user, token };
   } catch (e) {
-    // Network offline — allow read-only local view but disable server operations
     if (_ownerUser && e.message?.includes('fetch')) {
       return { ok: true, user: _ownerUser, token: null, offline: true };
     }
@@ -133,8 +134,10 @@ function showAuthGate(reason) {
       btn.disabled = true; btn.textContent = 'Signing in…';
       try {
         initFirebase();
-        await signInWithGoogle();
-        admin(); // re-run after sign-in
+        const credential = await signInWithGoogle();
+        const verified = await ensureOwnerAuth(credential?.user || null);
+        if (!verified.ok) return showAuthGate(verified.reason);
+        renderConsole(verified);
       } catch (e) {
         const m = $('#authMsg');
         if (m) m.textContent = 'Sign-in failed: ' + e.message;
