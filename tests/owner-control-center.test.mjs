@@ -854,7 +854,7 @@ await test('Admin console Firebase auth gate renders on mobile without overflow 
         games: {}, exams: [], recent: [], stickersSeen: [],
       }));
     });
-    await p.goto(`${BASE}/#/admin`);
+    await p.goto(`${BASE}/owner.html`);
     await p.waitForSelector('#app', { timeout: 8000 });
     await p.waitForTimeout(1000);
     // Security check: NO PIN input must exist
