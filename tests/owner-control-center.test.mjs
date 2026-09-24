@@ -248,6 +248,7 @@ async function newPage(vp = { width: 390, height: 844 }, opts = {}) {
   const p = await ctx.newPage();
   if (opts.entitledOffline) {
     await p.addInitScript(() => {
+      window.__mockUser = { uid: 'user-uid-99999', getIdToken: async () => 'mock-token' };
       localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ paid: true, uid: 'user-uid-99999', cachedAt: '2026-01-01T00:00:00Z' }));
     });
   }
@@ -710,6 +711,7 @@ await test('Offline: paid user with cache stays unlocked when network is gone', 
   try {
     // Set paid cache
     await p.addInitScript(() => {
+      window.__mockUser = { uid: 'offline-paid-user', getIdToken: async () => 'mock-token' };
       localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ paid: true, uid: 'offline-paid-user', cachedAt: '2026-09-01T00:00:00Z' }));
       localStorage.setItem('abacus-kids-v3', JSON.stringify({
         v: 3, profile: { name: 'Priya', avatar: '🦊', experience: 'new', lang: 'en', voiceLang: 'en' },
@@ -1118,6 +1120,246 @@ await test('Regression: cached remote config exists, backend fails (5xx), child 
     // Reset server state
     server.expose.setRemoteConfigFail(false);
     server.expose.setRemoteConfig({});
+    await ctx.close();
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// REGRESSION: Offline Entitlement Isolation (Tests A–E) & Documentation Cleanup
+// ──────────────────────────────────────────────────────────────────────────────────────
+console.log('\n═══ REGRESSION: Offline Entitlement Isolation (A–E) & Cleanup ═══');
+
+await test('Cleanup: config.json and README.md do not contain ownerPin or old PIN documentation', async () => {
+  const cfgJson = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'config.json'), 'utf8'));
+  assert.equal(cfgJson.ownerPin, undefined, 'config.json must not have ownerPin');
+
+  const readme = fs.readFileSync(path.join(ROOT_DIR, 'README.md'), 'utf8');
+  assert.ok(!readme.includes('2580'), 'README.md must not reference old PIN 2580');
+  assert.ok(!readme.includes('owner PIN'), 'README.md must not reference owner PIN');
+  assert.ok(readme.includes('OWNER_UID'), 'README.md must document OWNER_UID');
+});
+
+await test('Regression A: User A paid cache + User B offline => B remains unpaid', async () => {
+  const { ctx, p } = await newPage();
+  try {
+    // Seed localStorage with User A's paid entitlement
+    await p.addInitScript(() => {
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({
+        paid: true,
+        uid: 'user_A',
+        cachedAt: new Date().toISOString()
+      }));
+      // User B is currently authenticated
+      window.__mockUser = {
+        uid: 'user_B',
+        getIdToken: async () => 'mock-uid:user_B'
+      };
+    });
+
+    await p.goto(`${BASE}/#/home`);
+    await p.waitForSelector('#app', { timeout: 8000 });
+
+    const result = await p.evaluate(async () => {
+      // Force fetch('/api/user-status') to fail as if offline
+      const origFetch = window.fetch;
+      window.fetch = (url, opts) => {
+        if (typeof url === 'string' && url.includes('/api/user-status')) {
+          return Promise.reject(new Error('Network offline'));
+        }
+        return origFetch(url, opts);
+      };
+      const { refreshEntitlement, isPaid } = await import('./js/payments.js');
+      const paidResult = await refreshEntitlement();
+      const cached = localStorage.getItem('abacus-entitlement-v1');
+      return {
+        paidResult,
+        isPaid: isPaid(),
+        cached: cached ? JSON.parse(cached) : null
+      };
+    });
+
+    assert.equal(result.isPaid, false, 'User B must remain UNPAID even if User A had paid cache');
+    assert.equal(result.paidResult, false, 'refreshEntitlement() must return false for User B');
+    assert.ok(!result.cached || result.cached.uid !== 'user_A', "User A's cache must not be retained for User B");
+  } finally {
+    await ctx.close();
+  }
+});
+
+await test('Regression B: sw.js bypasses SW caching for /api/user-status so User B offline cannot receive User A response', async () => {
+  // 1. Verify sw.js source code explicitly bypasses SW caching for /api/user-status
+  const swSrc = fs.readFileSync(path.join(ROOT_DIR, 'sw.js'), 'utf8');
+  assert.ok(
+    swSrc.includes("url.pathname === '/api/user-status'") || swSrc.includes("url.pathname.startsWith('/api/')"),
+    'sw.js must explicitly bypass SW fetch listener for /api/user-status'
+  );
+
+  // 2. Browser level test: Ensure Cache API never serves User A /api/user-status to User B
+  const { ctx, p } = await newPage();
+  try {
+    await p.goto(`${BASE}/`);
+    await p.waitForSelector('#app', { timeout: 8000 });
+
+    const isolationVerified = await p.evaluate(async () => {
+      // Attempt to put a fake /api/user-status response in caches as User A
+      if ('caches' in window) {
+        const cache = await caches.open('abacus-buddy-v4');
+        const fakeResp = new Response(JSON.stringify({ paid: true, uid: 'user_A' }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+        await cache.put(new Request('/api/user-status'), fakeResp);
+      }
+
+      // Now as User B offline, import payments.js and test
+      window.__mockUser = { uid: 'user_B', getIdToken: async () => 'mock-uid:user_B' };
+      const { refreshEntitlement, isPaid } = await import('./js/payments.js');
+
+      // Network fails (offline)
+      const origFetch = window.fetch;
+      window.fetch = (url, opts) => {
+        if (typeof url === 'string' && url.includes('/api/user-status')) {
+          return Promise.reject(new Error('Network offline'));
+        }
+        return origFetch(url, opts);
+      };
+
+      await refreshEntitlement();
+      return isPaid();
+    });
+
+    assert.equal(isolationVerified, false, 'User B must NOT receive User A response from SW or any cache');
+  } finally {
+    await ctx.close();
+  }
+});
+
+await test('Regression C: User A signs out, User B signs in => entitlement isolation remains correct', async () => {
+  server.expose.entitlements['user_A'] = { paid: true, paidAt: new Date().toISOString() };
+  const { ctx, p } = await newPage();
+  try {
+    await p.goto(`${BASE}/`);
+    await p.waitForSelector('#app', { timeout: 8000 });
+
+    const stepResults = await p.evaluate(async () => {
+      const { refreshEntitlement, isPaid } = await import('./js/payments.js');
+
+      // 1. User A is authenticated and paid
+      window.__mockUser = { uid: 'user_A', getIdToken: async () => 'mock-uid:user_A' };
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ paid: true, uid: 'user_A' }));
+      await refreshEntitlement();
+      const userAPaid = isPaid();
+
+      // 2. User A signs out (auth state becomes null)
+      window.__mockUser = null;
+      await refreshEntitlement();
+      const signedOutPaid = isPaid();
+      const cacheAfterSignOut = localStorage.getItem('abacus-entitlement-v1');
+
+      // 3. User B signs in (unpaid user)
+      window.__mockUser = { uid: 'user_B', getIdToken: async () => 'mock-uid:user_B' };
+      await refreshEntitlement();
+      const userBPaid = isPaid();
+
+      return {
+        userAPaid,
+        signedOutPaid,
+        cacheAfterSignOut,
+        userBPaid
+      };
+    });
+
+    assert.equal(stepResults.userAPaid, true, 'User A should initially be paid');
+    assert.equal(stepResults.signedOutPaid, false, 'Signed out state must immediately be unpaid');
+    assert.ok(!stepResults.cacheAfterSignOut, 'Entitlement cache must be cleared on sign out');
+    assert.equal(stepResults.userBPaid, false, 'User B must be unpaid');
+  } finally {
+    delete server.expose.entitlements['user_A'];
+    await ctx.close();
+  }
+});
+
+await test('Regression D: Same paid user offline => paid access continues', async () => {
+  const { ctx, p } = await newPage({ width: 390, height: 844 });
+  try {
+    await p.addInitScript(() => {
+      // User A is authenticated
+      window.__mockUser = { uid: 'user_A', getIdToken: async () => 'mock-uid:user_A' };
+      // User A has valid offline cache
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({
+        paid: true,
+        uid: 'user_A',
+        cachedAt: new Date().toISOString()
+      }));
+      // Set child profile so router works
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3, profile: { name: 'PaidChild', avatar: '🦊', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false }, lessonsDone: [], levels: {}, unlocked: 5,
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: [],
+      }));
+      // Simulate network offline for API requests
+      const origFetch = window.fetch;
+      window.fetch = (url, opts) => {
+        if (typeof url === 'string' && url.includes('/api/user-status')) {
+          return Promise.reject(new Error('Network offline'));
+        }
+        return origFetch(url, opts);
+      };
+    });
+
+    await p.goto(`${BASE}/#/home`);
+    await p.waitForSelector('#app', { timeout: 8000 });
+
+    const result = await p.evaluate(async () => {
+      const { refreshEntitlement, isPaid } = await import('./js/payments.js');
+      const paidResult = await refreshEntitlement();
+      return {
+        paidResult,
+        isPaid: isPaid()
+      };
+    });
+
+    assert.equal(result.isPaid, true, 'Same paid user offline must continue to have paid access');
+    assert.equal(result.paidResult, true, 'refreshEntitlement() must return true for matching cached user offline');
+  } finally {
+    await ctx.close();
+  }
+});
+
+await test("Regression E: Network recovery correctly refreshes current user's entitlement", async () => {
+  const uid = 'network-recovery-user';
+  // Ensure user is marked paid in backend
+  server.expose.entitlements[uid] = { paid: true, paidAt: new Date().toISOString() };
+
+  const { ctx, p } = await newPage();
+  try {
+    await p.addInitScript((userId) => {
+      window.__mockUser = { uid: userId, getIdToken: async () => `mock-uid:${userId}` };
+      // Start with no cache or expired cache
+      localStorage.removeItem('abacus-entitlement-v1');
+    }, uid);
+
+    await p.goto(`${BASE}/`);
+    await p.waitForSelector('#app', { timeout: 8000 });
+
+    const result = await p.evaluate(async () => {
+      const { refreshEntitlement, isPaid } = await import('./js/payments.js');
+      // When network is online, refreshEntitlement calls /api/user-status
+      const paidResult = await refreshEntitlement();
+      const cache = localStorage.getItem('abacus-entitlement-v1');
+      return {
+        paidResult,
+        isPaid: isPaid(),
+        cache: cache ? JSON.parse(cache) : null
+      };
+    });
+
+    assert.equal(result.isPaid, true, 'Network recovery must mark user paid');
+    assert.equal(result.paidResult, true, 'refreshEntitlement must return true');
+    assert.equal(result.cache?.paid, true, 'Cache must be updated with paid status');
+    assert.equal(result.cache?.uid, uid, 'Cache must store current user UID');
+  } finally {
+    delete server.expose.entitlements[uid];
     await ctx.close();
   }
 });
