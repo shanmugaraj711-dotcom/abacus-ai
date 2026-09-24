@@ -49,7 +49,16 @@ async function ensureOwnerAuth() {
     return { ok: false, reason: 'Firebase not configured: ' + e.message };
   }
   const auth = getAuthInstance();
-  const user = auth.currentUser;
+
+  // Firebase restores persisted auth asynchronously. Wait for the first
+  // auth-state callback before deciding that the owner is signed out.
+  const user = await new Promise(resolve => {
+    let unsubscribe;
+    unsubscribe = onAuthChange(currentUser => {
+      try { unsubscribe?.(); } catch {}
+      resolve(currentUser || null);
+    });
+  });
   if (!user) return { ok: false, reason: 'not-signed-in' };
   try {
     const token = await user.getIdToken();
