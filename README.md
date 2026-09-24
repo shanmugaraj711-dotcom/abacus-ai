@@ -72,10 +72,9 @@ node tests/new-features.mjs     # games, tests, exams, certificates, owner conso
 ## 4. Switching features on and off (owner console)
 
 1. Open `#/admin` in the app — for example `https://yoursite.com/#/admin`.
-2. Enter the owner PIN. **Default is 2580** — change it inside. (There is also a link at the bottom of the grown-ups corner.)
+2. Sign in with your owner Google account. Access is restricted to the single owner Firebase UID configured in `OWNER_UID` on the server — there are no PINs and no second admins. (There is also a link at the bottom of the grown-ups corner.)
 3. Switch on or off: lessons, practice, play, free play, stickers, tests, exams, certificates, Tamil, and each of the 7 games. Also set test length, pass marks, the app name and your centre name for certificates.
-4. Changes apply to **your device only**, so you can try them before releasing.
-5. To give the settings to everyone: tap **Copy config.json**, paste it into the file `config.json` next to `index.html`, and re-deploy.
+4. Changes can be tested locally or pushed to everyone: tap **Push to remote config** to update all devices live via the Cloudflare Worker, or tap **Copy config.json** to update `config.json` for redeployment.
 
 A paused feature disappears completely for children — no locked icon, no mention, and its direct link stops working.
 
@@ -134,7 +133,7 @@ A robot plays the whole app at small phone (320px), phone (390px) and tablet (82
 - all 11 lessons and all 12 practice levels, including wrong answers → clue → Babi's demo;
 - all 7 games at all 3 difficulties;
 - level test, Grand Exam, Mental Maths Exam, certificate, and the results reaching the grown-ups page;
-- the owner console: wrong PIN refused, features paused and released, and paused features unreachable by link;
+- the owner console: non-owner accounts refused (HTTP 403), features paused and released, and paused features unreachable by link;
 - the "I know abacus" quick check, phones with saving blocked (private mode), and a **real offline run** with the internet switched off.
 
 No JavaScript errors, no sideways scrolling, progress saved correctly. The maths engine has its own test covering every sum from 0 to 99.

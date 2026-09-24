@@ -139,6 +139,10 @@ export async function signOut() {
  * @returns {Unsubscribe}
  */
 export function onAuthChange(callback) {
+  if (typeof window !== "undefined" && window.__mockUser !== undefined) {
+    callback(window.__mockUser);
+    return () => {};
+  }
   const auth = getAuthInstance();
   return onAuthStateChanged(auth, callback);
 }
