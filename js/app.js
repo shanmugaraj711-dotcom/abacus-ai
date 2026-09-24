@@ -716,8 +716,8 @@ function route() {
   newToken(); clearTimers(); stopTalking(); document.querySelectorAll('.confetti').forEach(c => c.remove());
   const hash = location.hash.replace(/^#\/?/, '');
   const [page, arg] = hash.split('/');
-  // Owner Console is not a child screen; owners must be able to reach it before a child profile exists.
-  if (!state.profile?.name && page !== 'admin') return welcome();
+  // Owner Console is a separate owner-only page (owner.html); never expose it in the child router.
+  if (!state.profile?.name) return welcome();
   const n = Number(arg);
   const pages = {
     '': home, home, stickers, parents, check,
@@ -733,7 +733,6 @@ function route() {
     exam: () => runExam(arg),
     certificates: () => (isOn('certificates') ? certificates() : home()),
     certificate: () => (isOn('certificates') ? certificate(n || 0) : home()),
-    admin: () => adminScreen(),
   };
   (pages[page] || home)();
   window.scrollTo(0, 0);
