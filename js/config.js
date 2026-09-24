@@ -87,12 +87,11 @@ export async function loadConfig() {
   // Layer 3: remote config via Worker API (with offline cache fallback)
   try {
     const res = await fetch('/api/remote-config', { cache: 'no-store' });
-    if (res.ok) {
-      const remote = await res.json();
-      if (remote && typeof remote === 'object' && !remote.error) {
-        _remoteConfig = remote;
-        try { sessionStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(remote)); } catch {}
-      }
+    if (!res.ok) throw new Error(`Remote config fetch failed: ${res.status}`);
+    const remote = await res.json();
+    if (remote && typeof remote === 'object' && !remote.error) {
+      _remoteConfig = remote;
+      try { sessionStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(remote)); } catch {}
     }
   } catch {
     // Offline: restore from sessionStorage cache

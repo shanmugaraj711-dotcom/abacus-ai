@@ -56,6 +56,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
   let _remoteConfig = {};
   let _rewardsConfig = {};
   let _entitlements = {};
+  let _remoteConfigFail = false;
 
   function bearerUid(req) {
     // Extract mock UID from Authorization header: "Bearer mock-uid:<uid>"
@@ -77,6 +78,9 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
 
     // ── /api/remote-config (public) ─────────────────────────────────────────
     if (reqPath === '/api/remote-config' && req.method === 'GET') {
+      if (_remoteConfigFail) {
+        return jsonRes(res, { error: 'Failed to retrieve remote config' }, 502);
+      }
       return jsonRes(res, _remoteConfig);
     }
 
@@ -211,7 +215,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
     });
   });
 
-  server.expose = { get paid() { return _paid; }, set paid(v) { _paid = v; }, ordersCreated: _ordersCreated, auditLog: _auditLog, entitlements: _entitlements, setRemoteConfig(c) { _remoteConfig = c; } };
+  server.expose = { get paid() { return _paid; }, set paid(v) { _paid = v; }, ordersCreated: _ordersCreated, auditLog: _auditLog, entitlements: _entitlements, setRemoteConfig(c) { _remoteConfig = c; }, setRemoteConfigFail(f) { _remoteConfigFail = f; } };
   return server;
 }
 
@@ -1034,6 +1038,88 @@ await test('Blocker 6: Admin configuration changes produce rich audit records (a
   assert.ok('before' in remoteCfgEntry, 'Audit entry must have before');
   assert.ok('after' in remoteCfgEntry, 'Audit entry must have after');
   assert.ok(remoteCfgEntry.timestamp || remoteCfgEntry.at, 'Audit entry must have timestamp');
+});
+
+await test('worker.js: /api/remote-config returns 5xx on failure instead of 200 with empty object', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(!workerSrc.includes('catch(e){return json({},200);}'), 'worker.js must not return 200 with {} on catch');
+  assert.ok(workerSrc.includes('502') || workerSrc.includes('500'), 'worker.js must return 5xx status on remote-config failure');
+
+  // Verify server returns 502 when backend fails
+  server.expose.setRemoteConfigFail(true);
+  try {
+    const res = await fetch(`${BASE}/api/remote-config`);
+    assert.equal(res.status, 502, 'Backend failure must yield HTTP 502, not 200');
+    const data = await res.json();
+    assert.ok(data.error, 'Response must contain error description');
+  } finally {
+    server.expose.setRemoteConfigFail(false);
+  }
+});
+
+await test('Valid empty remote configuration returns 200 OK and is not treated as an error', async () => {
+  server.expose.setRemoteConfigFail(false);
+  server.expose.setRemoteConfig({});
+  const res = await fetch(`${BASE}/api/remote-config`);
+  assert.equal(res.status, 200, 'Valid empty config must return 200 OK');
+  const data = await res.json();
+  assert.deepEqual(data, {}, 'Valid empty config must be returned as empty object');
+});
+
+await test('Regression: cached remote config exists, backend fails (5xx), child retains cache, backend recovery updates cache', async () => {
+  // 1. Cached remote config exists in sessionStorage
+  const cachedConfig = { features: { play: false } };
+
+  // 2. Remote-config backend fails (returns 502)
+  server.expose.setRemoteConfigFail(true);
+
+  const { ctx, p } = await newPage();
+  try {
+    await p.addInitScript((cached) => {
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3, profile: { name: 'TestChild', avatar: '🦊', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false }, lessonsDone: [], levels: {}, unlocked: 3,
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: [],
+      }));
+      sessionStorage.setItem('abacus-remote-cfg-cache', JSON.stringify(cached));
+    }, cachedConfig);
+
+    await p.goto(`${BASE}/#/home`);
+    await p.waitForSelector('header.top, #app', { timeout: 8000 });
+
+    // 3. Child retains the cached configuration (play feature was false in cache)
+    const playTileCount = await p.locator('.tile.play, a[href="#/play"]').count();
+    assert.equal(playTileCount, 0, 'Play tile must remain hidden because cached remote config was retained during backend failure');
+
+    const inPageCached = await p.evaluate(() => {
+      const cached = sessionStorage.getItem('abacus-remote-cfg-cache');
+      return cached ? JSON.parse(cached) : null;
+    });
+    assert.equal(inPageCached?.features?.play, false, 'Cached remote config must be preserved in sessionStorage during backend failure');
+
+    // 4. Backend recovery (backend returns 200 with updated remote configuration)
+    server.expose.setRemoteConfigFail(false);
+    server.expose.setRemoteConfig({ features: { play: true, learn: false } });
+
+    // 5. Reload / re-run loadConfig to simulate next app load or recovery
+    await p.evaluate(async () => {
+      const { loadConfig } = await import('./js/config.js');
+      await loadConfig();
+    });
+
+    const recoveredCfg = await p.evaluate(() => {
+      const cached = sessionStorage.getItem('abacus-remote-cfg-cache');
+      return cached ? JSON.parse(cached) : null;
+    });
+    assert.equal(recoveredCfg?.features?.play, true, 'Backend recovery must update play feature to true in cache');
+    assert.equal(recoveredCfg?.features?.learn, false, 'Backend recovery must update learn feature to false in cache');
+  } finally {
+    // Reset server state
+    server.expose.setRemoteConfigFail(false);
+    server.expose.setRemoteConfig({});
+    await ctx.close();
+  }
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────

@@ -155,8 +155,10 @@ async function main(req,env){
   if(path==="/api/remote-config"&&req.method==="GET"){
     try{
       const cfg=await getRemoteConfig(env);
-      return json(cfg||{});
-    }catch(e){return json({},200);} // fail-safe: return empty object, not an error
+      return json(cfg||{},200);
+    }catch(e){
+      return json({error:e.message||"Failed to retrieve remote config"},502);
+    }
   }
 
   // ── /api/create-order ────────────────────────────────────────────────────────
