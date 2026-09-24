@@ -874,7 +874,7 @@ await test('Admin console Firebase auth gate renders on mobile without overflow 
 // ──────────────────────────────────────────────────────────────────────────────────────
 console.log('\n═══ Item 18: Syntax checks ═══');
 
-const JS_FILES = ['js/admin.js','js/config.js','js/payments.js','js/app.js','js/engine.js','js/store.js','js/ui.js','js/games.js','js/exams.js','js/lessons.js','js/sound.js','js/babi.js','js/abacusView.js','js/i18n.js','worker.js'];
+const JS_FILES = ['js/owner.js','js/admin.js','js/config.js','js/payments.js','js/app.js','js/engine.js','js/store.js','js/ui.js','js/games.js','js/exams.js','js/lessons.js','js/sound.js','js/babi.js','js/abacusView.js','js/i18n.js','worker.js'];
 
 for (const file of JS_FILES) {
   await test(`Syntax check: ${file}`, async () => {
@@ -926,6 +926,15 @@ await test('Worker: webhook validates signature before processing payload', asyn
   assert.ok(sigCheckPos >= 0, 'Webhook must have signature check (!eq(got,want))');
   assert.ok(payloadProcessPos >= 0, 'Webhook must have payment.captured processing');
   assert.ok(sigCheckPos < payloadProcessPos, `Signature check (pos ${sigCheckPos}) must precede payload processing (pos ${payloadProcessPos})`);
+});
+
+await test('Owner console is not exposed through the child router or service-worker shell', async () => {
+  const appSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/app.js'), 'utf8');
+  const swSrc = fs.readFileSync(path.join(ROOT_DIR, 'sw.js'), 'utf8');
+  const ownerHtml = fs.readFileSync(path.join(ROOT_DIR, 'owner.html'), 'utf8');
+  assert.ok(!appSrc.includes("admin: () => adminScreen()"), 'Child router must not expose #/admin');
+  assert.ok(!swSrc.includes("'./js/admin.js'"), 'Child service worker must not pre-cache admin.js');
+  assert.ok(ownerHtml.includes('js/owner.js'), 'Dedicated owner entry point must load owner.js');
 });
 
 await test('No multi-admin capability exists', async () => {
