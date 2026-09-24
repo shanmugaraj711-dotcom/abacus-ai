@@ -1,14 +1,48 @@
 // Paid unlock integration for Abacus Buddy.
-// Business model: free levels 1-3, one-time ₹499 unlock for levels 4-15.
+// Business model: free levels 1–3, one-time ₹499 lifetime unlock for levels 4–15.
+//
+// Offline paid entitlement behaviour:
+//   - After a successful purchase, {paid: true, uid, paidAt} is cached in
+//     localStorage under 'abacus-entitlement-v1'.
+//   - On subsequent loads, the cache is checked first.
+//   - If the cache says paid=true, the user is immediately treated as paid,
+//     even before the network check completes.
+//   - The network check runs in the background and updates the cache.
+//   - If the network is unavailable AND the cache is empty, paid=false (safe default).
 
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
+
+const CACHE_KEY = 'abacus-entitlement-v1';
 
 let paid = false;
 let checked = false;
 
+function readCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === 'object' ? obj : null;
+  } catch { return null; }
+}
+
+function writeCache(uid, paidValue) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ paid: paidValue, uid, cachedAt: new Date().toISOString() }));
+  } catch {}
+}
+
 export const isPaid = () => paid;
+export const entitlementChecked = () => checked;
 
 export async function refreshEntitlement() {
+  // Apply cache immediately so offline paid users aren't blocked on startup
+  const cache = readCache();
+  if (cache?.paid === true) {
+    paid = true;
+    // Don't set checked=true yet — still try network below
+  }
+
   try {
     initFirebase();
     const user = await new Promise(resolve => {
@@ -16,7 +50,11 @@ export async function refreshEntitlement() {
       let unsubscribe = () => {};
       unsubscribe = onAuthChange(u => { if (!settled) { settled = true; unsubscribe(); resolve(u); } });
     });
-    if (!user) { paid = false; checked = true; return false; }
+    if (!user) {
+      // Not signed in — clear any stale cache for a different user
+      if (cache?.uid && cache.uid !== 'none') writeCache('none', false);
+      paid = false; checked = true; return false;
+    }
     const token = await user.getIdToken();
     const res = await fetch("/api/user-status", {
       headers: { Authorization: `Bearer ${token}` },
@@ -25,9 +63,11 @@ export async function refreshEntitlement() {
     if (!res.ok) throw new Error("Unable to check purchase status");
     const data = await res.json();
     paid = data.paid === true;
+    writeCache(user.uid, paid);
   } catch (err) {
     console.warn("[Abacus payment] entitlement check skipped:", err);
-    paid = false;
+    // Keep cache-derived value; paid stays true if cache said so
+    if (!cache?.paid) paid = false;
   }
   checked = true;
   return paid;
@@ -58,6 +98,7 @@ export async function buyUnlock({ onSuccess, onError } = {}) {
     if (!orderRes.ok) throw new Error(order.error || "Could not create payment order.");
     if (order.paid) {
       paid = true;
+      writeCache(user.uid, true);
       onSuccess?.();
       return true;
     }
@@ -90,6 +131,7 @@ export async function buyUnlock({ onSuccess, onError } = {}) {
             const verify = await verifyRes.json();
             if (!verifyRes.ok || verify.paid !== true) throw new Error(verify.error || "Payment verification failed.");
             paid = true;
+            writeCache(user.uid, true);
             onSuccess?.();
             resolve(true);
           } catch (err) {
@@ -111,5 +153,3 @@ export async function buyUnlock({ onSuccess, onError } = {}) {
     throw err;
   }
 }
-
-export const entitlementChecked = () => checked;

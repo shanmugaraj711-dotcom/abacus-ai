@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// ── Abacus Buddy Firestore Security Rules ────────────────────────────────────
+//
+// Architecture:
+//   - The Cloudflare Worker accesses Firestore using a Firebase Service Account
+//     (server-side, unrestricted access with the service-account token).
+//   - Client-side code (browser) NEVER directly reads or writes Firestore.
+//     All Firestore access goes through /api/* endpoints in the Worker.
+//   - Therefore all client-initiated reads and writes are denied below.
+//
+// This means even a malicious user who crafts Firebase SDK calls from the
+// browser cannot read, write, or manipulate any Firestore data.
+// ────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── entitlements/{uid} ───────────────────────────────────────────────────
+    // Stores payment/entitlement status per Firebase UID.
+    // RULE: No client read or write. Worker holds the only write path.
+    match /entitlements/{uid} {
+      // Deny all client-side access. The Worker reads/writes with service account.
+      allow read, write: if false;
+    }
+
+    // ── audit_log/{entry} ───────────────────────────────────────────────────
+    // Immutable audit log written only by the Worker.
+    match /audit_log/{entryId} {
+      allow read, write: if false;
+    }
+
+    // ── _config/{doc} ───────────────────────────────────────────────────────
+    // Remote configuration. Readable via /api/remote-config endpoint only.
+    // Never exposed directly to client-side Firebase SDK.
+    match /_config/{doc} {
+      allow read, write: if false;
+    }
+
+    // ── Deny everything else ─────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -390,3 +390,7 @@ h3.sec { font: 800 20px var(--display); margin: 20px 0 8px; }
 @media (min-width: 560px) { .admin-grid { grid-template-columns: 1fr 1fr; } }
 .admin-num { display: grid; gap: 4px; margin: 8px 0; font-weight: 700; font-size: 15px; }
 .admin-num input { min-height: 48px; padding: 8px 12px; border: 3px solid #EAD5AE; border-radius: 14px; background: #FFFBF2; font-size: 17px; font-weight: 700; }
+
+/* ---- owner console — data view ---- */
+.admin-data-out { margin-top: 12px; max-height: 300px; overflow-y: auto; border: 2px solid #EAD5AE; border-radius: 14px; padding: 10px; background: #FFFBF2; }
+.admin-json { font: 500 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; color: #444; }

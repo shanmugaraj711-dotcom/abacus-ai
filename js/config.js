@@ -1,16 +1,27 @@
 // Feature switches and branding.
 //
-// Two layers:
-//   1. config.json next to index.html  → what every child/centre gets. Edit it (or export it from the
-//      owner console) and re-deploy to turn a feature on or off for everyone.
-//   2. Owner console changes on this device → saved locally, for trying things before you release them.
+// Three layers (applied in order, each one winning over the previous):
+//   1. Hardcoded DEFAULTS        → built-in safe fallback, always present
+//   2. config.json               → deployed with the site; turns features on/off for everyone
+//   3. Remote config (/api/remote-config) → owner can push live updates from the control centre
+//   4. Owner console overrides   → saved locally on this device for testing before release
 //
-// Nothing here can break the app: unknown keys are ignored and missing files fall back to these defaults.
+// Offline behaviour:
+//   - If /api/remote-config is unreachable, the last fetched value (cached in
+//     sessionStorage as 'abacus-remote-cfg-cache') is used automatically.
+//   - If even the cache is missing, layers 1+2+4 are used.
+//   - A paid entitlement is separately cached in localStorage under
+//     'abacus-entitlement-cache' so offline users stay unlocked.
+//
+// Nothing here can break the app: unknown keys are ignored and missing files
+// fall back to these defaults.
+
 const DEFAULTS = {
   appName: 'Abacus Buddy',
   centreName: '',          // shown on certificates, e.g. "Sunshine Abacus Academy"
   ownerPin: '2580',        // opens the owner console at #/admin
-  freeLevels: 3,          // levels playable without a code; the rest show "coming soon"
+  freeLevels: 3,          // levels playable without payment (1–3 free, 4–15 paid)
+  couponsEnabled: false,  // Coupon foundation: OFF. Do not enable without owner decision.
   features: {
     learn: true, practice: true, play: true, freePlay: true, stickers: true,
     tests: true, exams: true, certificates: true,
@@ -20,9 +31,16 @@ const DEFAULTS = {
   },
   test: { questions: 20, minutes: 5, passMark: 80 },
   exam: { questions: 30, minutes: 8, passMark: 75 },
+  rewards: {
+    // Rewards configuration (editable from Owner Console)
+    stickersEnabled: true,
+    // Each sticker id maps to the event that grants it. Values are informational.
+  },
 };
 
 const LOCAL_KEY = 'abacus-owner-config-v1';
+const REMOTE_CACHE_KEY = 'abacus-remote-cfg-cache';
+
 const deepMerge = (base, extra) => {
   const out = { ...base };
   for (const [k, v] of Object.entries(extra || {})) {
@@ -31,20 +49,52 @@ const deepMerge = (base, extra) => {
   return out;
 };
 
-let current = DEFAULTS;
 let localOverrides = {};
 try { localOverrides = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}'); } catch { localOverrides = {}; }
-current = deepMerge(DEFAULTS, localOverrides);
 
-/** Load config.json shipped with the site (if present), then re-apply this device's own overrides. */
+// Start with defaults + local overrides (works fully offline before loadConfig finishes)
+let _siteConfig = {};   // from config.json
+let _remoteConfig = {}; // from /api/remote-config (or cache)
+let current = deepMerge(DEFAULTS, localOverrides);
+
+/** Rebuild current from all layers */
+function rebuild() {
+  current = deepMerge(deepMerge(deepMerge(DEFAULTS, _siteConfig), _remoteConfig), localOverrides);
+}
+
+/**
+ * Load all config layers:
+ *   1. config.json (deployed with the site)
+ *   2. /api/remote-config (live owner updates; falls back to sessionStorage cache)
+ * Then re-apply local overrides.
+ */
 export async function loadConfig() {
+  // Layer 2: config.json
   try {
     const res = await fetch('./config.json', { cache: 'no-cache' });
+    if (res.ok) { _siteConfig = await res.json(); }
+  } catch {}
+
+  // Layer 3: remote config via Worker API (with offline cache fallback)
+  try {
+    const res = await fetch('/api/remote-config', { cache: 'no-store' });
     if (res.ok) {
       const remote = await res.json();
-      current = deepMerge(deepMerge(DEFAULTS, remote), localOverrides);
+      if (remote && typeof remote === 'object' && !remote.error) {
+        _remoteConfig = remote;
+        // Cache for offline use
+        try { sessionStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(remote)); } catch {}
+      }
     }
-  } catch {}
+  } catch {
+    // Offline: restore from cache
+    try {
+      const cached = sessionStorage.getItem(REMOTE_CACHE_KEY);
+      if (cached) { _remoteConfig = JSON.parse(cached); }
+    } catch {}
+  }
+
+  rebuild();
   return current;
 }
 
@@ -54,14 +104,14 @@ export const brand = () => ({ appName: current.appName || DEFAULTS.appName, cent
 
 export function setOverrides(patch) {
   localOverrides = deepMerge(localOverrides, patch);
-  current = deepMerge(current, patch);
+  rebuild();
   try { localStorage.setItem(LOCAL_KEY, JSON.stringify(localOverrides)); } catch {}
   return current;
 }
 export function clearOverrides() {
   localOverrides = {};
   try { localStorage.removeItem(LOCAL_KEY); } catch {}
-  current = deepMerge(DEFAULTS, {});
+  rebuild();
   return current;
 }
 export const overrides = () => localOverrides;

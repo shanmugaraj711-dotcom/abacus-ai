@@ -1,17 +1,35 @@
-// Owner console (#/admin) — for you, not for children.
-// Switch features on and off, set test rules and branding, then publish the result as config.json.
+// Owner console (#/admin) — for you (the owner), not for children.
+// Protected by a PIN locally and by your Firebase UID on the server (admin endpoints).
+//
+// Sections:
+//   1. Release switches — turn features on/off for all children
+//   2. Games — enable/disable individual games
+//   3. Test rules — questions, minutes, pass mark
+//   4. Rewards config — sticker settings
+//   5. Branding — app name, centre name, owner PIN
+//   6. Publish — export config.json / push remote config
+//   7. This device — child name, levels open, unlock all
+//   8. Users — view all paying users (requires Firebase auth as owner)
+//   9. Payments — view all payment records
+//  10. Entitlements — view entitlement status per user
+//  11. Audit log — view recent audit events
+//
+// Coupon foundation: scaffold present but permanently disabled until
+// you explicitly enable it. Nothing coupon-related is shown here.
+
 import { cfg, setOverrides, clearOverrides, exportJson, defaults, overrides } from './config.js';
 import { state, saveNow } from './store.js';
 import { sfx } from './sound.js';
 import { $, $$, shell, esc, go } from './ui.js';
 import { GAMES } from './games.js';
+import { getAuthInstance } from '../firebase/auth.js';
 
 const OK = 'abacus-owner-unlocked';
 const unlocked = () => { try { return sessionStorage.getItem(OK) === '1'; } catch { return false; } };
 
 const SWITCHES = [
   { key: 'learn', name: 'Learn (lessons)', note: 'The teaching path' },
-  { key: 'practice', name: 'Practise (levels)', note: '12 levels of sums' },
+  { key: 'practice', name: 'Practise (levels)', note: '15 levels of sums' },
   { key: 'play', name: 'Play (games)', note: 'The whole playroom' },
   { key: 'freePlay', name: 'Free Play', note: 'Open abacus, no task' },
   { key: 'stickers', name: 'Sticker book', note: 'Rewards screen' },
@@ -48,8 +66,14 @@ export function admin() {
         ${num('exam.questions', 'Grand exam questions', c.exam.questions, 5, 100)}
         ${num('exam.minutes', 'Grand exam minutes', c.exam.minutes, 1, 90)}
         ${num('exam.passMark', 'Grand exam pass %', c.exam.passMark, 10, 100)}
-        ${num('freeLevels', 'Levels open without a code', c.freeLevels, 1, 12)}
+        ${num('freeLevels', 'Free levels (1–3 default; max 15)', c.freeLevels, 1, 15)}
       </div>
+    </section>
+
+    <section class="card">
+      <p class="eyebrow">Rewards</p>
+      <p class="muted">Controls what rewards children earn as they progress.</p>
+      ${sw('stickers', 'Sticker rewards', 'Award stickers for milestones')}
     </section>
 
     <section class="card">
@@ -64,6 +88,7 @@ export function admin() {
       <p class="muted">Changes here apply to <b>this device only</b>, so you can try them first. To give them to every child and centre, copy the text below into a file named <b>config.json</b> next to index.html and re-deploy.</p>
       <textarea id="cfgJson" rows="10" readonly>${esc(exportJson())}</textarea>
       <div class="row"><button class="btn" id="copyCfg">📋 Copy config.json</button><button class="btn" id="pasteCfg">📥 Paste settings</button></div>
+      <div class="row"><button class="btn" id="pushRemote">☁️ Push to remote config</button></div>
       <div class="row"><button class="btn danger" id="resetCfg">Undo my device changes</button></div>
       <p class="muted tiny" id="cfgMsg"></p>
     </section>
@@ -71,7 +96,19 @@ export function admin() {
     <section class="card">
       <p class="eyebrow">This device</p>
       <p class="muted">Child: <b>${esc(state.profile?.name || '—')}</b> · levels open: ${state.unlocked} · exams taken: ${state.exams.length}</p>
-      <div class="row"><button class="btn" id="unlockAllLv">Open all 12 levels</button><button class="btn" id="lockConsole">Lock console</button></div>
+      <div class="row"><button class="btn" id="unlockAllLv">Open all 15 levels</button><button class="btn" id="lockConsole">Lock console</button></div>
+    </section>
+
+    <section class="card" id="admin-users-section">
+      <p class="eyebrow">Users & Payments</p>
+      <p class="muted">Requires you to be signed in as the owner. Loads from Firestore via the server API.</p>
+      <div class="row">
+        <button class="btn" id="loadUsers">👤 Load Users</button>
+        <button class="btn" id="loadPayments">💳 Load Payments</button>
+        <button class="btn" id="loadEntitlements">🔑 Load Entitlements</button>
+        <button class="btn" id="loadAudit">📋 Audit Log</button>
+      </div>
+      <div id="adminDataOut" class="admin-data-out"><p class="muted tiny">No data loaded yet.</p></div>
     </section>` });
 
   const touch = msg => { const m = $('#cfgMsg'); if (m) m.textContent = msg; $('#cfgJson').value = exportJson(); };
@@ -101,13 +138,59 @@ export function admin() {
       box.readOnly = true;
     };
   };
+  $('#pushRemote').onclick = async () => {
+    const btn = $('#pushRemote');
+    btn.disabled = true; btn.textContent = '⏳ Pushing…';
+    try {
+      const auth = getAuthInstance();
+      const user = auth.currentUser;
+      if (!user) throw new Error('Sign in with your owner Google account first.');
+      const token = await user.getIdToken(true);
+      const cfg = JSON.parse(exportJson());
+      const res = await fetch('/api/admin/remote-config', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Push failed');
+      touch('✓ Remote config pushed. All users will receive this on next app load.');
+    } catch (e) {
+      touch('Push failed: ' + e.message);
+    }
+    btn.disabled = false; btn.textContent = '☁️ Push to remote config';
+  };
   $('#resetCfg').onclick = e => {
     const b = e.currentTarget;
     if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Tap again to undo'; setTimeout(() => { b.textContent = 'Undo my device changes'; delete b.dataset.sure; }, 4000); return; }
     clearOverrides(); admin();
   };
-  $('#unlockAllLv').onclick = e => { state.unlocked = 12; saveNow(); e.currentTarget.textContent = 'All levels open ✓'; e.currentTarget.disabled = true; };
+  $('#unlockAllLv').onclick = e => { state.unlocked = 15; saveNow(); e.currentTarget.textContent = 'All levels open ✓'; e.currentTarget.disabled = true; };
   $('#lockConsole').onclick = () => { try { sessionStorage.removeItem(OK); } catch {} go('#/home'); };
+
+  // Admin data loaders
+  async function adminFetch(endpoint, label) {
+    const out = $('#adminDataOut');
+    if (!out) return;
+    out.innerHTML = `<p class="muted tiny">Loading ${label}…</p>`;
+    try {
+      const auth = getAuthInstance();
+      const user = auth.currentUser;
+      if (!user) { out.innerHTML = `<p class="muted tiny">⚠️ Sign in with your owner Google account to load ${label}.</p>`; return; }
+      const token = await user.getIdToken(true);
+      const res = await fetch(`/api/admin/${endpoint}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (!res.ok) { out.innerHTML = `<p class="muted tiny">Error: ${esc(data.error || 'Unknown error')}</p>`; return; }
+      out.innerHTML = `<pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>`;
+    } catch (e) {
+      out.innerHTML = `<p class="muted tiny">Failed: ${esc(e.message)}</p>`;
+    }
+  }
+
+  $('#loadUsers').onclick = () => adminFetch('users', 'users');
+  $('#loadPayments').onclick = () => adminFetch('payments', 'payments');
+  $('#loadEntitlements').onclick = () => adminFetch('entitlements', 'entitlements');
+  $('#loadAudit').onclick = () => adminFetch('audit-log', 'audit log');
 }
 
 function gate() {
