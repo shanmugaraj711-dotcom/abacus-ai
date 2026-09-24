@@ -716,7 +716,8 @@ function route() {
   newToken(); clearTimers(); stopTalking(); document.querySelectorAll('.confetti').forEach(c => c.remove());
   const hash = location.hash.replace(/^#\/?/, '');
   const [page, arg] = hash.split('/');
-  if (!state.profile?.name) return welcome();
+  // Owner Console is not a child screen; owners must be able to reach it before a child profile exists.
+  if (!state.profile?.name && page !== 'admin') return welcome();
   const n = Number(arg);
   const pages = {
     '': home, home, stickers, parents, check,
