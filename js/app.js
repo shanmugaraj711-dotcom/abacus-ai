@@ -709,9 +709,6 @@ function dashboard() {
 }
 
 // ---------- router ----------
-// The owner console is loaded only when it is opened, so children never download it.
-async function adminScreen() { (await import('./admin.js')).admin(); }
-
 function route() {
   newToken(); clearTimers(); stopTalking(); document.querySelectorAll('.confetti').forEach(c => c.remove());
   const hash = location.hash.replace(/^#\/?/, '');
