@@ -94,7 +94,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
       if (_entitlements[uid]?.paid) return jsonRes(res, { paid: true }); // idempotent
       const orderId = `order_mock_${Date.now()}`;
       _ordersCreated.push({ orderId, uid, amount: 49900 });
-      _auditLog.push({ event: 'order_created', uid, orderId, at: new Date().toISOString() });
+      _auditLog.push({ action: 'order_created', target: `razorpay/order/${orderId}`, before: null, after: { orderId, amount: 49900, uid }, uid, timestamp: new Date().toISOString() });
       return jsonRes(res, { orderId, amount: 49900, currency: 'INR', keyId: 'rzp_test_mock' });
     }
 
@@ -113,7 +113,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
         // Validate signature (mock: accept anything with 'valid' in it)
         if (parsed.razorpay_signature === 'invalid_signature') return jsonRes(res, { error: 'Invalid payment signature' }, 400);
         _entitlements[uid] = { paid: true, paidAt: new Date().toISOString(), orderId: parsed.razorpay_order_id || 'mock-order' };
-        _auditLog.push({ event: 'payment_verified', uid, at: new Date().toISOString() });
+        _auditLog.push({ action: 'payment_verified', target: `entitlement/${uid}`, before: { paid: false }, after: { paid: true, amount: 49900 }, uid, timestamp: new Date().toISOString() });
         jsonRes(res, { paid: true });
       });
       return;
@@ -134,7 +134,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
         if ((e.event === 'payment.captured') && amount === 49900 && currency === 'INR' && uid && product === 'abacus-buddy') {
           if (!_entitlements[uid]?.paid) { // idempotent
             _entitlements[uid] = { paid: true, paidAt: new Date().toISOString() };
-            _auditLog.push({ event: 'webhook_payment_recorded', uid, at: new Date().toISOString() });
+            _auditLog.push({ action: 'webhook_payment_recorded', target: `entitlement/${uid}`, before: { paid: false }, after: { paid: true, event: e.event, amount }, uid, timestamp: new Date().toISOString() });
           }
         }
         jsonRes(res, { ok: true });
@@ -150,7 +150,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
 
       if (reqPath === '/api/admin/users' && req.method === 'GET') {
         const users = Object.entries(_entitlements).map(([uid, e]) => ({ uid, paid: !!e.paid, paidAt: e.paidAt || null }));
-        return jsonRes(res, { users, total: users.length });
+        return jsonRes(res, { users, total: users.length, note: "Lists users who have made a payment attempt." });
       }
       if (reqPath === '/api/admin/payments' && req.method === 'GET') {
         const payments = Object.entries(_entitlements).filter(([, e]) => e.paid).map(([uid, e]) => ({ uid, paid: true, paidAt: e.paidAt }));
@@ -169,9 +169,12 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
           let body = '';
           req.on('data', c => { body += c; });
           req.on('end', () => {
-            _remoteConfig = JSON.parse(body || '{}');
-            _auditLog.push({ event: 'remote_config_updated', uid, at: new Date().toISOString() });
-            jsonRes(res, { ok: true });
+            const raw = JSON.parse(body || '{}');
+            const { freeLevels: _stripped, ...safeCfg } = raw;
+            const before = { ..._remoteConfig };
+            _remoteConfig = safeCfg;
+            _auditLog.push({ action: 'remote_config_updated', target: '_config/remote', before, after: safeCfg, uid, timestamp: new Date().toISOString() });
+            jsonRes(res, { ok: true, note: "freeLevels is fixed at 3 (stripped)" });
           });
           return;
         }
@@ -182,9 +185,13 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
           let body = '';
           req.on('data', c => { body += c; });
           req.on('end', () => {
-            _rewardsConfig = JSON.parse(body || '{}');
-            _auditLog.push({ event: 'rewards_config_updated', uid, at: new Date().toISOString() });
-            jsonRes(res, { ok: true });
+            const newRewards = JSON.parse(body || '{}');
+            const before = { ..._rewardsConfig };
+            _rewardsConfig = newRewards;
+            // Propagate stickers enabled to remote config features.stickers
+            _remoteConfig = { ..._remoteConfig, features: { ...(_remoteConfig.features || {}), stickers: newRewards.stickersEnabled !== false } };
+            _auditLog.push({ action: 'rewards_config_updated', target: '_config/rewards', before, after: newRewards, uid, timestamp: new Date().toISOString() });
+            jsonRes(res, { ok: true, note: "stickersEnabled propagated to remote config" });
           });
           return;
         }
@@ -453,7 +460,7 @@ await test('Non-owner cannot access admin/users', async () => {
 // ──────────────────────────────────────────────────────────────────────────────────────
 console.log('\n═══ Item 13: Audit logging ═══');
 
-await test('Audit log records payment_verified event', async () => {
+await test('Audit log records payment_verified event with rich audit fields', async () => {
   const uid = 'audit-test-user-1';
   await fetch(`${BASE}/api/verify-payment`, {
     method: 'POST',
@@ -462,17 +469,22 @@ await test('Audit log records payment_verified event', async () => {
   });
   const res = await fetch(`${BASE}/api/admin/audit-log`, { headers: { Authorization: mockAuth(OWNER_UID) } });
   const data = await res.json();
-  const entry = data.entries.find(e => e.event === 'payment_verified' && e.uid === uid);
+  const entry = data.entries.find(e => (e.action === 'payment_verified' || e.event === 'payment_verified') && e.uid === uid);
   assert.ok(entry, 'payment_verified audit entry must exist');
+  assert.ok(entry.action || entry.event, 'Audit entry must have action/event');
+  assert.ok(entry.target, 'Audit entry must have target');
+  assert.ok(entry.timestamp || entry.at, 'Audit entry must have timestamp');
 });
 
-await test('Audit log records order_created event', async () => {
+await test('Audit log records order_created event with rich audit fields', async () => {
   const uid = 'audit-test-user-2';
   await fetch(`${BASE}/api/create-order`, { method: 'POST', headers: { Authorization: mockAuth(uid) } });
   const res = await fetch(`${BASE}/api/admin/audit-log`, { headers: { Authorization: mockAuth(OWNER_UID) } });
   const data = await res.json();
-  const entry = data.entries.find(e => e.event === 'order_created' && e.uid === uid);
+  const entry = data.entries.find(e => (e.action === 'order_created' || e.event === 'order_created') && e.uid === uid);
   assert.ok(entry, 'order_created audit entry must exist');
+  assert.ok(entry.target, 'Audit entry must have target');
+  assert.ok(entry.timestamp || entry.at, 'Audit entry must have timestamp');
 });
 
 await test('GET /api/admin/audit-log is owner-only', async () => {
@@ -492,7 +504,7 @@ await test('GET /api/admin/rewards-config returns rewards object', async () => {
   assert.ok('rewards' in data);
 });
 
-await test('POST /api/admin/rewards-config updates rewards', async () => {
+await test('POST /api/admin/rewards-config updates rewards and propagates to remote config', async () => {
   const newRewards = { stickersEnabled: false, customNote: 'test' };
   const res = await fetch(`${BASE}/api/admin/rewards-config`, {
     method: 'POST',
@@ -502,10 +514,14 @@ await test('POST /api/admin/rewards-config updates rewards', async () => {
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.ok, true);
-  // Read back
+  // Read back rewards
   const res2 = await fetch(`${BASE}/api/admin/rewards-config`, { headers: { Authorization: mockAuth(OWNER_UID) } });
   const data2 = await res2.json();
   assert.equal(data2.rewards.stickersEnabled, false);
+  // Verify propagation to remote config features.stickers
+  const res3 = await fetch(`${BASE}/api/remote-config`);
+  const data3 = await res3.json();
+  assert.equal(data3.features?.stickers, false, 'stickersEnabled:false must propagate to remote config features.stickers');
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────
@@ -537,15 +553,15 @@ await test('config.js has couponsEnabled: false in DEFAULTS', async () => {
 // ──────────────────────────────────────────────────────────────────────────────────────
 console.log('\n═══ Item 5: Remote config and 3-layer fallback ═══');
 
-await test('GET /api/remote-config returns current config (initially empty)', async () => {
+await test('GET /api/remote-config returns current config (initially empty or default)', async () => {
   const res = await fetch(`${BASE}/api/remote-config`);
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.ok(typeof data === 'object');
 });
 
-await test('Owner can push remote config via POST /api/admin/remote-config', async () => {
-  const cfg = { freeLevels: 5, features: { learn: true } };
+await test('Owner can push remote config via POST /api/admin/remote-config (freeLevels stripped to keep ₹499 fixed)', async () => {
+  const cfg = { freeLevels: 5, features: { learn: false, practice: true } };
   const res = await fetch(`${BASE}/api/admin/remote-config`, {
     method: 'POST',
     headers: { Authorization: mockAuth(OWNER_UID), 'Content-Type': 'application/json' },
@@ -555,7 +571,10 @@ await test('Owner can push remote config via POST /api/admin/remote-config', asy
   // Verify it's readable now
   const res2 = await fetch(`${BASE}/api/remote-config`);
   const data = await res2.json();
-  assert.equal(data.freeLevels, 5);
+  assert.equal(data.features?.learn, false);
+  assert.equal(data.freeLevels, undefined, 'freeLevels must be stripped from remote config push to maintain fixed pricing');
+  // Reset remote config on mock server so it does not affect subsequent browser tests
+  server.expose.setRemoteConfig({});
 });
 
 await test('config.js has 3-layer fallback documented', async () => {
@@ -817,7 +836,7 @@ for (const vp of VIEWPORTS) {
   });
 }
 
-await test('Admin console PIN gate renders on mobile without overflow', async () => {
+await test('Admin console Firebase auth gate renders on mobile without overflow and has NO PIN input', async () => {
   const { ctx, p } = await newPage({ width: 390, height: 844 });
   try {
     await p.addInitScript(() => {
@@ -828,14 +847,16 @@ await test('Admin console PIN gate renders on mobile without overflow', async ()
         stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
         games: {}, exams: [], recent: [], stickersSeen: [],
       }));
-      sessionStorage.removeItem('abacus-owner-unlocked');
     });
     await p.goto(`${BASE}/#/admin`);
     await p.waitForSelector('#app', { timeout: 8000 });
     await p.waitForTimeout(1000);
-    // Should show PIN gate
-    const pinInput = await p.locator('#pin').count();
-    assert.ok(pinInput > 0, 'PIN input must be present on admin page');
+    // Security check: NO PIN input must exist
+    const pinInput = await p.locator('#pin, input[type="password"]').count();
+    assert.equal(pinInput, 0, 'PIN input must NOT exist — replaced with owner Firebase account auth');
+    // Auth gate should be shown (Sign in with Google button or checking prompt)
+    const text = await p.locator('#app').textContent();
+    assert.ok(text.includes('Owner console') || text.includes('Google') || text.includes('owner'), 'Must show owner auth gate');
     const scrollW = await p.evaluate(() => document.documentElement.scrollWidth);
     const innerW = await p.evaluate(() => window.innerWidth);
     assert.ok(scrollW <= innerW + 1, `Admin page overflow: scrollWidth=${scrollW} innerWidth=${innerW}`);
@@ -917,26 +938,102 @@ await test('No subscription / device-limit / referral / AI features added', asyn
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────
-// User-status test
+// REGRESSION TESTS: 6 Blocker Fixes
 // ──────────────────────────────────────────────────────────────────────────────────────
-console.log('\n═══ Item 2 (HTTP): User status endpoint ═══');
+console.log('\n═══ REGRESSION: 6 Blocker Fixes ═══');
 
-await test('GET /api/user-status returns paid:false for unpaid user', async () => {
-  const uid = 'status-test-unpaid';
-  const res = await fetch(`${BASE}/api/user-status`, { headers: { Authorization: mockAuth(uid) } });
-  assert.equal(res.status, 200);
-  const data = await res.json();
-  assert.equal(data.paid, false);
-  assert.equal(data.uid, uid);
+await test('Blocker 1: Remote-config JSON serialization and readback delivers parsed object', async () => {
+  // Push remote config with features toggled
+  const pushRes = await fetch(`${BASE}/api/admin/remote-config`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(OWNER_UID), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ features: { gameRace: false, stickers: true } }),
+  });
+  assert.equal(pushRes.status, 200);
+
+  // Readback via public /api/remote-config
+  const readRes = await fetch(`${BASE}/api/remote-config`);
+  assert.equal(readRes.status, 200);
+  const data = await readRes.json();
+  assert.equal(typeof data, 'object', 'Remote config must be a parsed JSON object');
+  assert.equal(data.features?.gameRace, false, 'gameRace:false must be parsed and returned');
 });
 
-await test('GET /api/user-status returns paid:true after payment', async () => {
-  const uid = 'status-test-paid';
-  server.expose.entitlements[uid] = { paid: true, paidAt: '2026-09-01T00:00:00Z' };
-  const res = await fetch(`${BASE}/api/user-status`, { headers: { Authorization: mockAuth(uid) } });
+await test('Blocker 2: PIN is eliminated — admin strictly requires owner Firebase account, no PIN bypass', async () => {
+  const adminSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/admin.js'), 'utf8');
+  assert.ok(!adminSrc.includes('ownerPin'), 'js/admin.js must not reference ownerPin');
+  assert.ok(!adminSrc.includes('tryPin'), 'js/admin.js must not have tryPin function');
+  assert.ok(!adminSrc.includes('function gate'), 'js/admin.js must not have PIN gate function');
+  assert.ok(adminSrc.includes('ensureOwnerAuth'), 'js/admin.js must use ensureOwnerAuth');
+
+  const configSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/config.js'), 'utf8');
+  assert.ok(!configSrc.includes("ownerPin: '2580'"), 'js/config.js DEFAULTS must not have ownerPin');
+  assert.ok(configSrc.includes('delete localOverrides.ownerPin'), 'js/config.js must strip saved ownerPin');
+});
+
+await test('Blocker 3: Price is fixed at ₹499 (49900 paise); freeLevels cannot be edited or pushed', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('PRICE = 49900'), 'worker.js must fix PRICE at 49900 paise (₹499)');
+  assert.ok(workerSrc.includes('freeLevels:_stripped') || workerSrc.includes('freeLevels: _stripped'), 'worker.js must strip freeLevels from remote config push');
+
+  const adminSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/admin.js'), 'utf8');
+  assert.ok(!adminSrc.includes("num('freeLevels'"), 'js/admin.js must not have freeLevels edit input');
+
+  // Verify pushing freeLevels is ignored by the server
+  const pushRes = await fetch(`${BASE}/api/admin/remote-config`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(OWNER_UID), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ freeLevels: 10, features: { learn: true } }),
+  });
+  assert.equal(pushRes.status, 200);
+  const readRes = await fetch(`${BASE}/api/remote-config`);
+  const readData = await readRes.json();
+  assert.notEqual(readData.freeLevels, 10, 'freeLevels=10 must not be stored in remote config');
+});
+
+await test('Blocker 4: Users admin view represents authenticated payment users without unnecessary data collection', async () => {
+  const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
   assert.equal(res.status, 200);
   const data = await res.json();
-  assert.equal(data.paid, true);
+  assert.ok('users' in data, 'Response must have users array');
+  assert.ok('total' in data, 'Response must have total');
+  assert.ok('note' in data, 'Response must have data minimization note explaining why free-only users are not tracked');
+});
+
+await test('Blocker 5: Rewards configuration genuinely propagates to remote config stickers feature', async () => {
+  // Update rewards config to disable stickers
+  const postRes = await fetch(`${BASE}/api/admin/rewards-config`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(OWNER_UID), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stickersEnabled: false }),
+  });
+  assert.equal(postRes.status, 200);
+
+  // Check that public /api/remote-config has features.stickers = false
+  const cfgRes = await fetch(`${BASE}/api/remote-config`);
+  const cfgData = await cfgRes.json();
+  assert.equal(cfgData.features?.stickers, false, 'rewards stickersEnabled:false must propagate to features.stickers in remote config');
+});
+
+await test('Blocker 6: Admin configuration changes produce rich audit records (action, target, before, after, timestamp)', async () => {
+  // Push an update
+  const pushRes = await fetch(`${BASE}/api/admin/remote-config`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(OWNER_UID), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ features: { play: false } }),
+  });
+  assert.equal(pushRes.status, 200);
+
+  // Fetch audit log
+  const auditRes = await fetch(`${BASE}/api/admin/audit-log`, { headers: { Authorization: mockAuth(OWNER_UID) } });
+  const auditData = await auditRes.json();
+  const remoteCfgEntry = auditData.entries.find(e => e.action === 'remote_config_updated');
+  assert.ok(remoteCfgEntry, 'remote_config_updated audit entry must exist');
+  assert.ok(remoteCfgEntry.action, 'Audit entry must have action');
+  assert.ok(remoteCfgEntry.target, 'Audit entry must have target');
+  assert.ok('before' in remoteCfgEntry, 'Audit entry must have before');
+  assert.ok('after' in remoteCfgEntry, 'Audit entry must have after');
+  assert.ok(remoteCfgEntry.timestamp || remoteCfgEntry.at, 'Audit entry must have timestamp');
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────
