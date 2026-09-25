@@ -39,7 +39,7 @@ async function sa(env){return JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON)}
 async function googleToken(env){
   const s=await sa(env), now=Math.floor(Date.now()/1000);
   const head=b64u(new TextEncoder().encode(JSON.stringify({alg:"RS256",typ:"JWT"})));
-  const claim=b64u(new TextEncoder().encode(JSON.stringify({iss:s.client_email,scope:"https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600})));
+  const claim=b64u(new TextEncoder().encode(JSON.stringify({iss:s.client_email,scope:"https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase https://www.googleapis.com/auth/identitytoolkit",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600})));
   const key=await crypto.subtle.importKey("pkcs8",ub64(s.private_key.replace("-----BEGIN PRIVATE KEY-----","").replace("-----END PRIVATE KEY-----","").replace(/\s/g,"")),{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
   const sig=b64u(await crypto.subtle.sign("RSASSA-PKCS1-v1_5",key,new TextEncoder().encode(head+"."+claim)));
   const r=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:"grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion="+head+"."+claim+"."+sig});
@@ -66,6 +66,79 @@ async function firestoreList(env,collection,pageSize=50){
   const r=await fetch(`${FSBase(env)}/${collection}?pageSize=${pageSize}`,{headers:{authorization:"Bearer "+tok}});
   if(!r.ok)throw Error(`Firestore list failed: ${r.status}`);
   const d=await r.json();return d.documents||[];
+}
+
+// ── Firebase Auth account listing (owner console population) ────────────────
+// Uses the project-scoped Identity Platform paginated endpoint, per Google's
+// documented replacement for the deprecated accounts:query listing call.
+function authProvider(u){
+  const p=(u.providerUserInfo||[])[0]?.providerId;
+  if(p)return p;
+  if(u.phoneNumber)return"phone";
+  if(u.email)return"password";
+  return"";
+}
+function authAccountRecord(u){
+  return{
+    uid:u.localId||"",email:u.email||"",phone:u.phoneNumber||"",
+    provider:authProvider(u),
+    createdAt:u.createdAt||null,lastLoginAt:u.lastLoginAt||null,
+  };
+}
+
+async function fetchAuthAccounts(env,maxResults=1000){
+  const projectId=String(env.FIREBASE_PROJECT_ID||"abacus-buddy").trim();
+  const boundedMaxResults=Math.max(1,Math.min(Math.floor(Number(maxResults)||1000),1000));
+  const all=[];
+  let pageToken=null,pages=0;
+  const tok=await googleToken(env);
+  do{
+    pages++;
+    let url=`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet?maxResults=${boundedMaxResults}`;
+    if(pageToken)url+=`&nextPageToken=${encodeURIComponent(pageToken)}`;
+    const res=await fetch(url,{headers:{authorization:"Bearer "+tok}});
+    if(!res.ok){console.warn("[admin users] auth list request failed:",res.status);break;}
+    const data=await res.json();
+    const users=data.users||[];
+    for(const u of users)all.push(authAccountRecord(u));
+    pageToken=(data.nextPageToken||"").trim();
+    if(!pageToken||users.length===0)break;
+  }while(pageToken&&pages<1000);
+  return all;
+}
+
+// ── Duplicate user detection (manual founder review only — never auto-acts) ──
+// Signal 1: phone match across different UIDs. Signal 2: email match across different UIDs.
+// Payment-token and child-name matching are deferred (not implemented).
+function normalizePhone(raw){
+  if(!raw)return"";
+  const digits=String(raw).replace(/\D/g,"");
+  if(digits.length<7)return"";
+  return digits.length>=10?digits.slice(-10):digits;
+}
+function normalizeEmail(raw){
+  if(!raw)return"";
+  const s=String(raw).trim().toLowerCase();
+  return s.includes("@")&&s.includes(".")?s:"";
+}
+function detectDuplicates(users){
+  const norm=users.map(u=>({uid:String(u.uid||""),phone:normalizePhone(u.phone),email:normalizeEmail(u.email)}));
+  return users.map((u,i)=>{
+    const curr=norm[i];
+    if(!curr.uid)return{...u,possibleDuplicate:false,duplicateReasons:[]};
+    let phoneMatched=false,emailMatched=false;
+    for(let j=0;j<norm.length;j++){
+      if(i===j)continue;
+      const other=norm[j];
+      if(!other.uid||other.uid===curr.uid)continue;
+      if(curr.phone&&other.phone&&curr.phone===other.phone)phoneMatched=true;
+      if(curr.email&&other.email&&curr.email===other.email)emailMatched=true;
+    }
+    const duplicateReasons=[];
+    if(phoneMatched)duplicateReasons.push("phone");
+    if(emailMatched)duplicateReasons.push("email");
+    return{...u,possibleDuplicate:duplicateReasons.length>0,duplicateReasons};
+  });
 }
 
 function fsField(v){
@@ -235,22 +308,42 @@ async function main(req,env){
     catch(e){return json({error:e.message},e.message.includes("Forbidden")?403:401);}
 
     // GET /api/admin/users
-    // Returns a joined view: entitlement docs merged with uid.
-    // Firebase Auth user listing requires the Firebase Auth REST API (GET /accounts:batchGet or
-    // the Identity Platform ListUsers). The worker scope covers the datastore. A best-effort
-    // approach: list all entitlement documents (one per authenticated+paying user) and note that
-    // unauthenticated-only users (who visited but never paid) are not recorded in Firestore by design.
-    // We do NOT collect email, phone, or display name from Firebase Auth — only uid and payment status.
+    // Population: every Firebase Auth account (free and paid), joined with Firestore payment
+    // entitlements, with server-side duplicate detection (phone/email) for manual owner review.
+    // No IP, device, browser or location tracking is collected — only existing Firebase Auth
+    // account metadata (email, phone, provider, createdAt, lastLoginAt).
     if(path==="/api/admin/users"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements");
-      const users=docs.map(d=>{
+      const maxResults=Math.max(1,Math.min(Math.floor(Number(u.searchParams.get("maxResults"))||1000),1000));
+      let authUsers=[];
+      try{authUsers=await fetchAuthAccounts(env,maxResults);}
+      catch(e){console.warn("[admin users] auth listing failed:",e.message);}
+
+      let docs=[];
+      try{docs=await firestoreList(env,"entitlements");}catch(e){}
+      const entMap={};
+      for(const d of docs){
         const f=d.fields||{};
         const uid=fsVal(f.uid)||d.name.split("/").pop();
-        return{uid,paid:f.paid?.booleanValue===true,paidAt:fsVal(f.paidAt)||null};
-      });
+        if(uid)entMap[uid]={paid:f.paid?.booleanValue===true,paidAt:fsVal(f.paidAt)||null};
+      }
+
+      const byUid=new Map();
+      for(const a of authUsers){
+        if(!a.uid)continue;
+        const ent=entMap[a.uid];
+        byUid.set(a.uid,{...a,paid:ent?.paid===true,paidAt:ent?.paidAt||null});
+      }
+      // Entitlement docs whose UID wasn't returned by the Auth listing (e.g. paginated page
+      // boundary) are still included so a paying user is never silently dropped.
+      for(const uid of Object.keys(entMap)){
+        if(!byUid.has(uid))byUid.set(uid,{uid,email:"",phone:"",provider:"",createdAt:null,lastLoginAt:null,paid:entMap[uid].paid,paidAt:entMap[uid].paidAt});
+      }
+
+      const users=detectDuplicates([...byUid.values()]);
+      const possibleDuplicateCount=users.filter(x=>x.possibleDuplicate).length;
       return json({
-        users,total:users.length,
-        note:"Lists users who have made a payment attempt. Users who only browsed (free tiers) are not recorded — by design, to minimise data collection.",
+        users,total:users.length,possibleDuplicateCount,
+        note:"Lists Firebase Auth users (free and paid) joined with payment entitlements. Duplicate flags are for manual review only — nothing is ever auto-blocked.",
       });
     }
 
@@ -344,4 +437,5 @@ async function main(req,env){
   return json({error:"Not found"},404);
 }
 
+export{main,normalizePhone,normalizeEmail,detectDuplicates};
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};

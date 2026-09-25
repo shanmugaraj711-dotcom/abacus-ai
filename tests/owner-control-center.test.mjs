@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { detectDuplicates } from '../worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
   let _remoteConfig = {};
   let _rewardsConfig = {};
   let _entitlements = {};
+  let _authUsers = {}; // uid -> { email, phone, provider, createdAt, lastLoginAt } — mirrors Firebase Auth accounts:batchGet
   let _remoteConfigFail = false;
 
   function bearerUid(req) {
@@ -153,8 +155,19 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
       if (uid !== ownerUid) return jsonRes(res, { error: 'Forbidden: owner access only' }, 403);
 
       if (reqPath === '/api/admin/users' && req.method === 'GET') {
-        const users = Object.entries(_entitlements).map(([uid, e]) => ({ uid, paid: !!e.paid, paidAt: e.paidAt || null }));
-        return jsonRes(res, { users, total: users.length, note: "Lists users who have made a payment attempt." });
+        // Mirrors worker.js: Firebase Auth accounts (free + paid) joined with entitlements,
+        // deduplicated with the real detectDuplicates() so tests exercise production logic.
+        const byUid = new Map();
+        for (const [uid, a] of Object.entries(_authUsers)) {
+          byUid.set(uid, { uid, email: a.email || '', phone: a.phone || '', provider: a.provider || '', createdAt: a.createdAt || null, lastLoginAt: a.lastLoginAt || null, paid: false, paidAt: null });
+        }
+        for (const [uid, e] of Object.entries(_entitlements)) {
+          const existing = byUid.get(uid) || { uid, email: '', phone: '', provider: '', createdAt: null, lastLoginAt: null };
+          byUid.set(uid, { ...existing, paid: !!e.paid, paidAt: e.paidAt || null });
+        }
+        const users = detectDuplicates([...byUid.values()]);
+        const possibleDuplicateCount = users.filter(u => u.possibleDuplicate).length;
+        return jsonRes(res, { users, total: users.length, possibleDuplicateCount, note: "Lists Firebase Auth users (free and paid) joined with payment entitlements. Duplicate flags are for manual review only." });
       }
       if (reqPath === '/api/admin/payments' && req.method === 'GET') {
         const payments = Object.entries(_entitlements).filter(([, e]) => e.paid).map(([uid, e]) => ({ uid, paid: true, paidAt: e.paidAt }));
@@ -215,7 +228,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
     });
   });
 
-  server.expose = { get paid() { return _paid; }, set paid(v) { _paid = v; }, ordersCreated: _ordersCreated, auditLog: _auditLog, entitlements: _entitlements, setRemoteConfig(c) { _remoteConfig = c; }, setRemoteConfigFail(f) { _remoteConfigFail = f; } };
+  server.expose = { get paid() { return _paid; }, set paid(v) { _paid = v; }, ordersCreated: _ordersCreated, auditLog: _auditLog, entitlements: _entitlements, authUsers: _authUsers, setRemoteConfig(c) { _remoteConfig = c; }, setRemoteConfigFail(f) { _remoteConfigFail = f; } };
   return server;
 }
 
@@ -1009,13 +1022,16 @@ await test('Blocker 3: Price is fixed at ₹499 (49900 paise); freeLevels cannot
   assert.notEqual(readData.freeLevels, 10, 'freeLevels=10 must not be stored in remote config');
 });
 
-await test('Blocker 4: Users admin view represents authenticated payment users without unnecessary data collection', async () => {
+await test('Blocker 4 (updated): Users admin view joins Firebase Auth accounts with entitlements and flags duplicates, without IP/device/location tracking', async () => {
   const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
   assert.equal(res.status, 200);
   const data = await res.json();
-  assert.ok('users' in data, 'Response must have users array');
+  assert.ok(Array.isArray(data.users), 'Response must have users array');
   assert.ok('total' in data, 'Response must have total');
-  assert.ok('note' in data, 'Response must have data minimization note explaining why free-only users are not tracked');
+  assert.ok('possibleDuplicateCount' in data, 'Response must have possibleDuplicateCount');
+  assert.ok('note' in data, 'Response must have an explanatory note');
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(!/x-forwarded-for|cf-connecting-ip|cf-ipcountry|remoteAddr|deviceId|fingerprint|geoloc|navigator\.geolocation|\blatitude\b|\blongitude\b/i.test(workerSrc), 'worker.js must not introduce IP/device/fingerprint/location tracking');
 });
 
 await test('Blocker 5: Rewards configuration genuinely propagates to remote config stickers feature', async () => {
@@ -1374,6 +1390,166 @@ await test("Regression E: Network recovery correctly refreshes current user's en
     delete server.expose.entitlements[uid];
     await ctx.close();
   }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// Owner "Who's using Abacus" dashboard (UI)
+// ──────────────────────────────────────────────────────────────────────────────────────
+console.log('\n═══ Owner users dashboard (UI) ═══');
+
+async function newOwnerPage(uid, vp = { width: 390, height: 844 }) {
+  const ctx = await browser.newContext({ viewport: vp, hasTouch: true, serviceWorkers: 'block' });
+  const p = await ctx.newPage();
+  await p.addInitScript((ownerUid) => {
+    window.__mockUser = { uid: ownerUid, email: ownerUid + '@owner.test', getIdToken: async () => 'mock-uid:' + ownerUid };
+  }, uid);
+  return { ctx, p };
+}
+
+await test('Owner dashboard: stat cards render with the four expected labels and numeric values', async () => {
+  const { ctx, p } = await newOwnerPage(OWNER_UID);
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.waitForSelector('#ownerStats .owner-stat', { timeout: 8000 });
+    const labels = await p.locator('#ownerStats .owner-stat small').allTextContents();
+    assert.deepEqual(labels, ['Total Users', 'Paid Users', 'Free Users', 'Possible Duplicates']);
+    const values = await p.locator('#ownerStats .owner-stat b').allTextContents();
+    values.forEach(v => assert.ok(/^\d+$/.test(v.trim()), `Stat value must be numeric, got "${v}"`));
+  } finally { await ctx.close(); }
+});
+
+await test('Owner dashboard: users render correctly with email and free/paid status badge', async () => {
+  server.expose.authUsers['ui-user-free'] = { email: 'freeuser@example.com', phone: '', provider: 'password', createdAt: String(Date.now() - 9e6), lastLoginAt: String(Date.now() - 1e5) };
+  server.expose.authUsers['ui-user-paid'] = { email: 'paiduser@example.com', phone: '', provider: 'google.com', createdAt: String(Date.now() - 9e6), lastLoginAt: String(Date.now() - 2e5) };
+  server.expose.entitlements['ui-user-paid'] = { paid: true, paidAt: '2026-02-01T00:00:00Z' };
+  const { ctx, p } = await newOwnerPage(OWNER_UID);
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.fill('#ownerSearch', 'ui-user-');
+    await p.waitForSelector('.user-card');
+    const cards = p.locator('.user-card');
+    assert.equal(await cards.count(), 2, 'Both seeded users must render');
+    const freeCard = p.locator('.user-card', { hasText: 'freeuser@example.com' });
+    await assert.doesNotReject(freeCard.locator('.status-badge.free').waitFor({ timeout: 3000 }));
+    const paidCard = p.locator('.user-card', { hasText: 'paiduser@example.com' });
+    await assert.doesNotReject(paidCard.locator('.status-badge.paid').waitFor({ timeout: 3000 }));
+  } finally {
+    delete server.expose.authUsers['ui-user-free'];
+    delete server.expose.authUsers['ui-user-paid'];
+    delete server.expose.entitlements['ui-user-paid'];
+    await ctx.close();
+  }
+});
+
+await test('Owner dashboard: search narrows the user list', async () => {
+  server.expose.authUsers['search-a'] = { email: 'zebra@example.com', phone: '', provider: 'password' };
+  server.expose.authUsers['search-b'] = { email: 'giraffe@example.com', phone: '', provider: 'password' };
+  const { ctx, p } = await newOwnerPage(OWNER_UID);
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.fill('#ownerSearch', 'zebra');
+    await p.waitForSelector('.user-card');
+    const cards = p.locator('.user-card');
+    assert.equal(await cards.count(), 1, 'Search must narrow to the one matching user');
+    assert.ok((await cards.first().innerText()).includes('zebra@example.com'));
+  } finally {
+    delete server.expose.authUsers['search-a'];
+    delete server.expose.authUsers['search-b'];
+    await ctx.close();
+  }
+});
+
+await test('Owner dashboard: possible-duplicate filter shows only phone-matched users', async () => {
+  const sharedPhone = '+919911002200';
+  server.expose.authUsers['dup-a'] = { email: 'dup-a@example.com', phone: sharedPhone, provider: 'password' };
+  server.expose.authUsers['dup-b'] = { email: 'dup-b@example.com', phone: sharedPhone, provider: 'google.com' };
+  server.expose.authUsers['dup-c'] = { email: 'unique-c@example.com', phone: '+919000000001', provider: 'password' };
+  const { ctx, p } = await newOwnerPage(OWNER_UID);
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.fill('#ownerSearch', 'dup-');
+    await p.waitForSelector('.user-card');
+    assert.equal(await p.locator('.user-card').count(), 3, 'All three seeded users must be visible before filtering');
+    await p.click('.owner-filters .filter[data-filter="dup"]');
+    const cards = p.locator('.user-card');
+    assert.equal(await cards.count(), 2, 'Only the two phone-matched users must remain after the duplicate filter');
+    const text = await cards.allInnerTexts();
+    assert.ok(text.some(t => t.includes('dup-a@example.com')));
+    assert.ok(text.some(t => t.includes('dup-b@example.com')));
+    assert.ok(!text.some(t => t.includes('unique-c@example.com')));
+  } finally {
+    delete server.expose.authUsers['dup-a'];
+    delete server.expose.authUsers['dup-b'];
+    delete server.expose.authUsers['dup-c'];
+    await ctx.close();
+  }
+});
+
+await test('Owner dashboard: user details panel shows email, provider, last login, entitlement and duplicate reason', async () => {
+  const lastLogin = Date.now() - 3600_000;
+  server.expose.authUsers['detail-user'] = { email: 'detail@example.com', phone: '+919911002299', provider: 'google.com', createdAt: String(Date.now() - 9e6), lastLoginAt: String(lastLogin) };
+  server.expose.entitlements['detail-user'] = { paid: true, paidAt: '2026-03-10T00:00:00Z' };
+  const { ctx, p } = await newOwnerPage(OWNER_UID);
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.fill('#ownerSearch', 'detail-user');
+    await p.waitForSelector('.user-card');
+    await p.click('.user-card');
+    await p.waitForSelector('.user-detail');
+    const detailText = await p.locator('.user-detail').innerText();
+    assert.match(detailText, /detail@example\.com/);
+    assert.match(detailText, /Google/);
+    assert.match(detailText, new RegExp(new Date(lastLogin).getFullYear()));
+    assert.match(detailText, /Levels 1–15 unlocked/);
+    assert.match(detailText, /Paid/);
+  } finally {
+    delete server.expose.authUsers['detail-user'];
+    delete server.expose.entitlements['detail-user'];
+    await ctx.close();
+  }
+});
+
+await test('Owner dashboard: unavailable fields render "Not available" instead of crashing the UI', async () => {
+  server.expose.authUsers['sparse-user'] = { email: '', phone: '', provider: '', createdAt: null, lastLoginAt: null };
+  const pageErrors = [];
+  const { ctx, p } = await newOwnerPage(OWNER_UID);
+  p.on('pageerror', err => pageErrors.push(err));
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.fill('#ownerSearch', 'sparse-user');
+    await p.waitForSelector('.user-card');
+    await p.click('.user-card');
+    await p.waitForSelector('.user-detail');
+    const detailText = await p.locator('.user-detail').innerText();
+    assert.ok(detailText.includes('Not available'), 'Missing fields must show "Not available"');
+    assert.match(detailText, /Unknown user|sparse-user/i, 'Card must not crash rendering a user with no email/phone');
+    assert.equal(pageErrors.length, 0, `No uncaught page errors expected, got: ${pageErrors.map(e => e.message).join('; ')}`);
+  } finally {
+    delete server.expose.authUsers['sparse-user'];
+    await ctx.close();
+  }
+});
+
+await test('Owner dashboard: no horizontal overflow at 390px for the signed-in owner view', async () => {
+  const { ctx, p } = await newOwnerPage(OWNER_UID, { width: 390, height: 844 });
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.waitForSelector('#ownerStats .owner-stat', { timeout: 8000 });
+    const scrollW = await p.evaluate(() => document.documentElement.scrollWidth);
+    const innerW = await p.evaluate(() => window.innerWidth);
+    assert.ok(scrollW <= innerW + 1, `Owner dashboard overflow: scrollWidth=${scrollW} innerWidth=${innerW}`);
+  } finally { await ctx.close(); }
+});
+
+await test('Owner dashboard: signing in as a non-owner account shows the forbidden gate, not the dashboard', async () => {
+  const { ctx, p } = await newOwnerPage(USER_UID);
+  try {
+    await p.goto(`${BASE}/owner.html`);
+    await p.waitForTimeout(1000);
+    assert.equal(await p.locator('#ownerStats').count(), 0, 'Non-owner must never see the users dashboard');
+    const text = await p.locator('#app').innerText();
+    assert.match(text, /not the owner account|owner account/i);
+  } finally { await ctx.close(); }
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────

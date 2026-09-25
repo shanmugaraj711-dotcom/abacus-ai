@@ -232,15 +232,27 @@ function renderConsole({ user, token, offline }) {
     </section>
 
     <section class="card" id="admin-users-section">
-      <p class="eyebrow">Users & Payments</p>
-      <p class="muted tiny">Only users who made a payment attempt are recorded — free-tier visitors are not tracked (by design, to minimise data collection).</p>
-      <div class="row">
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadUsers">👤 Users</button>
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadPayments">💳 Payments</button>
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadEntitlements">🔑 Entitlements</button>
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadAudit">📋 Audit Log</button>
+      <p class="eyebrow">Who's using Abacus</p>
+      <p class="muted tiny">Firebase Auth is the source of truth for every user. No IP, device, browser or location tracking is collected.</p>
+      ${offline ? '<p class="muted tiny">⚠️ Offline — cannot load users.</p>' : `
+      <div id="ownerStats" class="owner-stats"></div>
+      <div class="owner-search-row"><input type="search" id="ownerSearch" placeholder="Search users…" aria-label="Search users"></div>
+      <div class="owner-filters" id="ownerFilters">
+        <button type="button" class="chip filter on" data-filter="all">All Users</button>
+        <button type="button" class="chip filter" data-filter="paid">Paid</button>
+        <button type="button" class="chip filter" data-filter="free">Free</button>
+        <button type="button" class="chip filter" data-filter="dup">Possible Duplicates</button>
       </div>
-      <div id="adminDataOut" class="admin-data-out"><p class="muted tiny">No data loaded yet.</p></div>
+      <div id="ownerUserList" class="user-list"><p class="muted tiny">Loading users…</p></div>
+      <details class="owner-advanced">
+        <summary>Advanced / raw data</summary>
+        <div class="row">
+          <button class="btn small" id="loadPayments">💳 Payments (raw)</button>
+          <button class="btn small" id="loadEntitlements">🔑 Entitlements (raw)</button>
+          <button class="btn small" id="loadAudit">📋 Audit Log (raw)</button>
+        </div>
+        <div id="adminDataOut" class="admin-data-out"><p class="muted tiny">No data loaded yet.</p></div>
+      </details>`}
     </section>` });
 
   const touch = msg => { const m = $('#cfgMsg'); if (m) m.textContent = msg; const j = $('#cfgJson'); if (j) j.value = exportJson(); };
@@ -331,9 +343,123 @@ function renderConsole({ user, token, offline }) {
   }
 
   if (!offline) {
-    $('#loadUsers')?.addEventListener('click', () => adminFetch('users', 'users'));
     $('#loadPayments')?.addEventListener('click', () => adminFetch('payments', 'payments'));
     $('#loadEntitlements')?.addEventListener('click', () => adminFetch('entitlements', 'entitlements'));
     $('#loadAudit')?.addEventListener('click', () => adminFetch('audit-log', 'audit log'));
+    initOwnerUsersDashboard();
   }
+}
+
+// ── Owner "Who's using Abacus" dashboard ─────────────────────────────────────
+// Human-readable users list backed by GET /api/admin/users (Firebase Auth +
+// entitlement join, server-side duplicate detection). Detect-only: this UI
+// never blocks, suspends, merges or deletes anything.
+let _ownerUsers = null;
+let _ownerFilter = 'all';
+let _ownerQuery = '';
+let _ownerExpandedUid = null;
+
+function fmtDate(value, epochMs = false) {
+  if (!value) return 'Not available';
+  const d = epochMs ? new Date(Number(value)) : new Date(value);
+  if (Number.isNaN(d.getTime())) return 'Not available';
+  return d.toLocaleString();
+}
+
+function ownerProviderLabel(providerId) {
+  if (!providerId) return 'Not available';
+  if (providerId === 'google.com') return 'Google';
+  if (providerId === 'password') return 'Email/Password';
+  if (providerId === 'phone') return 'Phone';
+  return providerId;
+}
+
+function ownerUserMatchesFilter(u, filter) {
+  if (filter === 'paid') return u.paid === true;
+  if (filter === 'free') return u.paid !== true;
+  if (filter === 'dup') return u.possibleDuplicate === true;
+  return true;
+}
+
+function ownerUserMatchesQuery(u, q) {
+  if (!q) return true;
+  const hay = `${u.email || ''} ${u.phone || ''} ${u.uid || ''}`.toLowerCase();
+  return hay.includes(q.toLowerCase());
+}
+
+function renderOwnerStats(users) {
+  const el = $('#ownerStats');
+  if (!el) return;
+  const total = users.length;
+  const paid = users.filter(u => u.paid).length;
+  const dup = users.filter(u => u.possibleDuplicate).length;
+  const stat = (label, value, warn) => `<div class="owner-stat${warn && value > 0 ? ' warn' : ''}"><b>${value}</b><small>${esc(label)}</small></div>`;
+  el.innerHTML = stat('Total Users', total) + stat('Paid Users', paid) + stat('Free Users', total - paid) + stat('Possible Duplicates', dup, true);
+}
+
+function renderOwnerUserCard(u) {
+  const expanded = _ownerExpandedUid === u.uid;
+  const statusBadge = u.paid ? '<span class="status-badge paid">🟢 Paid</span>' : '<span class="status-badge free">🆓 Free</span>';
+  const dupBadge = u.possibleDuplicate ? '<span class="status-badge dup">⚠️ Possible duplicate</span>' : '';
+  const detail = !expanded ? '' : `<div class="user-detail">
+    <div class="user-detail-row"><span>Email</span><span>${esc(u.email || 'Not available')}</span></div>
+    <div class="user-detail-row"><span>Provider</span><span>${esc(ownerProviderLabel(u.provider))}</span></div>
+    <div class="user-detail-row"><span>Account created</span><span>${esc(fmtDate(u.createdAt, true))}</span></div>
+    <div class="user-detail-row"><span>Last login</span><span>${esc(fmtDate(u.lastLoginAt, true))}</span></div>
+    <div class="user-detail-row"><span>Free/Paid</span><span>${u.paid ? 'Paid' : 'Free'}</span></div>
+    <div class="user-detail-row"><span>Payment date</span><span>${esc(fmtDate(u.paidAt))}</span></div>
+    <div class="user-detail-row"><span>Entitlement</span><span>${u.paid ? 'Levels 1–15 unlocked' : 'Levels 1–3 (free)'}</span></div>
+    <div class="user-detail-row"><span>Possible duplicate</span><span>${u.possibleDuplicate ? 'Yes' : 'No'}</span></div>
+    <div class="user-detail-row"><span>Duplicate reason</span><span>${esc(u.duplicateReasons?.length ? u.duplicateReasons.join(', ') : 'Not available')}</span></div>
+    <div class="user-detail-row"><span>UID (debug)</span><span>${esc(u.uid || 'Not available')}</span></div>
+  </div>`;
+  return `<button type="button" class="user-card" data-uid="${esc(u.uid)}">
+    <div class="user-card-head">
+      <div class="user-card-id"><b>${esc(u.email || u.phone || 'Unknown user')}</b><small>Last login: ${esc(fmtDate(u.lastLoginAt, true))}</small></div>
+      <span class="user-card-badges">${statusBadge}${dupBadge}</span>
+    </div>
+    ${detail}
+  </button>`;
+}
+
+function renderOwnerUserList() {
+  const el = $('#ownerUserList');
+  if (!el) return;
+  if (!_ownerUsers) { el.innerHTML = '<p class="muted tiny">Loading users…</p>'; return; }
+  if (!_ownerUsers.length) { el.innerHTML = '<p class="owner-empty">No users yet — once someone opens the app, they\'ll show up here.</p>'; return; }
+  const filtered = _ownerUsers.filter(u => ownerUserMatchesFilter(u, _ownerFilter) && ownerUserMatchesQuery(u, _ownerQuery));
+  if (!filtered.length) { el.innerHTML = '<p class="owner-empty">No users match your search or filter.</p>'; return; }
+  el.innerHTML = filtered.map(renderOwnerUserCard).join('');
+  $$('.user-card', el).forEach(card => card.onclick = () => {
+    const uid = card.dataset.uid;
+    _ownerExpandedUid = _ownerExpandedUid === uid ? null : uid;
+    renderOwnerUserList();
+  });
+}
+
+async function loadOwnerUsers() {
+  const listEl = $('#ownerUserList');
+  if (listEl) listEl.innerHTML = '<p class="muted tiny">Loading users…</p>';
+  try {
+    const freshToken = await getAuthInstance().currentUser.getIdToken(true);
+    const res = await fetch('/api/admin/users', { headers: { Authorization: `Bearer ${freshToken}` } });
+    const data = await res.json();
+    if (!res.ok) { if (listEl) listEl.innerHTML = `<p class="owner-error">Error: ${esc(data.error || 'Unknown error')}</p>`; return; }
+    _ownerUsers = Array.isArray(data.users) ? data.users : [];
+    renderOwnerStats(_ownerUsers);
+    renderOwnerUserList();
+  } catch (e) {
+    if (listEl) listEl.innerHTML = `<p class="owner-error">Failed to load users: ${esc(e.message)}</p>`;
+  }
+}
+
+function initOwnerUsersDashboard() {
+  const search = $('#ownerSearch');
+  if (search) search.oninput = e => { _ownerQuery = e.target.value; renderOwnerUserList(); };
+  $$('.owner-filters .filter').forEach(btn => btn.onclick = () => {
+    _ownerFilter = btn.dataset.filter;
+    $$('.owner-filters .filter').forEach(b => b.classList.toggle('on', b === btn));
+    renderOwnerUserList();
+  });
+  loadOwnerUsers();
 }
