@@ -286,6 +286,113 @@ function renderConsole({ user, token, offline }) {
     go('#/home');
   };
 
+  function formatDuplicateReason(reasons) {
+    if (!Array.isArray(reasons) || !reasons.length) return '';
+    const hasPhone = reasons.includes('phone');
+    const hasEmail = reasons.includes('email');
+    const hasChild = reasons.includes('childName');
+    if (hasPhone && hasEmail && hasChild) return 'Email + phone match';
+    if (hasPhone && hasEmail) return 'Email + phone match';
+    if (hasPhone && hasChild) return 'Phone + child name';
+    if (hasEmail && hasChild) return 'Email + child name';
+    if (hasPhone) return 'Phone match';
+    if (hasEmail) return 'Email match';
+    return reasons.join(', ');
+  }
+
+  function renderUsersView(data, out) {
+    const allUsers = data.users || [];
+    const possibleDuplicateCount = data.possibleDuplicateCount ?? allUsers.filter(u => u.possibleDuplicate).length;
+    let filter = 'all'; // 'all' | 'duplicates'
+    let query = '';
+
+    function redraw() {
+      const q = query.trim().toLowerCase();
+      const filtered = allUsers.filter(u => {
+        if (filter === 'duplicates' && !u.possibleDuplicate) return false;
+        if (!q) return true;
+        const haystack = `${u.email || ''} ${u.phone || ''} ${u.childName || ''} ${u.uid || ''}`.toLowerCase();
+        return haystack.includes(q);
+      });
+
+      out.innerHTML = `
+        <div class="admin-users-mgmt">
+          <div class="admin-notice">
+            ℹ️ <b>Manual review only:</b> Duplicate flags are purely informational for founder review. Never used for automated account restriction, suspension, or blocking.
+          </div>
+
+          <div class="admin-filter-bar">
+            <label class="admin-filter-label">
+              <span>Filter:</span>
+              <select id="adminUserFilter" class="admin-select">
+                <option value="all"${filter === 'all' ? ' selected' : ''}>All users (${allUsers.length})</option>
+                <option value="duplicates"${filter === 'duplicates' ? ' selected' : ''}>Possible duplicates (${possibleDuplicateCount})</option>
+              </select>
+            </label>
+            <input id="adminUserSearch" class="admin-search-input" placeholder="Search email, phone, child or UID..." value="${esc(query)}">
+          </div>
+
+          <div class="admin-users-list">
+            ${filtered.length === 0 ? `
+              <div class="admin-empty-state">
+                <p class="muted center">No ${filter === 'duplicates' ? 'possible duplicate ' : ''}users found.</p>
+              </div>
+            ` : filtered.map(u => {
+              const reason = formatDuplicateReason(u.duplicateReasons);
+              return `
+                <div class="admin-user-card${u.possibleDuplicate ? ' duplicate-flagged' : ''}">
+                  <div class="admin-user-header">
+                    <div class="admin-user-identity">
+                      <b class="admin-user-name">${esc(u.email || u.uid)}</b>
+                      <span class="admin-user-uid"><code>${esc(u.uid)}</code></span>
+                    </div>
+                    <div class="admin-user-badges">
+                      ${u.possibleDuplicate ? `
+                        <span class="badge-duplicate" title="Potential duplicate detected server-side">
+                          ⚠️ Possible duplicate
+                          <small class="badge-reason">${esc(reason)}</small>
+                        </span>
+                      ` : ''}
+                      ${u.paid ? `<span class="badge-paid">Paid (₹499)</span>` : `<span class="badge-free">Free (1–3)</span>`}
+                    </div>
+                  </div>
+                  <div class="admin-user-details">
+                    <span class="admin-user-field">📞 ${esc(u.phone || 'No phone')}</span>
+                    <span class="admin-user-field">🧒 ${esc(u.childName || 'No child name')}</span>
+                    ${u.paidAt ? `<span class="admin-user-field muted">Paid: ${new Date(u.paidAt).toLocaleDateString()}</span>` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <details class="admin-raw-details">
+            <summary class="muted tiny">View raw JSON</summary>
+            <pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>
+          </details>
+        </div>
+      `;
+
+      const filterSelect = $('#adminUserFilter');
+      if (filterSelect) {
+        filterSelect.onchange = e => {
+          filter = e.target.value;
+          redraw();
+        };
+      }
+
+      const searchInput = $('#adminUserSearch');
+      if (searchInput) {
+        searchInput.oninput = e => {
+          query = e.target.value;
+          redraw();
+        };
+      }
+    }
+
+    redraw();
+  }
+
   // Admin data loaders (require network + owner token)
   async function adminFetch(endpoint, label) {
     const out = $('#adminDataOut');
@@ -297,7 +404,11 @@ function renderConsole({ user, token, offline }) {
       const res = await fetch(`/api/admin/${endpoint}`, { headers: { Authorization: `Bearer ${freshToken}` } });
       const data = await res.json();
       if (!res.ok) { out.innerHTML = `<p class="muted tiny">Error: ${esc(data.error || 'Unknown error')}</p>`; return; }
-      out.innerHTML = `<pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>`;
+      if (endpoint === 'users') {
+        renderUsersView(data, out);
+      } else {
+        out.innerHTML = `<pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>`;
+      }
     } catch (e) {
       out.innerHTML = `<p class="muted tiny">Failed: ${esc(e.message)}</p>`;
     }

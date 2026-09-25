@@ -29,7 +29,7 @@ async function firebaseUser(env,token){
 async function bearer(req,env){const h=req.headers.get("authorization")||"";if(!h.startsWith("Bearer "))throw Error("missing authorization");return firebaseUser(env,h.slice(7))}
 async function ownerBearer(req,env){
   const user=await bearer(req,env);
-  const ownerUid=String(env.OWNER_UID||"").trim();
+  const ownerUid=String(env.OWNER_UID||env.Owner_UID||"").trim();
   if(!ownerUid)throw Error("OWNER_UID not configured on server");
   if(user.uid!==ownerUid)throw Error("Forbidden: owner access only");
   return user;
@@ -39,7 +39,7 @@ async function sa(env){return JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON)}
 async function googleToken(env){
   const s=await sa(env), now=Math.floor(Date.now()/1000);
   const head=b64u(new TextEncoder().encode(JSON.stringify({alg:"RS256",typ:"JWT"})));
-  const claim=b64u(new TextEncoder().encode(JSON.stringify({iss:s.client_email,scope:"https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600})));
+  const claim=b64u(new TextEncoder().encode(JSON.stringify({iss:s.client_email,scope:"https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase https://www.googleapis.com/auth/identitytoolkit",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600})));
   const key=await crypto.subtle.importKey("pkcs8",ub64(s.private_key.replace("-----BEGIN PRIVATE KEY-----","").replace("-----END PRIVATE KEY-----","").replace(/\s/g,"")),{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
   const sig=b64u(await crypto.subtle.sign("RSASSA-PKCS1-v1_5",key,new TextEncoder().encode(head+"."+claim)));
   const r=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:"grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion="+head+"."+claim+"."+sig});
@@ -67,6 +67,119 @@ async function firestoreList(env,collection,pageSize=50){
   if(!r.ok)throw Error(`Firestore list failed: ${r.status}`);
   const d=await r.json();return d.documents||[];
 }
+
+// Batch lookup of Firebase Auth user identities (email, phone, displayName)
+async function fetchAuthUsersByUids(env, uids) {
+  if (!Array.isArray(uids) || !uids.length) return {};
+  const map = {};
+  try {
+    const tok = await googleToken(env);
+    for (let i = 0; i < uids.length; i += 100) {
+      const chunk = uids.slice(i, i + 100);
+      const res = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer " + tok,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ localId: chunk }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const u of (data.users || [])) {
+          if (u.localId) {
+            map[u.localId] = {
+              email: u.email || "",
+              phone: u.phoneNumber || "",
+              displayName: u.displayName || "",
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[admin users] auth lookup skipped:", err?.message || err);
+  }
+  return map;
+}
+
+// ── Duplicate user detection (manual review only) ───────────────────────────
+// Signal 1: Phone match across different UIDs (strong)
+// Signal 2: Email match across different UIDs (strong)
+// Signal 3: Razorpay payment token: DEFERRED — NOT CURRENTLY STORED
+// Signal 4: Child name (weak only: never flags alone, only when combined with phone or email)
+// Self-match: never flags
+// Auto-blocking: NEVER (manual founder review only)
+
+function normalizePhone(raw) {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.length < 7) return "";
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
+}
+
+function normalizeEmail(raw) {
+  if (!raw) return "";
+  const s = String(raw).trim().toLowerCase();
+  return s.includes("@") && s.includes(".") ? s : "";
+}
+
+function normalizeChildName(raw) {
+  if (!raw) return "";
+  const s = String(raw).trim().toLowerCase();
+  const ignored = ["child", "kid", "friend", "—", "-", "none", "null", "undefined"];
+  return ignored.includes(s) ? "" : s;
+}
+
+function detectDuplicates(users) {
+  if (!Array.isArray(users) || users.length <= 1) {
+    return (users || []).map(u => ({ ...u, possibleDuplicate: false, duplicateReasons: [] }));
+  }
+  const normalized = users.map(u => ({
+    uid: String(u.uid || ""),
+    phone: normalizePhone(u.phone),
+    email: normalizeEmail(u.email),
+    childName: normalizeChildName(u.childName),
+  }));
+
+  return users.map((u, i) => {
+    const curr = normalized[i];
+    if (!curr.uid) return { ...u, possibleDuplicate: false, duplicateReasons: [] };
+
+    let phoneMatched = false;
+    let emailMatched = false;
+    let childNameMatched = false;
+
+    for (let j = 0; j < users.length; j++) {
+      if (i === j) continue; // never match against self
+      const other = normalized[j];
+      if (!other.uid || other.uid === curr.uid) continue;
+
+      const pMatch = !!(curr.phone && other.phone && curr.phone === other.phone);
+      const eMatch = !!(curr.email && other.email && curr.email === other.email);
+      const cMatch = !!(curr.childName && other.childName && curr.childName === other.childName);
+
+      if (pMatch) phoneMatched = true;
+      if (eMatch) emailMatched = true;
+      // Weak signal: child name only becomes part of duplicate reasons when combined with phone or email
+      if ((pMatch || eMatch) && cMatch) childNameMatched = true;
+    }
+
+    const possibleDuplicate = phoneMatched || emailMatched;
+    const duplicateReasons = [];
+    if (phoneMatched) duplicateReasons.push("phone");
+    if (emailMatched) duplicateReasons.push("email");
+    if (possibleDuplicate && childNameMatched) duplicateReasons.push("childName");
+
+    return {
+      ...u,
+      possibleDuplicate,
+      duplicateReasons,
+    };
+  });
+}
+
 
 function fsField(v){
   if(v===null||v===undefined)return{nullValue:null};
@@ -235,22 +348,42 @@ async function main(req,env){
     catch(e){return json({error:e.message},e.message.includes("Forbidden")?403:401);}
 
     // GET /api/admin/users
-    // Returns a joined view: entitlement docs merged with uid.
-    // Firebase Auth user listing requires the Firebase Auth REST API (GET /accounts:batchGet or
-    // the Identity Platform ListUsers). The worker scope covers the datastore. A best-effort
-    // approach: list all entitlement documents (one per authenticated+paying user) and note that
-    // unauthenticated-only users (who visited but never paid) are not recorded in Firestore by design.
-    // We do NOT collect email, phone, or display name from Firebase Auth — only uid and payment status.
+    // Returns joined view: entitlement docs merged with Firebase Auth identities (email, phone, displayName),
+    // with server-side duplicate user detection for manual review only.
     if(path==="/api/admin/users"&&req.method==="GET"){
       const docs=await firestoreList(env,"entitlements");
-      const users=docs.map(d=>{
+      const rawUsers=docs.map(d=>{
         const f=d.fields||{};
         const uid=fsVal(f.uid)||d.name.split("/").pop();
-        return{uid,paid:f.paid?.booleanValue===true,paidAt:fsVal(f.paidAt)||null};
+        return {
+          uid,
+          paid:f.paid?.booleanValue===true,
+          paidAt:fsVal(f.paidAt)||null,
+          childName:fsVal(f.childName)||fsVal(f.name)||fsVal(f.kidName)||"",
+          email:fsVal(f.email)||"",
+          phone:fsVal(f.phone)||fsVal(f.phoneNumber)||"",
+        };
       });
+      const uids=rawUsers.map(u=>u.uid).filter(Boolean);
+      const authMap=await fetchAuthUsersByUids(env,uids);
+      const mergedUsers=rawUsers.map(u=>{
+        const auth=authMap[u.uid]||{};
+        return {
+          uid:u.uid,
+          paid:u.paid,
+          paidAt:u.paidAt,
+          email:u.email||auth.email||"",
+          phone:u.phone||auth.phone||"",
+          childName:u.childName||auth.displayName||"",
+        };
+      });
+      const users=detectDuplicates(mergedUsers);
+      const possibleDuplicateCount=users.filter(u=>u.possibleDuplicate).length;
       return json({
-        users,total:users.length,
-        note:"Lists users who have made a payment attempt. Users who only browsed (free tiers) are not recorded — by design, to minimise data collection.",
+        users,
+        total:users.length,
+        possibleDuplicateCount,
+        note:"Lists users who have made a payment attempt. Users who only browsed (free tiers) are not recorded — by design, to minimise data collection. Duplicate detection is for manual review only.",
       });
     }
 
@@ -344,4 +477,5 @@ async function main(req,env){
   return json({error:"Not found"},404);
 }
 
+export { main, detectDuplicates, normalizePhone, normalizeEmail, normalizeChildName };
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};
