@@ -74,7 +74,7 @@ async function lookupAuthAccountsByUids(env, uids) {
   const projectId = String(env.FIREBASE_PROJECT_ID || "abacus-buddy").trim();
   const map = {};
   try {
-    const tok = await googleToken(env);
+    const tok = env._googleToken || await googleToken(env);
     for (let i = 0; i < uids.length; i += 100) {
       const chunk = uids.slice(i, i + 100);
       const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:lookup`, {
@@ -103,28 +103,49 @@ async function lookupAuthAccountsByUids(env, uids) {
   return map;
 }
 
-// List existing Firebase Auth accounts using project-scoped Identity Platform endpoint (maxResults bounded)
+// List existing Firebase Auth accounts using project-scoped Identity Platform endpoint with pagination
 async function fetchAuthAccounts(env, maxResults = 100) {
   const projectId = String(env.FIREBASE_PROJECT_ID || "abacus-buddy").trim();
+  const allUsers = [];
+  let pageToken = null;
+  const maxPages = 1000;
+  let pagesFetched = 0;
+
   try {
-    const tok = await googleToken(env);
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts?maxResults=${maxResults}`, {
-      headers: {
-        authorization: "Bearer " + tok,
-      },
-    });
-    if (res.ok) {
+    const tok = env._googleToken || await googleToken(env);
+    do {
+      pagesFetched++;
+      let url = `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts?maxResults=${maxResults}`;
+      if (pageToken) {
+        url += `&nextPageToken=${encodeURIComponent(pageToken)}`;
+      }
+      const res = await fetch(url, {
+        headers: {
+          authorization: "Bearer " + tok,
+        },
+      });
+      if (!res.ok) {
+        console.warn("[admin users] auth list request failed with status:", res.status);
+        break;
+      }
       const data = await res.json();
-      return (data.users || []).map(u => ({
-        uid: u.localId || "",
-        email: u.email || "",
-        phone: u.phoneNumber || "",
-      }));
-    }
+      const users = data.users || [];
+      for (const u of users) {
+        allUsers.push({
+          uid: u.localId || "",
+          email: u.email || "",
+          phone: u.phoneNumber || "",
+        });
+      }
+      pageToken = (data.nextPageToken || "").trim();
+      if (!pageToken || users.length === 0) {
+        break;
+      }
+    } while (pageToken && pagesFetched < maxPages);
   } catch (err) {
     console.warn("[admin users] auth list skipped:", err?.message || err);
   }
-  return [];
+  return allUsers;
 }
 
 // ── Duplicate user detection (manual review only) ───────────────────────────

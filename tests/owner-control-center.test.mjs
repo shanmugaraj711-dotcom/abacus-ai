@@ -37,7 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { detectDuplicates, normalizePhone, normalizeEmail } from '../worker.js';
+import { detectDuplicates, normalizePhone, normalizeEmail, fetchAuthAccounts } from '../worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1639,6 +1639,96 @@ await test('Duplicate detection: UI Filter works for All users vs Possible dupli
     delete server.expose.entitlements['filter-dup-1'];
     delete server.expose.entitlements['filter-unique-1'];
     await ctx.close();
+  }
+});
+
+// ── Test Pagination: Multi-page Firebase Auth retrieval and cross-page duplicate detection ──
+await test('Correction: Firebase Auth account pagination and multi-page duplicate detection (1-5)', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('nextPageToken'), 'worker.js must use nextPageToken for Identity Platform pagination');
+  assert.ok(workerSrc.includes('fetchAuthAccounts'), 'worker.js must define fetchAuthAccounts');
+
+  const requestedUrls = [];
+  const originalFetch = globalThis.fetch;
+
+  const page1Users = [
+    { localId: 'p1-user-1', email: 'p1_alice@example.com', phoneNumber: '+919876500001' },
+    { localId: 'p1-user-2', email: 'p1_bob@example.com', phoneNumber: '+919876500002' },
+  ];
+  const page2Users = [
+    { localId: 'p2-user-3', email: 'p2_alice_alt@example.com', phoneNumber: '+91 98765 00001' }, // Phone match with p1-user-1!
+    { localId: 'p2-user-4', email: 'p2_charlie@example.com', phoneNumber: '+919876500004' },
+  ];
+
+  globalThis.fetch = async (input, init) => {
+    const urlStr = String(input);
+    if (urlStr.includes('/accounts')) {
+      requestedUrls.push(urlStr);
+      const parsedUrl = new URL(urlStr);
+      const cursor = parsedUrl.searchParams.get('nextPageToken');
+
+      if (!cursor) {
+        // Page 1
+        return new Response(JSON.stringify({
+          users: page1Users,
+          nextPageToken: 'token-cursor-page2',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } else if (cursor === 'token-cursor-page2') {
+        // Page 2
+        return new Response(JSON.stringify({
+          users: page2Users,
+          nextPageToken: null, // End of pages
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } else {
+        return new Response(JSON.stringify({ users: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const mockEnv = {
+      FIREBASE_PROJECT_ID: 'abacus-buddy-test',
+      _googleToken: 'mock-test-sa-token',
+    };
+
+    const retrievedUsers = await fetchAuthAccounts(mockEnv, 2);
+
+    // 1. first Auth page is retrieved
+    assert.ok(requestedUrls.length >= 1, 'Proof 1: First Auth page request was made');
+    assert.ok(requestedUrls[0].includes('/v1/projects/abacus-buddy-test/accounts'), 'Proof 1: First page targets project-scoped accounts endpoint');
+    assert.equal(new URL(requestedUrls[0]).searchParams.get('nextPageToken'), null, 'Proof 1: First request has no cursor/nextPageToken');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-1'), 'Proof 1: Page 1 user 1 was retrieved');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-2'), 'Proof 1: Page 1 user 2 was retrieved');
+
+    // 2. pagination token/cursor is followed
+    assert.ok(requestedUrls.length >= 2, 'Proof 2: Second page request was initiated');
+    assert.equal(new URL(requestedUrls[1]).searchParams.get('nextPageToken'), 'token-cursor-page2', 'Proof 2: Pagination token was followed in the second request');
+
+    // 3. users from page 2 are included
+    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-3'), 'Proof 3: Page 2 user 3 is included in result');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-4'), 'Proof 3: Page 2 user 4 is included in result');
+    assert.equal(retrievedUsers.length, 4, 'Proof 3: Total accounts include all users from both page 1 and page 2');
+
+    // 4. duplicate detection can catch a duplicate where one account exists on page 1 and the matching account exists on page 2
+    const evaluated = detectDuplicates(retrievedUsers);
+    const p1Dup = evaluated.find(u => u.uid === 'p1-user-1');
+    const p2Dup = evaluated.find(u => u.uid === 'p2-user-3');
+    const p1Unique = evaluated.find(u => u.uid === 'p1-user-2');
+    const p2Unique = evaluated.find(u => u.uid === 'p2-user-4');
+
+    assert.ok(p1Dup && p2Dup, 'Proof 4: Both duplicate accounts across page 1 and page 2 are present');
+    assert.equal(p1Dup.possibleDuplicate, true, 'Proof 4: Page 1 account is flagged as possible duplicate');
+    assert.ok(p1Dup.duplicateReasons.includes('phone'), 'Proof 4: Page 1 account has phone match reason');
+    assert.equal(p2Dup.possibleDuplicate, true, 'Proof 4: Page 2 account is flagged as possible duplicate');
+    assert.ok(p2Dup.duplicateReasons.includes('phone'), 'Proof 4: Page 2 account has phone match reason');
+    assert.equal(p1Unique.possibleDuplicate, false, 'Proof 4: Unique page 1 account is not flagged');
+    assert.equal(p2Unique.possibleDuplicate, false, 'Proof 4: Unique page 2 account is not flagged');
+
+    // 5. pagination terminates correctly
+    assert.equal(requestedUrls.length, 2, 'Proof 5: Pagination terminates cleanly when nextPageToken is exhausted (exactly 2 requests)');
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
