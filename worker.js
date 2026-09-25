@@ -68,15 +68,16 @@ async function firestoreList(env,collection,pageSize=50){
   const d=await r.json();return d.documents||[];
 }
 
-// Batch lookup of Firebase Auth user identities (email, phone, displayName)
-async function fetchAuthUsersByUids(env, uids) {
+// Bounded batch lookup by localId using project-scoped Identity Platform endpoint
+async function lookupAuthAccountsByUids(env, uids) {
   if (!Array.isArray(uids) || !uids.length) return {};
+  const projectId = String(env.FIREBASE_PROJECT_ID || "abacus-buddy").trim();
   const map = {};
   try {
     const tok = await googleToken(env);
     for (let i = 0; i < uids.length; i += 100) {
       const chunk = uids.slice(i, i + 100);
-      const res = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup", {
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:lookup`, {
         method: "POST",
         headers: {
           authorization: "Bearer " + tok,
@@ -91,7 +92,6 @@ async function fetchAuthUsersByUids(env, uids) {
             map[u.localId] = {
               email: u.email || "",
               phone: u.phoneNumber || "",
-              displayName: u.displayName || "",
             };
           }
         }
@@ -103,11 +103,35 @@ async function fetchAuthUsersByUids(env, uids) {
   return map;
 }
 
+// List existing Firebase Auth accounts using project-scoped Identity Platform endpoint (maxResults bounded)
+async function fetchAuthAccounts(env, maxResults = 100) {
+  const projectId = String(env.FIREBASE_PROJECT_ID || "abacus-buddy").trim();
+  try {
+    const tok = await googleToken(env);
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts?maxResults=${maxResults}`, {
+      headers: {
+        authorization: "Bearer " + tok,
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return (data.users || []).map(u => ({
+        uid: u.localId || "",
+        email: u.email || "",
+        phone: u.phoneNumber || "",
+      }));
+    }
+  } catch (err) {
+    console.warn("[admin users] auth list skipped:", err?.message || err);
+  }
+  return [];
+}
+
 // ── Duplicate user detection (manual review only) ───────────────────────────
-// Signal 1: Phone match across different UIDs (strong)
-// Signal 2: Email match across different UIDs (strong)
+// Signal 1: Phone match across different UIDs (strong) — IMPLEMENTED
+// Signal 2: Email match across different UIDs (strong) — IMPLEMENTED
 // Signal 3: Razorpay payment token: DEFERRED — NOT CURRENTLY STORED
-// Signal 4: Child name (weak only: never flags alone, only when combined with phone or email)
+// Signal 4: Child name: DEFERRED — no server-side child-name record exists (local device state only)
 // Self-match: never flags
 // Auto-blocking: NEVER (manual founder review only)
 
@@ -125,13 +149,6 @@ function normalizeEmail(raw) {
   return s.includes("@") && s.includes(".") ? s : "";
 }
 
-function normalizeChildName(raw) {
-  if (!raw) return "";
-  const s = String(raw).trim().toLowerCase();
-  const ignored = ["child", "kid", "friend", "—", "-", "none", "null", "undefined"];
-  return ignored.includes(s) ? "" : s;
-}
-
 function detectDuplicates(users) {
   if (!Array.isArray(users) || users.length <= 1) {
     return (users || []).map(u => ({ ...u, possibleDuplicate: false, duplicateReasons: [] }));
@@ -140,7 +157,6 @@ function detectDuplicates(users) {
     uid: String(u.uid || ""),
     phone: normalizePhone(u.phone),
     email: normalizeEmail(u.email),
-    childName: normalizeChildName(u.childName),
   }));
 
   return users.map((u, i) => {
@@ -149,7 +165,6 @@ function detectDuplicates(users) {
 
     let phoneMatched = false;
     let emailMatched = false;
-    let childNameMatched = false;
 
     for (let j = 0; j < users.length; j++) {
       if (i === j) continue; // never match against self
@@ -158,19 +173,15 @@ function detectDuplicates(users) {
 
       const pMatch = !!(curr.phone && other.phone && curr.phone === other.phone);
       const eMatch = !!(curr.email && other.email && curr.email === other.email);
-      const cMatch = !!(curr.childName && other.childName && curr.childName === other.childName);
 
       if (pMatch) phoneMatched = true;
       if (eMatch) emailMatched = true;
-      // Weak signal: child name only becomes part of duplicate reasons when combined with phone or email
-      if ((pMatch || eMatch) && cMatch) childNameMatched = true;
     }
 
     const possibleDuplicate = phoneMatched || emailMatched;
     const duplicateReasons = [];
     if (phoneMatched) duplicateReasons.push("phone");
     if (emailMatched) duplicateReasons.push("email");
-    if (possibleDuplicate && childNameMatched) duplicateReasons.push("childName");
 
     return {
       ...u,
@@ -348,42 +359,71 @@ async function main(req,env){
     catch(e){return json({error:e.message},e.message.includes("Forbidden")?403:401);}
 
     // GET /api/admin/users
-    // Returns joined view: entitlement docs merged with Firebase Auth identities (email, phone, displayName),
-    // with server-side duplicate user detection for manual review only.
+    // Lists Firebase Auth accounts (including free-tier users) joined with payment entitlements,
+    // with server-side duplicate detection across phones and emails for manual founder review only.
     if(path==="/api/admin/users"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements");
-      const rawUsers=docs.map(d=>{
-        const f=d.fields||{};
-        const uid=fsVal(f.uid)||d.name.split("/").pop();
-        return {
-          uid,
-          paid:f.paid?.booleanValue===true,
-          paidAt:fsVal(f.paidAt)||null,
-          childName:fsVal(f.childName)||fsVal(f.name)||fsVal(f.kidName)||"",
-          email:fsVal(f.email)||"",
-          phone:fsVal(f.phone)||fsVal(f.phoneNumber)||"",
+      // 1. Fetch existing Firebase Auth accounts (includes free-tier and paying accounts)
+      const authUsers = await fetchAuthAccounts(env, 100);
+
+      // 2. Fetch existing Firestore entitlements
+      let docs = [];
+      try { docs = await firestoreList(env, "entitlements"); } catch(e) {}
+
+      const entMap = {};
+      const entUids = [];
+      for (const d of docs) {
+        const f = d.fields || {};
+        const uid = fsVal(f.uid) || d.name.split("/").pop();
+        if (uid) {
+          entUids.push(uid);
+          entMap[uid] = {
+            paid: f.paid?.booleanValue === true,
+            paidAt: fsVal(f.paidAt) || null,
+            email: fsVal(f.email) || "",
+            phone: fsVal(f.phone) || fsVal(f.phoneNumber) || "",
+          };
+        }
+      }
+
+      // Merge population: all Auth accounts
+      const userMap = {};
+      for (const a of authUsers) {
+        if (!a.uid) continue;
+        const ent = entMap[a.uid];
+        userMap[a.uid] = {
+          uid: a.uid,
+          email: a.email || ent?.email || "",
+          phone: a.phone || ent?.phone || "",
+          paid: ent?.paid === true,
+          paidAt: ent?.paidAt || null,
         };
-      });
-      const uids=rawUsers.map(u=>u.uid).filter(Boolean);
-      const authMap=await fetchAuthUsersByUids(env,uids);
-      const mergedUsers=rawUsers.map(u=>{
-        const auth=authMap[u.uid]||{};
-        return {
-          uid:u.uid,
-          paid:u.paid,
-          paidAt:u.paidAt,
-          email:u.email||auth.email||"",
-          phone:u.phone||auth.phone||"",
-          childName:u.childName||auth.displayName||"",
-        };
-      });
-      const users=detectDuplicates(mergedUsers);
-      const possibleDuplicateCount=users.filter(u=>u.possibleDuplicate).length;
+      }
+
+      // Ensure any paying users in entitlements not captured in authUsers batch are included
+      const missingUids = entUids.filter(uid => !userMap[uid]);
+      if (missingUids.length) {
+        const lookupMap = await lookupAuthAccountsByUids(env, missingUids);
+        for (const uid of missingUids) {
+          const ent = entMap[uid];
+          const auth = lookupMap[uid] || {};
+          userMap[uid] = {
+            uid,
+            email: auth.email || ent?.email || "",
+            phone: auth.phone || ent?.phone || "",
+            paid: ent?.paid === true,
+            paidAt: ent?.paidAt || null,
+          };
+        }
+      }
+
+      const mergedUsers = Object.values(userMap);
+      const users = detectDuplicates(mergedUsers);
+      const possibleDuplicateCount = users.filter(u => u.possibleDuplicate).length;
       return json({
         users,
-        total:users.length,
+        total: users.length,
         possibleDuplicateCount,
-        note:"Lists users who have made a payment attempt. Users who only browsed (free tiers) are not recorded — by design, to minimise data collection. Duplicate detection is for manual review only.",
+        note: "Lists Firebase Auth users joined with payment entitlements. Duplicate detection is for manual review only.",
       });
     }
 
@@ -477,5 +517,5 @@ async function main(req,env){
   return json({error:"Not found"},404);
 }
 
-export { main, detectDuplicates, normalizePhone, normalizeEmail, normalizeChildName };
+export { main, detectDuplicates, normalizePhone, normalizeEmail, lookupAuthAccountsByUids, fetchAuthAccounts };
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};

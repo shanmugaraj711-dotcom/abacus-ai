@@ -290,11 +290,7 @@ function renderConsole({ user, token, offline }) {
     if (!Array.isArray(reasons) || !reasons.length) return '';
     const hasPhone = reasons.includes('phone');
     const hasEmail = reasons.includes('email');
-    const hasChild = reasons.includes('childName');
-    if (hasPhone && hasEmail && hasChild) return 'Email + phone match';
     if (hasPhone && hasEmail) return 'Email + phone match';
-    if (hasPhone && hasChild) return 'Phone + child name';
-    if (hasEmail && hasChild) return 'Email + child name';
     if (hasPhone) return 'Phone match';
     if (hasEmail) return 'Email match';
     return reasons.join(', ');
@@ -311,14 +307,14 @@ function renderConsole({ user, token, offline }) {
       const filtered = allUsers.filter(u => {
         if (filter === 'duplicates' && !u.possibleDuplicate) return false;
         if (!q) return true;
-        const haystack = `${u.email || ''} ${u.phone || ''} ${u.childName || ''} ${u.uid || ''}`.toLowerCase();
+        const haystack = `${u.email || ''} ${u.phone || ''} ${u.uid || ''}`.toLowerCase();
         return haystack.includes(q);
       });
 
       out.innerHTML = `
         <div class="admin-users-mgmt">
           <div class="admin-notice">
-            ℹ️ <b>Manual review only:</b> Duplicate flags are purely informational for founder review. Never used for automated account restriction, suspension, or blocking.
+            ℹ️ <b>Manual review only:</b> Duplicate flags are purely informational for founder review based on shared phone or email. Never used for automated account restriction, suspension, or blocking.
           </div>
 
           <div class="admin-filter-bar">
@@ -329,7 +325,7 @@ function renderConsole({ user, token, offline }) {
                 <option value="duplicates"${filter === 'duplicates' ? ' selected' : ''}>Possible duplicates (${possibleDuplicateCount})</option>
               </select>
             </label>
-            <input id="adminUserSearch" class="admin-search-input" placeholder="Search email, phone, child or UID..." value="${esc(query)}">
+            <input id="adminUserSearch" class="admin-search-input" placeholder="Search email, phone or UID..." value="${esc(query)}">
           </div>
 
           <div class="admin-users-list">
@@ -358,7 +354,6 @@ function renderConsole({ user, token, offline }) {
                   </div>
                   <div class="admin-user-details">
                     <span class="admin-user-field">📞 ${esc(u.phone || 'No phone')}</span>
-                    <span class="admin-user-field">🧒 ${esc(u.childName || 'No child name')}</span>
                     ${u.paidAt ? `<span class="admin-user-field muted">Paid: ${new Date(u.paidAt).toLocaleDateString()}</span>` : ''}
                   </div>
                 </div>

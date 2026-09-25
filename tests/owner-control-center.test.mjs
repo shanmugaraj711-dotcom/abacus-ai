@@ -37,7 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { detectDuplicates, normalizePhone, normalizeEmail, normalizeChildName } from '../worker.js';
+import { detectDuplicates, normalizePhone, normalizeEmail } from '../worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +57,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
   let _remoteConfig = {};
   let _rewardsConfig = {};
   let _entitlements = {};
+  let _authAccounts = {};
   let _remoteConfigFail = false;
 
   function bearerUid(req) {
@@ -154,21 +155,37 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
       if (uid !== ownerUid) return jsonRes(res, { error: 'Forbidden: owner access only' }, 403);
 
       if (reqPath === '/api/admin/users' && req.method === 'GET') {
-        const rawUsers = Object.entries(_entitlements).map(([uid, e]) => ({
-          uid,
-          paid: !!e.paid,
-          paidAt: e.paidAt || null,
-          email: e.email || '',
-          phone: e.phone || '',
-          childName: e.childName || '',
-        }));
-        const users = detectDuplicates(rawUsers);
+        const userMap = {};
+        for (const [uid, a] of Object.entries(_authAccounts)) {
+          const ent = _entitlements[uid];
+          userMap[uid] = {
+            uid,
+            email: a.email || ent?.email || '',
+            phone: a.phone || ent?.phone || '',
+            paid: ent?.paid === true,
+            paidAt: ent?.paidAt || null,
+          };
+        }
+        for (const [uid, ent] of Object.entries(_entitlements)) {
+          if (!userMap[uid]) {
+            const auth = _authAccounts[uid] || {};
+            userMap[uid] = {
+              uid,
+              email: auth.email || ent.email || '',
+              phone: auth.phone || ent.phone || '',
+              paid: ent.paid === true,
+              paidAt: ent.paidAt || null,
+            };
+          }
+        }
+        const mergedUsers = Object.values(userMap);
+        const users = detectDuplicates(mergedUsers);
         const possibleDuplicateCount = users.filter(u => u.possibleDuplicate).length;
         return jsonRes(res, {
           users,
           total: users.length,
           possibleDuplicateCount,
-          note: "Lists users who have made a payment attempt. Users who only browsed (free tiers) are not recorded — by design, to minimise data collection. Duplicate detection is for manual review only.",
+          note: "Lists Firebase Auth users joined with payment entitlements. Duplicate detection is for manual review only.",
         });
       }
       if (reqPath === '/api/admin/payments' && req.method === 'GET') {
@@ -230,7 +247,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
     });
   });
 
-  server.expose = { get paid() { return _paid; }, set paid(v) { _paid = v; }, ordersCreated: _ordersCreated, auditLog: _auditLog, entitlements: _entitlements, setRemoteConfig(c) { _remoteConfig = c; }, setRemoteConfigFail(f) { _remoteConfigFail = f; } };
+  server.expose = { get paid() { return _paid; }, set paid(v) { _paid = v; }, ordersCreated: _ordersCreated, auditLog: _auditLog, entitlements: _entitlements, authAccounts: _authAccounts, setRemoteConfig(c) { _remoteConfig = c; }, setRemoteConfigFail(f) { _remoteConfigFail = f; } };
   return server;
 }
 
@@ -1393,10 +1410,94 @@ await test("Regression E: Network recovery correctly refreshes current user's en
 // ──────────────────────────────────────────────────────────────────────────────────────
 console.log('\n═══ Item 20: Duplicate-User Detection (Manual Review Only) ═══');
 
-await test('Duplicate detection 1: No duplicate -> no flag', async () => {
+// ── Test A: Correct project-scoped Identity Platform lookup endpoint ─────────
+await test('Correction A: Identity Platform endpoint is project-scoped (/v1/projects/{projectId}/accounts:lookup)', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(
+    workerSrc.includes('/v1/projects/${encodeURIComponent(projectId)}/accounts:lookup'),
+    'Must use project-scoped /v1/projects/{projectId}/accounts:lookup'
+  );
+  assert.ok(
+    workerSrc.includes('/v1/projects/${encodeURIComponent(projectId)}/accounts'),
+    'Must use project-scoped /v1/projects/{projectId}/accounts for account listing'
+  );
+  // Verify legacy unscoped admin endpoint is not used for admin lookups
+  assert.ok(
+    !workerSrc.includes('"https://identitytoolkit.googleapis.com/v1/accounts:lookup"'),
+    'Must not use legacy unscoped /v1/accounts:lookup for admin lookup'
+  );
+});
+
+// ── Test B: Firebase Auth users included even without an entitlement ─────────
+await test('Correction B: Firebase Auth users included even without an entitlement', async () => {
+  server.expose.authAccounts['free-user-b1'] = { email: 'free1@example.com', phone: '+919876543201' };
+  try {
+    const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    const user = data.users.find(u => u.uid === 'free-user-b1');
+    assert.ok(user, 'Free-tier Auth account without entitlement must be included in user list');
+    assert.equal(user.paid, false, 'Free-tier user must have paid=false');
+    assert.equal(user.paidAt, null, 'Free-tier user must have paidAt=null');
+  } finally {
+    delete server.expose.authAccounts['free-user-b1'];
+  }
+});
+
+// ── Test C: Duplicate free-tier accounts detected from existing Auth data ─────
+await test('Correction C: Duplicate free-tier accounts detected from existing Auth data', async () => {
+  server.expose.authAccounts['free-dup-c1'] = { email: 'free_shared@example.com', phone: '+919876543000' };
+  server.expose.authAccounts['free-dup-c2'] = { email: 'different@example.com', phone: '+91 98765 43000' };
+  try {
+    const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    const u1 = data.users.find(u => u.uid === 'free-dup-c1');
+    const u2 = data.users.find(u => u.uid === 'free-dup-c2');
+    assert.ok(u1 && u2, 'Both free-tier accounts must exist');
+    assert.equal(u1.possibleDuplicate, true, 'Free-tier duplicate account 1 must be flagged');
+    assert.equal(u2.possibleDuplicate, true, 'Free-tier duplicate account 2 must be flagged');
+    assert.ok(u1.duplicateReasons.includes('phone'));
+    assert.ok(u2.duplicateReasons.includes('phone'));
+  } finally {
+    delete server.expose.authAccounts['free-dup-c1'];
+    delete server.expose.authAccounts['free-dup-c2'];
+  }
+});
+
+// ── Test D: Paying users still join correctly with entitlement information ──
+await test('Correction D: Paying users join correctly with entitlement information', async () => {
+  server.expose.authAccounts['paying-user-d1'] = { email: 'paying@example.com', phone: '+919876543099' };
+  server.expose.entitlements['paying-user-d1'] = { paid: true, paidAt: '2026-09-24T18:00:00Z', email: 'paying@example.com' };
+  try {
+    const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    const u = data.users.find(x => x.uid === 'paying-user-d1');
+    assert.ok(u, 'Paying user must exist in joined list');
+    assert.equal(u.paid, true, 'Paid status must be true');
+    assert.equal(u.paidAt, '2026-09-24T18:00:00Z', 'Paid date must be joined from entitlement');
+  } finally {
+    delete server.expose.authAccounts['paying-user-d1'];
+    delete server.expose.entitlements['paying-user-d1'];
+  }
+});
+
+// ── Test E: Firebase displayName is NOT treated as childName ─────────────────
+await test('Correction E: Firebase displayName is NOT treated as childName', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(!workerSrc.includes('auth.displayName'), 'worker.js must not infer childName from auth.displayName');
+  assert.ok(!workerSrc.includes('u.displayName'), 'worker.js must not read auth displayName as childName');
+});
+
+// ── Test F: Child-name signal deferred, cannot flag on child name ─────────────
+await test('Correction F: Child-name signal deferred; same child name never flags duplicate', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('Signal 4: Child name: DEFERRED'), 'worker.js must document Signal 4 as DEFERRED');
+
   const users = [
-    { uid: 'u1', phone: '+919876543210', email: 'user1@example.com', childName: 'Aru', paid: true },
-    { uid: 'u2', phone: '+919123456780', email: 'user2@example.com', childName: 'Bala', paid: false },
+    { uid: 'u-f1', phone: '+919876543111', email: 'f1@example.com', childName: 'Aarav' },
+    { uid: 'u-f2', phone: '+919876543222', email: 'f2@example.com', childName: 'Aarav' },
   ];
   const evaluated = detectDuplicates(users);
   assert.equal(evaluated[0].possibleDuplicate, false);
@@ -1405,86 +1506,33 @@ await test('Duplicate detection 1: No duplicate -> no flag', async () => {
   assert.equal(evaluated[1].duplicateReasons.length, 0);
 });
 
-await test('Duplicate detection 2: Same phone, different UIDs -> possibleDuplicate=true, reason=phone', async () => {
+// ── Test G: Phone/email matching still works ─────────────────────────────────
+await test('Correction G: Phone and email matching work with normalized formats', async () => {
   const users = [
-    { uid: 'u-phone-1', phone: '+91 98765 43210', email: 'a@example.com', childName: 'Aru', paid: true },
-    { uid: 'u-phone-2', phone: '9876543210', email: 'b@example.com', childName: 'Kavi', paid: false },
+    { uid: 'u-g1', phone: '+91 98765 43210', email: 'g_shared@example.com' },
+    { uid: 'u-g2', phone: '9876543210', email: 'g_shared@example.com' },
+    { uid: 'u-g3', phone: '+919111122222', email: 'g_other@example.com' },
   ];
   const evaluated = detectDuplicates(users);
   assert.equal(evaluated[0].possibleDuplicate, true);
   assert.ok(evaluated[0].duplicateReasons.includes('phone'));
-  assert.equal(evaluated[1].possibleDuplicate, true);
-  assert.ok(evaluated[1].duplicateReasons.includes('phone'));
-});
-
-await test('Duplicate detection 3: Same email, different UIDs -> possibleDuplicate=true, reason=email', async () => {
-  const users = [
-    { uid: 'u-email-1', phone: '+919876500001', email: 'parent@promptstudioai.in', childName: 'Aru', paid: true },
-    { uid: 'u-email-2', phone: '+919876500002', email: 'PARENT@PromptStudioAI.in', childName: 'Mani', paid: false },
-  ];
-  const evaluated = detectDuplicates(users);
-  assert.equal(evaluated[0].possibleDuplicate, true);
   assert.ok(evaluated[0].duplicateReasons.includes('email'));
   assert.equal(evaluated[1].possibleDuplicate, true);
+  assert.ok(evaluated[1].duplicateReasons.includes('phone'));
   assert.ok(evaluated[1].duplicateReasons.includes('email'));
+  assert.equal(evaluated[2].possibleDuplicate, false);
 });
 
-await test('Duplicate detection 4: Same email + phone -> one duplicate flag, multiple reasons', async () => {
+await test('Duplicate detection: Same user matching itself -> NO duplicate', async () => {
   const users = [
-    { uid: 'u-both-1', phone: '+919876543210', email: 'family@example.com', childName: 'Aru', paid: true },
-    { uid: 'u-both-2', phone: '+919876543210', email: 'family@example.com', childName: 'Devi', paid: false },
-  ];
-  const evaluated = detectDuplicates(users);
-  assert.equal(evaluated[0].possibleDuplicate, true);
-  assert.deepEqual(evaluated[0].duplicateReasons.sort(), ['email', 'phone'].sort());
-  assert.equal(evaluated[1].possibleDuplicate, true);
-  assert.deepEqual(evaluated[1].duplicateReasons.sort(), ['email', 'phone'].sort());
-});
-
-await test('Duplicate detection 5: Same child name ONLY -> NO duplicate flag', async () => {
-  const users = [
-    { uid: 'u-child-1', phone: '+919876500001', email: 'one@example.com', childName: 'Aarav', paid: true },
-    { uid: 'u-child-2', phone: '+919876500002', email: 'two@example.com', childName: 'Aarav', paid: false },
-  ];
-  const evaluated = detectDuplicates(users);
-  assert.equal(evaluated[0].possibleDuplicate, false, 'Same child name alone must never trigger duplicate flag');
-  assert.equal(evaluated[0].duplicateReasons.length, 0);
-  assert.equal(evaluated[1].possibleDuplicate, false, 'Same child name alone must never trigger duplicate flag');
-  assert.equal(evaluated[1].duplicateReasons.length, 0);
-});
-
-await test('Duplicate detection 6: Child name + strong signal -> duplicate flag with childName included', async () => {
-  const users = [
-    { uid: 'u-cs-1', phone: '+919876500009', email: 'p1@example.com', childName: 'Aarav', paid: true },
-    { uid: 'u-cs-2', phone: '+919876500009', email: 'p2@example.com', childName: 'Aarav', paid: false },
-  ];
-  const evaluated = detectDuplicates(users);
-  assert.equal(evaluated[0].possibleDuplicate, true);
-  assert.ok(evaluated[0].duplicateReasons.includes('phone'));
-  assert.ok(evaluated[0].duplicateReasons.includes('childName'));
-});
-
-await test('Duplicate detection 7: Same user matching itself -> NO duplicate', async () => {
-  const users = [
-    { uid: 'self-match-uid', phone: '+919876543210', email: 'self@example.com', childName: 'Aru', paid: true },
+    { uid: 'self-match-uid', phone: '+919876543210', email: 'self@example.com' },
   ];
   const evaluated = detectDuplicates(users);
   assert.equal(evaluated[0].possibleDuplicate, false);
   assert.equal(evaluated[0].duplicateReasons.length, 0);
 });
 
-await test('Duplicate detection 8: Legitimate different users with different signals -> NO duplicate', async () => {
-  const users = [
-    { uid: 'diff-1', phone: '+919876511111', email: 'alice@example.com', childName: 'Alice Jr', paid: true },
-    { uid: 'diff-2', phone: '+919876522222', email: 'bob@example.com', childName: 'Bob Jr', paid: true },
-    { uid: 'diff-3', phone: '+919876533333', email: 'charlie@example.com', childName: 'Charlie Jr', paid: false },
-  ];
-  const evaluated = detectDuplicates(users);
-  assert.ok(evaluated.every(u => u.possibleDuplicate === false));
-  assert.ok(evaluated.every(u => u.duplicateReasons.length === 0));
-});
-
-await test('Duplicate detection 9: Non-owner cannot call duplicate endpoint (GET /api/admin/users) -> 403', async () => {
+await test('Duplicate detection: Non-owner cannot call duplicate endpoint (GET /api/admin/users) -> 403', async () => {
   const res = await fetch(`${BASE}/api/admin/users`, {
     headers: { Authorization: mockAuth(USER_UID) }
   });
@@ -1493,13 +1541,12 @@ await test('Duplicate detection 9: Non-owner cannot call duplicate endpoint (GET
   assert.equal(unauth.status, 401, 'Unauthenticated request must receive HTTP 401');
 });
 
-await test('Duplicate detection 10: Browser cannot submit its own duplicate status and have server trust it', async () => {
+await test('Duplicate detection: Browser cannot submit its own duplicate status and have server trust it', async () => {
   server.expose.entitlements['forged-user'] = {
     paid: true,
     paidAt: new Date().toISOString(),
     email: 'clean@example.com',
     phone: '+919999900001',
-    childName: 'Solo'
   };
 
   const res = await fetch(`${BASE}/api/admin/users?possibleDuplicate=true&duplicateReasons=forged`, {
@@ -1514,41 +1561,54 @@ await test('Duplicate detection 10: Browser cannot submit its own duplicate stat
   delete server.expose.entitlements['forged-user'];
 });
 
-await test('Duplicate detection 11: Payment-token signal remains disabled/deferred (Phase 0 verified)', async () => {
+// ── Test H: No auto-blocking ────────────────────────────────────────────────
+await test('Correction H: No auto-blocking exists in code or API responses', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('Auto-blocking: NEVER (manual founder review only)'));
+  assert.ok(!workerSrc.includes('blocked: true'), 'No account blocking flags in worker');
+  assert.ok(!workerSrc.includes('suspended: true'), 'No account suspension in worker');
+});
+
+// ── Test I: No IP/device/browser/session tracking ────────────────────────────
+await test('Correction I: Zero IP, device, browser, or session tracking is introduced', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  const adminSrc = fs.readFileSync(path.join(ROOT_DIR, 'js', 'admin.js'), 'utf8');
+
+  assert.ok(!workerSrc.includes('cf-connecting-ip'), 'No IP extraction in worker');
+  assert.ok(!workerSrc.includes('x-forwarded-for'), 'No IP extraction in worker');
+  assert.ok(!adminSrc.includes('navigator.userAgent'), 'No browser fingerprinting in admin UI');
+  assert.ok(!adminSrc.includes('screen.width'), 'No device fingerprinting in admin UI');
+  assert.ok(!adminSrc.includes('canvas.toDataURL'), 'No canvas fingerprinting');
+});
+
+// ── Test J: Existing payment/entitlement behavior remains green ──────────────
+await test('Correction J: Existing payment/entitlement behavior remains unchanged', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('const PRICE = 49900;'), '₹499 fixed price preserved');
+  assert.ok(workerSrc.includes('const PRODUCT = "abacus-buddy";'), 'Product name preserved');
+  assert.ok(workerSrc.includes('if(existing?.paid){return json({paid:true});}'), 'Idempotency preserved');
+});
+
+// ── Test K: Existing owner authentication remains unchanged ─────────────────
+await test('Correction K: Existing owner authentication remains unchanged', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('ownerBearer(req,env)'), 'ownerBearer enforces single-owner authentication');
+  assert.ok(workerSrc.includes('Forbidden: owner access only'), 'Rejects non-owner');
+});
+
+await test('Duplicate detection: Payment-token signal remains disabled/deferred', async () => {
   const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
   assert.ok(workerSrc.includes('Signal 3: Razorpay payment token: DEFERRED — NOT CURRENTLY STORED'));
   assert.ok(!workerSrc.includes('razorpay_token_id'), 'No invented payment token identifier');
   assert.ok(!workerSrc.includes('card_fingerprint'), 'No card fingerprinting added');
 });
 
-await test('Duplicate detection 12: Existing Users view still works with complete payload', async () => {
-  server.expose.entitlements['existing-view-user'] = {
-    paid: true,
-    paidAt: '2026-09-24T12:00:00Z',
-    email: 'existing@example.com',
-    phone: '+919876543299',
-    childName: 'Aru'
-  };
-
-  const res = await fetch(`${BASE}/api/admin/users`, {
-    headers: { Authorization: mockAuth(OWNER_UID) }
-  });
-  assert.equal(res.status, 200);
-  const data = await res.json();
-  assert.ok(Array.isArray(data.users));
-  assert.ok(typeof data.total === 'number');
-  assert.ok(typeof data.possibleDuplicateCount === 'number');
-  const u = data.users.find(x => x.uid === 'existing-view-user');
-  assert.ok(u);
-  assert.equal(u.paid, true);
-  assert.equal(u.paidAt, '2026-09-24T12:00:00Z');
-  delete server.expose.entitlements['existing-view-user'];
-});
-
-await test('Duplicate detection 13: UI Filter works for All users vs Possible duplicates', async () => {
-  server.expose.entitlements['filter-dup-1'] = { paid: true, phone: '+919988776655', email: 'dup1@example.com', childName: 'Aru' };
-  server.expose.entitlements['filter-dup-2'] = { paid: false, phone: '+919988776655', email: 'dup2@example.com', childName: 'Bala' };
-  server.expose.entitlements['filter-unique-1'] = { paid: true, phone: '+919911223344', email: 'unique@example.com', childName: 'Chell' };
+await test('Duplicate detection: UI Filter works for All users vs Possible duplicates', async () => {
+  server.expose.authAccounts['filter-dup-1'] = { phone: '+919988776655', email: 'dup1@example.com' };
+  server.expose.authAccounts['filter-dup-2'] = { phone: '+919988776655', email: 'dup2@example.com' };
+  server.expose.authAccounts['filter-unique-1'] = { phone: '+919911223344', email: 'unique@example.com' };
+  server.expose.entitlements['filter-dup-1'] = { paid: true };
+  server.expose.entitlements['filter-unique-1'] = { paid: true };
 
   const { ctx, p } = await newPage();
   try {
@@ -1559,60 +1619,33 @@ await test('Duplicate detection 13: UI Filter works for All users vs Possible du
     await p.goto(`${BASE}/owner.html`);
     await p.waitForSelector('#admin-users-section', { timeout: 8000 });
 
-    // Click load users
     await p.click('#loadUsers');
     await p.waitForSelector('.admin-users-mgmt', { timeout: 8000 });
 
-    // Initial state: All users
     const allCards = await p.$$('.admin-user-card');
     assert.ok(allCards.length >= 3, `Expected at least 3 cards, got ${allCards.length}`);
 
-    // Switch filter to "Possible duplicates"
     await p.selectOption('#adminUserFilter', 'duplicates');
     const dupCards = await p.$$('.admin-user-card');
     assert.equal(dupCards.length, 2, 'Only the 2 duplicate cards should be shown when filtered');
 
-    // Switch back to "All users"
     await p.selectOption('#adminUserFilter', 'all');
     const restoredCards = await p.$$('.admin-user-card');
     assert.equal(restoredCards.length, allCards.length);
   } finally {
+    delete server.expose.authAccounts['filter-dup-1'];
+    delete server.expose.authAccounts['filter-dup-2'];
+    delete server.expose.authAccounts['filter-unique-1'];
     delete server.expose.entitlements['filter-dup-1'];
-    delete server.expose.entitlements['filter-dup-2'];
     delete server.expose.entitlements['filter-unique-1'];
     await ctx.close();
   }
 });
 
-await test('Duplicate detection 14: Zero IP, device, browser, or session tracking is introduced', async () => {
-  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
-  const adminSrc = fs.readFileSync(path.join(ROOT_DIR, 'js', 'admin.js'), 'utf8');
-
-  // Verify forbidden tracking methods are NOT introduced
-  assert.ok(!workerSrc.includes('cf-connecting-ip'), 'No IP extraction in worker');
-  assert.ok(!workerSrc.includes('x-forwarded-for'), 'No IP extraction in worker');
-  assert.ok(!adminSrc.includes('navigator.userAgent'), 'No browser fingerprinting in admin UI');
-  assert.ok(!adminSrc.includes('screen.width'), 'No device fingerprinting in admin UI');
-  assert.ok(!adminSrc.includes('canvas.toDataURL'), 'No canvas fingerprinting');
-});
-
-await test('Duplicate detection 15: Existing payment/entitlement behavior remains unchanged', async () => {
-  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
-  assert.ok(workerSrc.includes('const PRICE = 49900;'), '₹499 fixed price preserved');
-  assert.ok(workerSrc.includes('const PRODUCT = "abacus-buddy";'), 'Product name preserved');
-  assert.ok(workerSrc.includes('if(existing?.paid){return json({paid:true});}'), 'Idempotency preserved');
-});
-
-await test('Duplicate detection 16: Existing owner authentication remains unchanged', async () => {
-  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
-  assert.ok(workerSrc.includes('ownerBearer(req,env)'), 'ownerBearer enforces single-owner authentication');
-  assert.ok(workerSrc.includes('Forbidden: owner access only'), 'Rejects non-owner');
-});
-
 // ──────────────────────────────────────────────────────────────────────────────────────
-// SECTION 21: Playwright Multi-Viewport & Visual Regression QA
+// SECTION 21: Playwright Multi-Viewport & Visual Regression QA (Correction L)
 // ──────────────────────────────────────────────────────────────────────────────────────
-console.log('\n═══ Item 21: Playwright Multi-Viewport QA ═══');
+console.log('\n═══ Item 21: Playwright Multi-Viewport QA (Correction L) ═══');
 
 const viewports = [
   { name: '320x640 (small mobile)', width: 320, height: 640 },
@@ -1621,9 +1654,10 @@ const viewports = [
 ];
 
 for (const vp of viewports) {
-  await test(`Owner Console renders without horizontal overflow at ${vp.name}`, async () => {
-    server.expose.entitlements['vp-dup-1'] = { paid: true, phone: '+919988776655', email: 'vpdup1@example.com', childName: 'Aru' };
-    server.expose.entitlements['vp-dup-2'] = { paid: false, phone: '+919988776655', email: 'vpdup2@example.com', childName: 'Aru' };
+  await test(`Correction L: Owner Console renders without horizontal overflow at ${vp.name}`, async () => {
+    server.expose.authAccounts['vp-dup-1'] = { phone: '+919988776655', email: 'vpdup1@example.com' };
+    server.expose.authAccounts['vp-dup-2'] = { phone: '+919988776655', email: 'vpdup2@example.com' };
+    server.expose.entitlements['vp-dup-1'] = { paid: true };
 
     const { ctx, p } = await newPage({ width: vp.width, height: vp.height });
     const errors = [];
@@ -1638,24 +1672,22 @@ for (const vp of viewports) {
       await p.goto(`${BASE}/owner.html`);
       await p.waitForSelector('#admin-users-section', { timeout: 8000 });
 
-      // Click load users
       await p.click('#loadUsers');
       await p.waitForSelector('.badge-duplicate', { timeout: 8000 });
 
-      // Check badge content
       const badgeText = await p.$eval('.badge-duplicate', el => el.textContent);
       assert.ok(badgeText.includes('Possible duplicate'), 'Badge must show Possible duplicate');
-      assert.ok(badgeText.includes('Phone + child name'), 'Badge must show Phone + child name reason');
+      assert.ok(badgeText.includes('Phone match'), 'Badge must show Phone match reason');
 
-      // Verify no horizontal overflow
       const overflow = await p.evaluate(() => {
         return document.documentElement.scrollWidth > window.innerWidth;
       });
       assert.equal(overflow, false, `No horizontal overflow expected at ${vp.width}px`);
       assert.equal(errors.length, 0, `No console/runtime errors at ${vp.width}px: ${errors.join(', ')}`);
     } finally {
+      delete server.expose.authAccounts['vp-dup-1'];
+      delete server.expose.authAccounts['vp-dup-2'];
       delete server.expose.entitlements['vp-dup-1'];
-      delete server.expose.entitlements['vp-dup-2'];
       await ctx.close();
     }
   });
