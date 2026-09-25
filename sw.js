@@ -1,6 +1,6 @@
 // Offline support. Network-first for app files so updates arrive right away;
 // cache is the fallback when offline.
-const CACHE = 'abacus-buddy-v5';
+const CACHE = 'abacus-buddy-v6';
 const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/engine.js', './js/store.js', './js/sound.js',
   './js/abacusView.js', './js/babi.js', './js/lessons.js', './js/i18n.js', './js/ui.js', './js/config.js', './js/games.js', './js/exams.js', './config.json', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
@@ -12,8 +12,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  // Do not cache authenticated API responses; bypass SW completely for /api/user-status and API endpoints
-  if (url.pathname === '/api/user-status' || url.pathname.startsWith('/api/')) return;
+  // Do not cache authenticated API responses or owner console pages; bypass SW completely
+  if (url.pathname === '/api/user-status' || url.pathname.startsWith('/api/') || url.pathname === '/owner.html' || url.pathname.startsWith('/js/owner') || url.pathname.startsWith('/js/admin')) return;
   const isFont = url.hostname.endsWith('gstatic.com') || url.hostname.endsWith('googleapis.com');
   if (url.origin !== location.origin && !isFont) return;
   e.respondWith((async () => {

@@ -14,7 +14,7 @@
 //   - A paid entitlement is separately cached in localStorage under
 //     'abacus-entitlement-v1' so offline paid users stay unlocked.
 //
-// Authorization: #/admin requires Firebase Google sign-in as the owner account.
+// Authorization: /owner.html requires Firebase Google sign-in as the owner account.
 // There is NO PIN. The ownerPin field is removed.
 //
 // Price model: Levels 1-3 free, Levels 4-15 at ₹499. freeLevels is fixed at 3.

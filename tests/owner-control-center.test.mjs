@@ -933,7 +933,10 @@ await test('Owner console is not exposed through the child router or service-wor
   const swSrc = fs.readFileSync(path.join(ROOT_DIR, 'sw.js'), 'utf8');
   const ownerHtml = fs.readFileSync(path.join(ROOT_DIR, 'owner.html'), 'utf8');
   assert.ok(!appSrc.includes("admin: () => adminScreen()"), 'Child router must not expose #/admin');
+  assert.ok(!appSrc.includes("Owner console"), 'Child app must not contain "Owner console" link or text');
+  assert.ok(!appSrc.includes("#/admin"), 'Child app must not contain "#/admin" links');
   assert.ok(!swSrc.includes("'./js/admin.js'"), 'Child service worker must not pre-cache admin.js');
+  assert.ok(!swSrc.includes("'./owner.html'"), 'Child service worker must not pre-cache owner.html');
   assert.ok(ownerHtml.includes('js/owner.js'), 'Dedicated owner entry point must load owner.js');
 });
 

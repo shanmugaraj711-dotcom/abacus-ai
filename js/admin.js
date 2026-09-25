@@ -1,6 +1,6 @@
-// Owner console (#/admin) — for you (the owner), not for children.
+// Owner console (/owner.html) — for you (the owner), not for children.
 //
-// AUTHORIZATION: #/admin requires your Firebase owner account (Google sign-in).
+// AUTHORIZATION: /owner.html requires your Firebase owner account (Google sign-in).
 // There is NO PIN bypass. If you are not signed in as the owner Firebase account,
 // the console shows a sign-in prompt. The server additionally enforces OWNER_UID
 // on all /api/admin/* calls — a non-owner token is rejected with 403.
@@ -46,7 +46,7 @@ async function ensureOwnerAuth(knownUser = null) {
   try {
     initFirebase();
   } catch (e) {
-    return { ok: false, reason: 'Firebase not configured: ' + e.message };
+    return { ok: false, reason: 'unconfigured', message: 'Firebase not configured: ' + e.message };
   }
 
   // If Google sign-in just returned a credential, use that user directly.
@@ -62,15 +62,28 @@ async function ensureOwnerAuth(knownUser = null) {
       });
     });
   }
-  if (!user) return { ok: false, reason: 'not-signed-in' };
+  if (!user) return { ok: false, reason: 'not-signed-in', message: 'Sign in with your owner Google account to open the console.' };
   try {
     const token = await user.getIdToken(true);
     const res = await fetch('/api/admin/entitlements?limit=1', {
       headers: { Authorization: 'Bearer ' + token },
     });
-    if (res.status === 403) return { ok: false, reason: 'not-owner' };
-    if (res.status === 401) return { ok: false, reason: 'not-signed-in' };
-    if (!res.ok) return { ok: false, reason: 'server-error:' + res.status };
+    if (res.status === 403) {
+      return { ok: false, reason: 'forbidden', message: 'This Google account is not the owner account.' };
+    }
+    if (res.status === 401) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        ok: false,
+        reason: 'unauthorized',
+        message: data.error === 'OWNER_UID not configured on server'
+          ? 'Server configuration error: OWNER_UID not configured on server.'
+          : 'Please sign in again.'
+      };
+    }
+    if (!res.ok) {
+      return { ok: false, reason: 'server-error', message: `Server error: ${res.status}` };
+    }
     _ownerToken = token;
     _ownerUser = user;
     return { ok: true, user, token };
@@ -78,7 +91,7 @@ async function ensureOwnerAuth(knownUser = null) {
     if (_ownerUser && e.message?.includes('fetch')) {
       return { ok: true, user: _ownerUser, token: null, offline: true };
     }
-    return { ok: false, reason: 'network-error: ' + e.message };
+    return { ok: false, reason: 'network-error', message: 'Network error: ' + e.message };
   }
 }
 
@@ -96,7 +109,7 @@ const SWITCHES = [
 
 export async function admin() {
   // Show loading state while verifying owner identity
-  shell({ title: 'Owner Console', back: '#/parents', cls: 'admin', body: `
+  shell({ title: 'Owner Console', back: '/', cls: 'admin', body: `
     <section class="card intro">
       <div class="lv-big">🔐</div>
       <p class="muted">Checking owner account…</p>
@@ -105,26 +118,35 @@ export async function admin() {
   const auth = await ensureOwnerAuth();
 
   if (!auth.ok) {
-    return showAuthGate(auth.reason);
+    return showAuthGate(auth.reason, auth.message);
   }
 
   renderConsole(auth);
 }
 
-function showAuthGate(reason) {
-  const isNotOwner = reason === 'not-owner';
-  const msg = isNotOwner
-    ? 'This account is not the owner account. Only the single owner Firebase account may access this console.'
-    : reason === 'not-signed-in'
-    ? 'Sign in with your owner Google account to open the console.'
-    : `Could not verify owner account. (${reason})`;
+function showAuthGate(reason, customMessage = null) {
+  let msg;
+  if (reason === 'forbidden' || reason === 'not-owner') {
+    msg = customMessage || 'This Google account is not the owner account.';
+  } else if (reason === 'unauthorized') {
+    msg = customMessage || 'Please sign in again.';
+  } else if (reason === 'not-signed-in') {
+    msg = 'Sign in with your owner Google account to open the console.';
+  } else {
+    msg = customMessage || `Could not verify owner account. (${reason})`;
+  }
 
-  shell({ title: 'Owner Console', back: '#/parents', body: `
+  const isError = reason === 'forbidden' || reason === 'not-owner' || reason === 'unauthorized' || reason === 'server-error' || reason === 'network-error';
+  const buttonText = (reason === 'forbidden' || reason === 'not-owner')
+    ? 'Sign in with another Google account'
+    : 'Sign in with Google';
+
+  shell({ title: 'Owner Console', back: '/', body: `
     <section class="card intro">
       <div class="lv-big">🔐</div>
       <h2 class="display">Owner console</h2>
-      <p class="lead">${esc(msg)}</p>
-      ${isNotOwner ? '' : `<button class="btn primary wide" id="ownerSignIn">Sign in with Google</button>`}
+      <p class="lead" id="authGateMsg"${isError ? ' style="color:#d32f2f;font-weight:bold"' : ''}>${esc(msg)}</p>
+      <button class="btn primary wide" id="ownerSignIn">${esc(buttonText)}</button>
       <p class="muted tiny" id="authMsg"></p>
     </section>` });
 
@@ -132,16 +154,21 @@ function showAuthGate(reason) {
   if (btn) {
     btn.onclick = async () => {
       btn.disabled = true; btn.textContent = 'Signing in…';
+      const m = $('#authMsg');
+      if (m) m.textContent = '';
       try {
         initFirebase();
         const credential = await signInWithGoogle();
-        const verified = await ensureOwnerAuth(credential?.user || null);
-        if (!verified.ok) return showAuthGate(verified.reason);
+        const user = credential?.user;
+        if (!user) {
+          throw new Error('No user returned from Google sign-in');
+        }
+        const verified = await ensureOwnerAuth(user);
+        if (!verified.ok) return showAuthGate(verified.reason, verified.message);
         renderConsole(verified);
       } catch (e) {
-        const m = $('#authMsg');
         if (m) m.textContent = 'Sign-in failed: ' + e.message;
-        btn.disabled = false; btn.textContent = 'Sign in with Google';
+        btn.disabled = false; btn.textContent = buttonText;
       }
     };
   }
@@ -154,7 +181,7 @@ function renderConsole({ user, token, offline }) {
   const num = (path, label, value, min, max) =>
     `<label class="admin-num"><span>${esc(label)}</span><input type="number" data-num="${path}" value="${value}" min="${min}" max="${max}"></label>`;
 
-  shell({ title: 'Owner Console', back: '#/parents', cls: 'admin', body: `
+  shell({ title: 'Owner Console', back: '/', cls: 'admin', body: `
     ${offline ? '<p class="muted tiny" style="background:#fff3cd;padding:8px;border-radius:8px">⚠️ Offline — local changes only. Server operations disabled.</p>' : ''}
 
     <section class="card">
@@ -283,7 +310,7 @@ function renderConsole({ user, token, offline }) {
       await signOut();
     } catch {}
     _ownerToken = null; _ownerUser = null;
-    go('#/home');
+    showAuthGate('not-signed-in');
   };
 
   // Admin data loaders (require network + owner token)

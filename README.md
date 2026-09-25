@@ -71,8 +71,8 @@ node tests/new-features.mjs     # games, tests, exams, certificates, owner conso
 
 ## 4. Switching features on and off (owner console)
 
-1. Open `#/admin` in the app — for example `https://yoursite.com/#/admin`.
-2. Sign in with your owner Google account. Access is restricted to the single owner Firebase UID configured in `OWNER_UID` on the server — there are no PINs and no second admins. (There is also a link at the bottom of the grown-ups corner.)
+1. Open `/owner.html` in your browser — for example `https://yoursite.com/owner.html`.
+2. Sign in with your owner Google account. Access is restricted to the single owner Firebase UID configured in `OWNER_UID` on the server — there are no PINs and no second admins. The owner console is completely separate on `/owner.html` and is not exposed in the child app.
 3. Switch on or off: lessons, practice, play, free play, stickers, tests, exams, certificates, Tamil, and each of the 7 games. Also set test length, pass marks, the app name and your centre name for certificates.
 4. Changes can be tested locally or pushed to everyone: tap **Push to remote config** to update all devices live via the Cloudflare Worker, or tap **Copy config.json** to update `config.json` for redeployment.
 

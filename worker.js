@@ -29,7 +29,7 @@ async function firebaseUser(env,token){
 async function bearer(req,env){const h=req.headers.get("authorization")||"";if(!h.startsWith("Bearer "))throw Error("missing authorization");return firebaseUser(env,h.slice(7))}
 async function ownerBearer(req,env){
   const user=await bearer(req,env);
-  const ownerUid=String(env.OWNER_UID||"").trim();
+  const ownerUid=String(env.OWNER_UID||env.Owner_UID||"").trim();
   if(!ownerUid)throw Error("OWNER_UID not configured on server");
   if(user.uid!==ownerUid)throw Error("Forbidden: owner access only");
   return user;
