@@ -1418,8 +1418,8 @@ await test('Correction A: Identity Platform endpoint is project-scoped (/v1/proj
     'Must use project-scoped /v1/projects/{projectId}/accounts:lookup'
   );
   assert.ok(
-    workerSrc.includes('/v1/projects/${encodeURIComponent(projectId)}/accounts'),
-    'Must use project-scoped /v1/projects/{projectId}/accounts for account listing'
+    workerSrc.includes('/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet'),
+    'Must use project-scoped /v1/projects/{projectId}/accounts:batchGet for account listing'
   );
   // Verify legacy unscoped admin endpoint is not used for admin lookups
   assert.ok(
@@ -1642,9 +1642,10 @@ await test('Duplicate detection: UI Filter works for All users vs Possible dupli
   }
 });
 
-// ── Test Pagination: Multi-page Firebase Auth retrieval and cross-page duplicate detection ──
-await test('Correction: Firebase Auth account pagination and multi-page duplicate detection (1-5)', async () => {
+// ── Test Pagination: Multi-page Firebase Auth retrieval (/accounts:batchGet) and duplicate detection ──
+await test('Correction: Firebase Auth account pagination via /accounts:batchGet and multi-page duplicate detection (1-7)', async () => {
   const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('accounts:batchGet'), 'worker.js must use official /accounts:batchGet endpoint');
   assert.ok(workerSrc.includes('nextPageToken'), 'worker.js must use nextPageToken for Identity Platform pagination');
   assert.ok(workerSrc.includes('fetchAuthAccounts'), 'worker.js must define fetchAuthAccounts');
 
@@ -1662,7 +1663,7 @@ await test('Correction: Firebase Auth account pagination and multi-page duplicat
 
   globalThis.fetch = async (input, init) => {
     const urlStr = String(input);
-    if (urlStr.includes('/accounts')) {
+    if (urlStr.includes('/accounts:batchGet')) {
       requestedUrls.push(urlStr);
       const parsedUrl = new URL(urlStr);
       const cursor = parsedUrl.searchParams.get('nextPageToken');
@@ -1694,39 +1695,59 @@ await test('Correction: Firebase Auth account pagination and multi-page duplicat
 
     const retrievedUsers = await fetchAuthAccounts(mockEnv, 2);
 
-    // 1. first Auth page is retrieved
-    assert.ok(requestedUrls.length >= 1, 'Proof 1: First Auth page request was made');
-    assert.ok(requestedUrls[0].includes('/v1/projects/abacus-buddy-test/accounts'), 'Proof 1: First page targets project-scoped accounts endpoint');
-    assert.equal(new URL(requestedUrls[0]).searchParams.get('nextPageToken'), null, 'Proof 1: First request has no cursor/nextPageToken');
-    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-1'), 'Proof 1: Page 1 user 1 was retrieved');
-    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-2'), 'Proof 1: Page 1 user 2 was retrieved');
+    // 1. /accounts:batchGet is used
+    assert.ok(requestedUrls.length >= 1, 'Proof 1: Requests were made');
+    assert.ok(requestedUrls[0].includes('/v1/projects/abacus-buddy-test/accounts:batchGet'), 'Proof 1: Request URL uses official /accounts:batchGet endpoint');
 
-    // 2. pagination token/cursor is followed
-    assert.ok(requestedUrls.length >= 2, 'Proof 2: Second page request was initiated');
-    assert.equal(new URL(requestedUrls[1]).searchParams.get('nextPageToken'), 'token-cursor-page2', 'Proof 2: Pagination token was followed in the second request');
+    // 2. first request has maxResults
+    const firstReqUrl = new URL(requestedUrls[0]);
+    assert.ok(firstReqUrl.searchParams.has('maxResults'), 'Proof 2: First request contains maxResults query parameter');
+    assert.equal(firstReqUrl.searchParams.get('maxResults'), '2', 'Proof 2: First request maxResults matches requested value');
+    assert.equal(firstReqUrl.searchParams.get('nextPageToken'), null, 'Proof 2: First request has no cursor/nextPageToken');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-1'), 'Page 1 user 1 was retrieved');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-2'), 'Page 1 user 2 was retrieved');
 
-    // 3. users from page 2 are included
-    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-3'), 'Proof 3: Page 2 user 3 is included in result');
-    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-4'), 'Proof 3: Page 2 user 4 is included in result');
-    assert.equal(retrievedUsers.length, 4, 'Proof 3: Total accounts include all users from both page 1 and page 2');
+    // 3. second request carries nextPageToken
+    assert.ok(requestedUrls.length >= 2, 'Proof 3: Second page request was initiated');
+    const secondReqUrl = new URL(requestedUrls[1]);
+    assert.ok(secondReqUrl.searchParams.has('nextPageToken'), 'Proof 3: Second request contains nextPageToken parameter');
+    assert.equal(secondReqUrl.searchParams.get('nextPageToken'), 'token-cursor-page2', 'Proof 3: Second request carries expected nextPageToken from page 1');
+    assert.equal(secondReqUrl.searchParams.get('maxResults'), '2', 'Proof 3: Second request preserves maxResults parameter');
 
-    // 4. duplicate detection can catch a duplicate where one account exists on page 1 and the matching account exists on page 2
+    // 4. page 2 users are included
+    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-3'), 'Proof 4: Page 2 user 3 is included in result');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-4'), 'Proof 4: Page 2 user 4 is included in result');
+    assert.equal(retrievedUsers.length, 4, 'Proof 4: Total accounts include all users from both page 1 and page 2');
+
+    // 5. cross-page duplicate is detected
     const evaluated = detectDuplicates(retrievedUsers);
     const p1Dup = evaluated.find(u => u.uid === 'p1-user-1');
     const p2Dup = evaluated.find(u => u.uid === 'p2-user-3');
     const p1Unique = evaluated.find(u => u.uid === 'p1-user-2');
     const p2Unique = evaluated.find(u => u.uid === 'p2-user-4');
 
-    assert.ok(p1Dup && p2Dup, 'Proof 4: Both duplicate accounts across page 1 and page 2 are present');
-    assert.equal(p1Dup.possibleDuplicate, true, 'Proof 4: Page 1 account is flagged as possible duplicate');
-    assert.ok(p1Dup.duplicateReasons.includes('phone'), 'Proof 4: Page 1 account has phone match reason');
-    assert.equal(p2Dup.possibleDuplicate, true, 'Proof 4: Page 2 account is flagged as possible duplicate');
-    assert.ok(p2Dup.duplicateReasons.includes('phone'), 'Proof 4: Page 2 account has phone match reason');
-    assert.equal(p1Unique.possibleDuplicate, false, 'Proof 4: Unique page 1 account is not flagged');
-    assert.equal(p2Unique.possibleDuplicate, false, 'Proof 4: Unique page 2 account is not flagged');
+    assert.ok(p1Dup && p2Dup, 'Proof 5: Both duplicate accounts across page 1 and page 2 are present');
+    assert.equal(p1Dup.possibleDuplicate, true, 'Proof 5: Page 1 account is flagged as possible duplicate');
+    assert.ok(p1Dup.duplicateReasons.includes('phone'), 'Proof 5: Page 1 account has phone match reason');
+    assert.equal(p2Dup.possibleDuplicate, true, 'Proof 5: Page 2 account is flagged as possible duplicate');
+    assert.ok(p2Dup.duplicateReasons.includes('phone'), 'Proof 5: Page 2 account has phone match reason');
+    assert.equal(p1Unique.possibleDuplicate, false, 'Proof 5: Unique page 1 account is not flagged');
+    assert.equal(p2Unique.possibleDuplicate, false, 'Proof 5: Unique page 2 account is not flagged');
 
-    // 5. pagination terminates correctly
-    assert.equal(requestedUrls.length, 2, 'Proof 5: Pagination terminates cleanly when nextPageToken is exhausted (exactly 2 requests)');
+    // 6. pagination stops when token disappears
+    assert.equal(requestedUrls.length, 2, 'Proof 6: Pagination stops cleanly when nextPageToken disappears (exactly 2 requests)');
+
+    // 7. maxResults never exceeds 1000
+    requestedUrls.length = 0; // reset
+    await fetchAuthAccounts(mockEnv, 5000); // pass value > 1000
+    assert.ok(requestedUrls.length > 0, 'Proof 7: Request made for bounded check');
+    const boundedReqUrl = new URL(requestedUrls[0]);
+    assert.equal(boundedReqUrl.searchParams.get('maxResults'), '1000', 'Proof 7: maxResults is capped at 1000 when 5000 is requested');
+
+    requestedUrls.length = 0; // reset
+    await fetchAuthAccounts(mockEnv, 0); // pass value < 1
+    const minReqUrl = new URL(requestedUrls[0]);
+    assert.equal(minReqUrl.searchParams.get('maxResults'), '1', 'Proof 7: maxResults is at least 1 when 0 is requested');
   } finally {
     globalThis.fetch = originalFetch;
   }

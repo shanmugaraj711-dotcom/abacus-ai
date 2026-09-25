@@ -103,9 +103,11 @@ async function lookupAuthAccountsByUids(env, uids) {
   return map;
 }
 
-// List existing Firebase Auth accounts using project-scoped Identity Platform endpoint with pagination
+// List existing Firebase Auth accounts using official project-scoped Identity Platform paginated endpoint (/accounts:batchGet)
 async function fetchAuthAccounts(env, maxResults = 100) {
   const projectId = String(env.FIREBASE_PROJECT_ID || "abacus-buddy").trim();
+  const num = typeof maxResults === "number" ? maxResults : Number(maxResults);
+  const boundedMaxResults = Number.isFinite(num) ? Math.max(1, Math.min(Math.floor(num), 1000)) : 100;
   const allUsers = [];
   let pageToken = null;
   const maxPages = 1000;
@@ -115,7 +117,7 @@ async function fetchAuthAccounts(env, maxResults = 100) {
     const tok = env._googleToken || await googleToken(env);
     do {
       pagesFetched++;
-      let url = `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts?maxResults=${maxResults}`;
+      let url = `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet?maxResults=${boundedMaxResults}`;
       if (pageToken) {
         url += `&nextPageToken=${encodeURIComponent(pageToken)}`;
       }
