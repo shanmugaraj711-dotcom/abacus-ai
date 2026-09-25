@@ -37,7 +37,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { detectDuplicates } from '../worker.js';
+import crypto from 'node:crypto';
+import {
+  main as workerMain,
+  normalizePhone,
+  detectDuplicates,
+  authAccountRecord,
+  fetchAuthAccountsPaginated,
+} from '../worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1390,6 +1397,253 @@ await test("Regression E: Network recovery correctly refreshes current user's en
     delete server.expose.entitlements[uid];
     await ctx.close();
   }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// REAL BACKEND: accounts:batchGet + Firestore pagination, fail-closed Auth
+// errors, and the phone/email duplicate rules — exercised against the actual
+// worker.js functions (not a hand-rolled mock), with only network calls mocked.
+// ──────────────────────────────────────────────────────────────────────────────────────
+console.log('\n═══ Real backend: Auth/Firestore pagination + duplicate rules ═══');
+
+// A throwaway RSA keypair so worker.js's real googleToken() JWT-signing code
+// path runs unmodified (crypto.subtle.importKey needs a structurally valid
+// PKCS8 key; it is never sent anywhere — the token exchange itself is mocked).
+const TEST_KEYPAIR = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
+const WORKER_TEST_OWNER_UID = 'owner-uid-worker-test';
+const WORKER_TEST_ENV = {
+  FIREBASE_PROJECT_ID: 'test-project',
+  FIREBASE_API_KEY: 'fake-api-key',
+  FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+    client_email: 'test@test.iam.gserviceaccount.com',
+    private_key: TEST_KEYPAIR.privateKey,
+  }),
+  OWNER_UID: WORKER_TEST_OWNER_UID,
+};
+
+function ownerRequest(path) {
+  return new Request(`https://worker.test${path}`, { headers: { Authorization: 'Bearer owner-token' } });
+}
+
+// Builds a mock global fetch covering every external call worker.js makes:
+// OAuth token exchange, the owner-auth accounts:lookup check, accounts:batchGet
+// pagination, and Firestore entitlements pagination — each independently
+// scriptable per test.
+function makeWorkerMockFetch({ batchGetPages = [{ body: {} }], entitlementPages = [{ documents: [] }] } = {}) {
+  let batchGetIdx = 0, entIdx = 0;
+  const seen = { batchGetUrls: [], entitlementUrls: [] };
+  const fn = async (url) => {
+    const u = new URL(String(url));
+    if (u.hostname === 'oauth2.googleapis.com') {
+      return { ok: true, status: 200, json: async () => ({ access_token: 'fake-access-token' }) };
+    }
+    if (u.pathname === '/v1/accounts:lookup') {
+      return { ok: true, status: 200, json: async () => ({ users: [{ localId: WORKER_TEST_OWNER_UID, email: 'owner@test.com' }] }) };
+    }
+    if (u.pathname.endsWith('/accounts:batchGet')) {
+      seen.batchGetUrls.push(u.toString());
+      const page = batchGetPages[Math.min(batchGetIdx, batchGetPages.length - 1)];
+      batchGetIdx++;
+      if (page.status && page.status !== 200) return { ok: false, status: page.status, json: async () => (page.body || { error: 'mock error' }) };
+      return { ok: true, status: 200, json: async () => page.body };
+    }
+    if (u.pathname.includes('/documents/entitlements')) {
+      seen.entitlementUrls.push(u.toString());
+      const page = entitlementPages[Math.min(entIdx, entitlementPages.length - 1)];
+      entIdx++;
+      return { ok: true, status: 200, json: async () => page };
+    }
+    throw new Error('Unexpected fetch in worker mock: ' + url);
+  };
+  fn.seen = seen;
+  return fn;
+}
+
+async function withMockedFetch(mockFn, run) {
+  const original = globalThis.fetch;
+  globalThis.fetch = mockFn;
+  try { return await run(); } finally { globalThis.fetch = original; }
+}
+
+// ── P0.1 / P0.6: real accounts:batchGet pagination + cross-page duplicate ──
+await test('fetchAuthAccountsPaginated: hits the exact accounts:batchGet endpoint, sends nextPageToken on page 2, stops when it disappears', async () => {
+  const mockFetch = makeWorkerMockFetch({
+    batchGetPages: [
+      { body: { users: [{ localId: 'page-uid-1', email: 'p1@example.com' }], nextPageToken: 'page-2-token' } },
+      { body: { users: [{ localId: 'page-uid-2', email: 'p2@example.com' }] } }, // no token => must stop here
+    ],
+  });
+  const result = await withMockedFetch(mockFetch, () => fetchAuthAccountsPaginated('fake-token', 'test-project', 500));
+  assert.equal(mockFetch.seen.batchGetUrls.length, 2, 'must make exactly one request per page, no more');
+  const [call1, call2] = mockFetch.seen.batchGetUrls.map(x => new URL(x));
+  assert.equal(call1.pathname, '/v1/projects/test-project/accounts:batchGet', 'must hit the exact project-scoped batchGet endpoint');
+  assert.ok(!call1.searchParams.has('nextPageToken'), 'first page request must not send a nextPageToken');
+  const mr = Number(call1.searchParams.get('maxResults'));
+  assert.ok(mr >= 1 && mr <= 1000, 'maxResults must be sent and bounded 1-1000');
+  assert.equal(call2.searchParams.get('nextPageToken'), 'page-2-token', 'second page request must send page 1\'s nextPageToken');
+  assert.equal(result.length, 2, 'users from both pages must be included');
+  assert.ok(result.some(x => x.uid === 'page-uid-1'));
+  assert.ok(result.some(x => x.uid === 'page-uid-2'));
+});
+
+await test('fetchAuthAccountsPaginated + detectDuplicates: a phone duplicate split across page 1 and page 2 is still detected', async () => {
+  const sharedPhone = '+919911002200';
+  const mockFetch = makeWorkerMockFetch({
+    batchGetPages: [
+      { body: { users: [{ localId: 'cross-a', phoneNumber: sharedPhone }], nextPageToken: 'tok2' } },
+      { body: { users: [{ localId: 'cross-b', phoneNumber: sharedPhone }] } },
+    ],
+  });
+  const accounts = await withMockedFetch(mockFetch, () => fetchAuthAccountsPaginated('tok', 'proj', 1));
+  const flagged = detectDuplicates(accounts);
+  const a = flagged.find(x => x.uid === 'cross-a'), b = flagged.find(x => x.uid === 'cross-b');
+  assert.equal(a.possibleDuplicate, true, 'page-1 user must be flagged against its page-2 match');
+  assert.ok(a.duplicateReasons.includes('phone'));
+  assert.equal(b.possibleDuplicate, true, 'page-2 user must be flagged against its page-1 match');
+  assert.ok(b.duplicateReasons.includes('phone'));
+});
+
+await test('REAL /api/admin/users: maxResults is bounded to [1,1000] in both directions', async () => {
+  async function seenMaxResultsFor(query) {
+    const mockFetch = makeWorkerMockFetch({ batchGetPages: [{ body: { users: [] } }] });
+    await withMockedFetch(mockFetch, () => workerMain(ownerRequest('/api/admin/users' + query), WORKER_TEST_ENV));
+    return Number(new URL(mockFetch.seen.batchGetUrls[0]).searchParams.get('maxResults'));
+  }
+  assert.equal(await seenMaxResultsFor('?maxResults=5000'), 1000, 'over the cap must clamp to 1000');
+  assert.equal(await seenMaxResultsFor('?maxResults=0'), 1, 'zero/below must clamp to 1');
+  assert.equal(await seenMaxResultsFor(''), 1000, 'no query param must default to 1000');
+});
+
+// ── P0.2 / P0.9: Auth failures must fail closed, never masquerade as free users ──
+for (const status of [401, 403, 500]) {
+  await test(`REAL /api/admin/users: Auth listing HTTP ${status} returns an explicit error, never a 200 with users misrepresented as free`, async () => {
+    const mockFetch = makeWorkerMockFetch({ batchGetPages: [{ status, body: { error: 'boom' } }] });
+    const res = await withMockedFetch(mockFetch, () => workerMain(ownerRequest('/api/admin/users'), WORKER_TEST_ENV));
+    assert.notEqual(res.status, 200, `HTTP ${status} from Auth must not become a 200 dashboard`);
+    const data = await res.json();
+    assert.ok(data.error, 'response must carry an explicit error');
+    assert.ok(!Array.isArray(data.users), 'response must not include a users array that looks like a complete dashboard');
+  });
+}
+
+await test('REAL /api/admin/users: malformed Auth response (users not an array) returns an explicit error, not a fabricated empty list', async () => {
+  const mockFetch = makeWorkerMockFetch({ batchGetPages: [{ body: { users: 'not-an-array' } }] });
+  const res = await withMockedFetch(mockFetch, () => workerMain(ownerRequest('/api/admin/users'), WORKER_TEST_ENV));
+  assert.notEqual(res.status, 200);
+  const data = await res.json();
+  assert.ok(data.error);
+});
+
+await test('REAL /api/admin/users: zero Auth users is a valid empty dashboard (not an error)', async () => {
+  const mockFetch = makeWorkerMockFetch({ batchGetPages: [{ body: {} }] }); // {} = genuinely empty page per Firebase docs
+  const res = await withMockedFetch(mockFetch, () => workerMain(ownerRequest('/api/admin/users'), WORKER_TEST_ENV));
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.deepEqual(data.users, []);
+  assert.equal(data.total, 0);
+  assert.equal(data.possibleDuplicateCount, 0);
+});
+
+await test('REAL /api/admin/users: 1000+ users spread across multiple Auth pages are all merged', async () => {
+  const pageSize = 400, totalUsers = 1050, pages = [];
+  for (let i = 0; i < totalUsers; i += pageSize) {
+    const chunk = Array.from({ length: Math.min(pageSize, totalUsers - i) }, (_, j) => ({ localId: `bulk-${i + j}`, email: `bulk${i + j}@example.com` }));
+    pages.push({ body: { users: chunk, ...(i + pageSize < totalUsers ? { nextPageToken: `tok-${i}` } : {}) } });
+  }
+  const mockFetch = makeWorkerMockFetch({ batchGetPages: pages });
+  const res = await withMockedFetch(mockFetch, () => workerMain(ownerRequest('/api/admin/users'), WORKER_TEST_ENV));
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.total, totalUsers, 'every user across every Auth page must be merged into one list');
+});
+
+// ── P0.3: Firestore entitlements must be fully paginated, not capped at page 1 ──
+await test('REAL /api/admin/users: paginates Firestore entitlements so a 51st paid user (past the first 50-doc page) is still counted', async () => {
+  const page1Docs = Array.from({ length: 50 }, (_, i) => ({
+    name: `projects/test-project/databases/(default)/documents/entitlements/ent-${i}`,
+    fields: { uid: { stringValue: `ent-${i}` }, paid: { booleanValue: true }, paidAt: { stringValue: '2026-01-01T00:00:00Z' } },
+  }));
+  const page2Docs = [{
+    name: `projects/test-project/databases/(default)/documents/entitlements/ent-50`,
+    fields: { uid: { stringValue: 'ent-50' }, paid: { booleanValue: true }, paidAt: { stringValue: '2026-01-02T00:00:00Z' } },
+  }];
+  const authAccounts = Array.from({ length: 51 }, (_, i) => ({ localId: `ent-${i}`, email: `ent${i}@example.com` }));
+  const mockFetch = makeWorkerMockFetch({
+    batchGetPages: [{ body: { users: authAccounts } }],
+    entitlementPages: [{ documents: page1Docs, nextPageToken: 'ent-page-2' }, { documents: page2Docs }],
+  });
+  const res = await withMockedFetch(mockFetch, () => workerMain(ownerRequest('/api/admin/users'), WORKER_TEST_ENV));
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(mockFetch.seen.entitlementUrls.length, 2, 'must fetch both Firestore pages');
+  assert.ok(mockFetch.seen.entitlementUrls[1].includes('pageToken=ent-page-2'), 'second Firestore page request must send the first page\'s nextPageToken');
+  const paidCount = data.users.filter(x => x.paid).length;
+  assert.equal(paidCount, 51, 'all 51 paid entitlements across both Firestore pages must be counted');
+  const last = data.users.find(x => x.uid === 'ent-50');
+  assert.ok(last && last.paid === true, 'the 51st paid user, from Firestore page 2, must be marked paid');
+});
+
+// ── P0.4 / P1.8: email duplicate rule must use the full linked-provider set ──
+await test('detectDuplicates: email match is caught across ALL linked provider identities, not only providerUserInfo[0]', async () => {
+  const users = [
+    { uid: 'multi-a', email: 'primary-a@example.com', providerEmails: ['secondary-shared@example.com'] },
+    { uid: 'multi-b', email: 'secondary-shared@example.com', providerEmails: [] },
+  ];
+  const flagged = detectDuplicates(users);
+  const a = flagged.find(x => x.uid === 'multi-a'), b = flagged.find(x => x.uid === 'multi-b');
+  assert.equal(a.possibleDuplicate, true, 'a match via a linked provider email must be caught even though top-level emails differ');
+  assert.ok(a.duplicateReasons.includes('email'));
+  assert.equal(b.possibleDuplicate, true);
+});
+
+await test('detectDuplicates: one account linking two providers to the same email is never flagged against itself', async () => {
+  const users = [
+    { uid: 'linked-1', email: 'me@example.com', providerEmails: ['me@example.com'] },
+    { uid: 'linked-2', email: 'unrelated@example.com', providerEmails: [] },
+  ];
+  const flagged = detectDuplicates(users);
+  assert.equal(flagged.find(x => x.uid === 'linked-1').possibleDuplicate, false);
+});
+
+await test('authAccountRecord: captures every linked provider (not only providerUserInfo[0])', async () => {
+  const rec = authAccountRecord({
+    localId: 'prov-1', email: 'x@example.com',
+    providerUserInfo: [{ providerId: 'google.com', email: 'x@example.com' }, { providerId: 'password', email: 'x@example.com' }],
+  });
+  assert.ok(rec.provider.includes('google.com'), 'first linked provider must be present');
+  assert.ok(rec.provider.includes('password'), 'second linked provider must also be present, not dropped');
+});
+
+// ── P0.5: phone normalization must not collide across countries ──
+await test('normalizePhone: preserves full E.164 — never truncates to trailing digits that could collide across countries', async () => {
+  assert.equal(normalizePhone('+919876543210'), '+919876543210');
+  assert.equal(normalizePhone('+44 7911 123456'), '+447911123456');
+  assert.notEqual(normalizePhone('+19876543210'), normalizePhone('+919876543210'), 'different country codes with the same trailing 10 digits must not normalize to the same value');
+  assert.equal(normalizePhone('9876543210'), '', 'a bare number with no country code cannot be safely normalized, so it is treated as unknown');
+  assert.equal(normalizePhone(''), '');
+  assert.equal(normalizePhone(null), '');
+});
+
+await test('detectDuplicates: phone numbers from different countries sharing trailing digits are NOT flagged as duplicates', async () => {
+  const users = [
+    { uid: 'intl-a', phone: '+19876543210' },
+    { uid: 'intl-b', phone: '+919876543210' },
+  ];
+  const flagged = detectDuplicates(users);
+  assert.ok(flagged.every(x => x.possibleDuplicate === false), 'different countries must never collide on trailing digits alone');
+});
+
+await test('detectDuplicates: unrelated users with distinct phones/emails are never flagged', async () => {
+  const users = [
+    { uid: 'u1', phone: '+911111111111', email: 'one@example.com' },
+    { uid: 'u2', phone: '+922222222222', email: 'two@example.com' },
+    { uid: 'u3', phone: '', email: '' },
+  ];
+  assert.ok(detectDuplicates(users).every(x => x.possibleDuplicate === false));
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────

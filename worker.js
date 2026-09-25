@@ -19,6 +19,15 @@ function b64u(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(
 function ub64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
 async function hmac(secret,msg){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);const a=new Uint8Array(await crypto.subtle.sign("HMAC",k,new TextEncoder().encode(msg)));return [...a].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function eq(a,b){if(!a||!b||a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0}
+// Clamps to [1,1000]. Note: plain `Number(v)||fallback` is wrong here because
+// 0 is a legitimate (if useless) input that `||` would misread as "missing"
+// and silently replace with the 1000 default instead of clamping to 1.
+function clampMaxResults(value,fallback=1000){
+  if(value===null||value===undefined||value==="")return Math.max(1,Math.min(Math.floor(fallback),1000));
+  const n=Number(value);
+  const base=Number.isFinite(n)?n:fallback;
+  return Math.max(1,Math.min(Math.floor(base),1000));
+}
 
 async function firebaseUser(env,token){
   const r=await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="+encodeURIComponent(env.FIREBASE_API_KEY),{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken:token})});
@@ -61,44 +70,88 @@ async function firestorePatch(env,collection,docId,fields){
   if(!r.ok)throw Error(`Firestore write failed: ${r.status}`);
   return await r.json();
 }
-async function firestoreList(env,collection,pageSize=50){
-  const tok=await googleToken(env);
-  const r=await fetch(`${FSBase(env)}/${collection}?pageSize=${pageSize}`,{headers:{authorization:"Bearer "+tok}});
+// Fetches one Firestore listDocuments page. Split out so pagination can be
+// exercised in tests against a mocked fetch, without real service-account auth.
+async function firestoreListPage(tok,url){
+  const r=await fetch(url,{headers:{authorization:"Bearer "+tok}});
   if(!r.ok)throw Error(`Firestore list failed: ${r.status}`);
-  const d=await r.json();return d.documents||[];
+  return await r.json();
+}
+// allPages=false preserves the original single-page behaviour (used by the
+// audit log, which intentionally only wants the first `pageSize` newest-ish
+// docs); allPages=true follows nextPageToken until the collection is exhausted
+// (used for entitlements, so a paying user past doc #50 is never dropped).
+async function firestoreListAllPages(tok,baseUrl,pageSize=50,allPages=false){
+  const all=[];
+  let pageToken=null,pages=0;
+  do{
+    pages++;
+    let url=`${baseUrl}?pageSize=${pageSize}`;
+    if(pageToken)url+=`&pageToken=${encodeURIComponent(pageToken)}`;
+    const d=await firestoreListPage(tok,url);
+    const docs=d.documents||[];
+    all.push(...docs);
+    pageToken=d.nextPageToken||null;
+    if(!allPages||!pageToken||docs.length===0)break;
+  }while(pageToken&&pages<1000);
+  return all;
+}
+async function firestoreList(env,collection,pageSize=50,allPages=false){
+  const tok=await googleToken(env);
+  return firestoreListAllPages(tok,`${FSBase(env)}/${collection}`,pageSize,allPages);
 }
 
 // ── Firebase Auth account listing (owner console population) ────────────────
 // Uses the project-scoped Identity Platform paginated endpoint, per Google's
 // documented replacement for the deprecated accounts:query listing call.
-function authProvider(u){
-  const p=(u.providerUserInfo||[])[0]?.providerId;
-  if(p)return p;
-  if(u.phoneNumber)return"phone";
-  if(u.email)return"password";
-  return"";
+// Requires the service account's OAuth token to carry the identitytoolkit
+// scope (see googleToken) and the firebaseauth.users.get IAM permission.
+function authProviders(u){
+  const ids=(u.providerUserInfo||[]).map(p=>p?.providerId).filter(Boolean);
+  if(ids.length)return[...new Set(ids)];
+  if(u.phoneNumber)return["phone"];
+  if(u.email)return["password"];
+  return[];
 }
 function authAccountRecord(u){
+  const providerEmails=(u.providerUserInfo||[]).map(p=>p?.email).filter(Boolean);
   return{
     uid:u.localId||"",email:u.email||"",phone:u.phoneNumber||"",
-    provider:authProvider(u),
+    provider:authProviders(u).join(", "),
+    providerEmails,
     createdAt:u.createdAt||null,lastLoginAt:u.lastLoginAt||null,
   };
 }
 
-async function fetchAuthAccounts(env,maxResults=1000){
-  const projectId=String(env.FIREBASE_PROJECT_ID||"abacus-buddy").trim();
-  const boundedMaxResults=Math.max(1,Math.min(Math.floor(Number(maxResults)||1000),1000));
+// Fetches one accounts:batchGet page. Split out so pagination can be exercised
+// in tests against a mocked fetch, without real service-account JWT signing.
+async function fetchAuthAccountsPage(tok,projectId,maxResults,pageToken){
+  let url=`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet?maxResults=${maxResults}`;
+  if(pageToken)url+=`&nextPageToken=${encodeURIComponent(pageToken)}`;
+  const res=await fetch(url,{headers:{authorization:"Bearer "+tok}});
+  if(!res.ok){
+    const err=Error(`Firebase Auth account listing failed: HTTP ${res.status}`);
+    err.status=res.status;
+    throw err;
+  }
+  const data=await res.json();
+  if(data&&data.users!==undefined&&!Array.isArray(data.users)){
+    throw Error("Firebase Auth account listing returned a malformed response (users is not an array)");
+  }
+  return data||{};
+}
+
+// Paginates accounts:batchGet to completion. Throws on any failure — callers
+// must NEVER treat a partial/failed listing as "these users are just free
+// users"; the caller must surface an explicit error instead (see
+// /api/admin/users), not a silently-incomplete 200 response.
+async function fetchAuthAccountsPaginated(tok,projectId,maxResults=1000){
+  const boundedMaxResults=clampMaxResults(maxResults);
   const all=[];
   let pageToken=null,pages=0;
-  const tok=await googleToken(env);
   do{
     pages++;
-    let url=`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet?maxResults=${boundedMaxResults}`;
-    if(pageToken)url+=`&nextPageToken=${encodeURIComponent(pageToken)}`;
-    const res=await fetch(url,{headers:{authorization:"Bearer "+tok}});
-    if(!res.ok){console.warn("[admin users] auth list request failed:",res.status);break;}
-    const data=await res.json();
+    const data=await fetchAuthAccountsPage(tok,projectId,boundedMaxResults,pageToken);
     const users=data.users||[];
     for(const u of users)all.push(authAccountRecord(u));
     pageToken=(data.nextPageToken||"").trim();
@@ -106,37 +159,61 @@ async function fetchAuthAccounts(env,maxResults=1000){
   }while(pageToken&&pages<1000);
   return all;
 }
+async function fetchAuthAccounts(env,maxResults=1000){
+  const projectId=String(env.FIREBASE_PROJECT_ID||"abacus-buddy").trim();
+  const tok=await googleToken(env);
+  return fetchAuthAccountsPaginated(tok,projectId,maxResults);
+}
 
 // ── Duplicate user detection (manual founder review only — never auto-acts) ──
-// Signal 1: phone match across different UIDs. Signal 2: email match across different UIDs.
+// Signal 1: phone match across different UIDs. Firebase Auth's phoneNumber is
+// always E.164 (+<countrycode><number>), so normalization never truncates to
+// trailing digits — two numbers from different countries can never collide
+// just because their last digits match. Signal 2: email match across
+// different UIDs, checked against every linked provider identity's email
+// (not only the top-level account email or only providerUserInfo[0]), so an
+// account that links Google + password with the same email is still one
+// account (self-matches are always excluded), while two distinct accounts
+// that share an email via any linked provider are still caught.
 // Payment-token and child-name matching are deferred (not implemented).
+// Uses phone->uids / email->uids maps (near-linear) rather than comparing
+// every user against every other user.
 function normalizePhone(raw){
   if(!raw)return"";
-  const digits=String(raw).replace(/\D/g,"");
-  if(digits.length<7)return"";
-  return digits.length>=10?digits.slice(-10):digits;
+  const cleaned=String(raw).trim().replace(/[^\d+]/g,"");
+  if(!cleaned.startsWith("+"))return""; // not E.164 — cannot safely normalize as "unknown country"
+  const digits=cleaned.slice(1).replace(/\D/g,"");
+  return digits.length>=8?"+"+digits:"";
 }
 function normalizeEmail(raw){
   if(!raw)return"";
   const s=String(raw).trim().toLowerCase();
   return s.includes("@")&&s.includes(".")?s:"";
 }
+function accountEmails(u){
+  const raw=[u.email,...(u.providerEmails||[])];
+  return[...new Set(raw.map(normalizeEmail).filter(Boolean))];
+}
 function detectDuplicates(users){
-  const norm=users.map(u=>({uid:String(u.uid||""),phone:normalizePhone(u.phone),email:normalizeEmail(u.email)}));
-  return users.map((u,i)=>{
-    const curr=norm[i];
-    if(!curr.uid)return{...u,possibleDuplicate:false,duplicateReasons:[]};
-    let phoneMatched=false,emailMatched=false;
-    for(let j=0;j<norm.length;j++){
-      if(i===j)continue;
-      const other=norm[j];
-      if(!other.uid||other.uid===curr.uid)continue;
-      if(curr.phone&&other.phone&&curr.phone===other.phone)phoneMatched=true;
-      if(curr.email&&other.email&&curr.email===other.email)emailMatched=true;
+  const phoneMap=new Map(),emailMap=new Map();
+  const norm=users.map(u=>{
+    const uid=String(u.uid||"");
+    const phone=normalizePhone(u.phone);
+    const emails=accountEmails(u);
+    if(uid){
+      if(phone){if(!phoneMap.has(phone))phoneMap.set(phone,new Set());phoneMap.get(phone).add(uid);}
+      for(const e of emails){if(!emailMap.has(e))emailMap.set(e,new Set());emailMap.get(e).add(uid);}
     }
+    return{uid,phone,emails};
+  });
+  return users.map((u,i)=>{
+    const n=norm[i];
+    if(!n.uid)return{...u,possibleDuplicate:false,duplicateReasons:[]};
+    const phoneDup=!!(n.phone&&phoneMap.get(n.phone)?.size>1);
+    const emailDup=n.emails.some(e=>emailMap.get(e)?.size>1);
     const duplicateReasons=[];
-    if(phoneMatched)duplicateReasons.push("phone");
-    if(emailMatched)duplicateReasons.push("email");
+    if(phoneDup)duplicateReasons.push("phone");
+    if(emailDup)duplicateReasons.push("email");
     return{...u,possibleDuplicate:duplicateReasons.length>0,duplicateReasons};
   });
 }
@@ -313,13 +390,24 @@ async function main(req,env){
     // No IP, device, browser or location tracking is collected — only existing Firebase Auth
     // account metadata (email, phone, provider, createdAt, lastLoginAt).
     if(path==="/api/admin/users"&&req.method==="GET"){
-      const maxResults=Math.max(1,Math.min(Math.floor(Number(u.searchParams.get("maxResults"))||1000),1000));
-      let authUsers=[];
-      try{authUsers=await fetchAuthAccounts(env,maxResults);}
-      catch(e){console.warn("[admin users] auth listing failed:",e.message);}
+      const maxResults=clampMaxResults(u.searchParams.get("maxResults"));
+      // Fail closed: if the Auth listing is incomplete or errors, we must NOT
+      // render a 200 dashboard that silently shows those users as "free" or
+      // drops them entirely. Surface the failure explicitly instead.
+      let authUsers;
+      try{
+        authUsers=await fetchAuthAccounts(env,maxResults);
+      }catch(e){
+        console.error("[admin users] auth listing failed:",e.message);
+        return json({
+          error:"Could not load the complete user list from Firebase Auth.",
+          detail:e.message,degraded:true,
+          note:"The dashboard is not shown when the Auth listing fails or is incomplete, so users are never misrepresented as free or silently dropped.",
+        },502);
+      }
 
       let docs=[];
-      try{docs=await firestoreList(env,"entitlements");}catch(e){}
+      try{docs=await firestoreList(env,"entitlements",50,true);}catch(e){}
       const entMap={};
       for(const d of docs){
         const f=d.fields||{};
@@ -333,10 +421,12 @@ async function main(req,env){
         const ent=entMap[a.uid];
         byUid.set(a.uid,{...a,paid:ent?.paid===true,paidAt:ent?.paidAt||null});
       }
-      // Entitlement docs whose UID wasn't returned by the Auth listing (e.g. paginated page
-      // boundary) are still included so a paying user is never silently dropped.
+      // An entitlement UID missing from the (now fully paginated) Auth population
+      // means that Firebase Auth account genuinely no longer exists — not an Auth
+      // API failure (those are caught above) — so its profile fields show as
+      // unavailable rather than being guessed at.
       for(const uid of Object.keys(entMap)){
-        if(!byUid.has(uid))byUid.set(uid,{uid,email:"",phone:"",provider:"",createdAt:null,lastLoginAt:null,paid:entMap[uid].paid,paidAt:entMap[uid].paidAt});
+        if(!byUid.has(uid))byUid.set(uid,{uid,email:"",phone:"",provider:"",providerEmails:[],createdAt:null,lastLoginAt:null,paid:entMap[uid].paid,paidAt:entMap[uid].paidAt});
       }
 
       const users=detectDuplicates([...byUid.values()]);
@@ -349,7 +439,7 @@ async function main(req,env){
 
     // GET /api/admin/payments
     if(path==="/api/admin/payments"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements");
+      const docs=await firestoreList(env,"entitlements",50,true);
       const payments=docs.filter(d=>d.fields?.paid?.booleanValue===true).map(d=>{
         const f=d.fields||{};
         return{uid:fsVal(f.uid)||d.name.split("/").pop(),paid:true,orderId:fsVal(f.orderId)||null,paymentId:fsVal(f.paymentId)||null,paidAt:fsVal(f.paidAt)||null,product:fsVal(f.product)||null};
@@ -359,7 +449,7 @@ async function main(req,env){
 
     // GET /api/admin/entitlements
     if(path==="/api/admin/entitlements"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements");
+      const docs=await firestoreList(env,"entitlements",50,true);
       const ents=docs.map(d=>{
         const f=d.fields||{};
         return{uid:fsVal(f.uid)||d.name.split("/").pop(),paid:f.paid?.booleanValue===true,paidAt:fsVal(f.paidAt)||null,product:fsVal(f.product)||null};
@@ -437,5 +527,5 @@ async function main(req,env){
   return json({error:"Not found"},404);
 }
 
-export{main,normalizePhone,normalizeEmail,detectDuplicates};
+export{main,normalizePhone,normalizeEmail,detectDuplicates,accountEmails,authAccountRecord,fetchAuthAccountsPaginated,firestoreListAllPages};
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};

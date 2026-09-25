@@ -366,12 +366,12 @@ function fmtDate(value, epochMs = false) {
   return d.toLocaleString();
 }
 
-function ownerProviderLabel(providerId) {
-  if (!providerId) return 'Not available';
-  if (providerId === 'google.com') return 'Google';
-  if (providerId === 'password') return 'Email/Password';
-  if (providerId === 'phone') return 'Phone';
-  return providerId;
+function ownerProviderLabel(providerField) {
+  if (!providerField) return 'Not available';
+  const NAMES = { 'google.com': 'Google', password: 'Email/Password', phone: 'Phone' };
+  // provider is a comma-joined list — an account can have more than one linked provider.
+  const labels = providerField.split(',').map(p => p.trim()).filter(Boolean).map(p => NAMES[p] || p);
+  return labels.length ? labels.join(', ') : 'Not available';
 }
 
 function ownerUserMatchesFilter(u, filter) {
