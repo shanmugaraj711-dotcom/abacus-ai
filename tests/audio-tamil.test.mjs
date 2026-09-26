@@ -142,9 +142,9 @@ test('Audio & Tamil verification suite', async (tSuite) => {
     await resPromise;
     assert.equal(spokeUtterance.text, 'Hello abacus');
 
-    // Test Tamil phonetic replacement
+    // Test Tamil number word replacement
     await say('4 உடைய லிட்டில் ஃபிரெண்ட்', 'ta');
-    assert.match(spokeUtterance.text, /ஃபோர் உடைய லிட்டில் ஃபிரெண்ட்/, 'Replaces 4 with phonetic word smoothly without phoneme collapse');
+    assert.match(spokeUtterance.text, /நான்கு உடைய லிட்டில் ஃபிரெண்ட்/, 'Replaces 4 with canonical Tamil number word smoothly');
 
     // Test speech cancellation / race handling
     const p1 = say('First sentence', 'en');
