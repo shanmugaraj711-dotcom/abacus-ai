@@ -55,7 +55,11 @@ export function tamilNumberWord(value) {
   if (n < 100) {
     const tens = Math.floor(n / 10) * 10;
     const units = n % 10;
-    return units ? `${TAMIL_TENS[tens]} ${TAMIL_UNITS[units]}` : TAMIL_TENS[tens];
+    if (!units) return TAMIL_TENS[tens];
+    const connector = tens === 90
+      ? TAMIL_TENS[tens].replace(/று$/, 'ற்றி')
+      : TAMIL_TENS[tens].replace(/து$/, 'த்தி');
+    return `${connector} ${TAMIL_UNITS[units]}`;
   }
 
   const hundreds = Math.floor(n / 100) * 100;
