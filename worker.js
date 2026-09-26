@@ -19,6 +19,15 @@ function b64u(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(
 function ub64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
 async function hmac(secret,msg){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);const a=new Uint8Array(await crypto.subtle.sign("HMAC",k,new TextEncoder().encode(msg)));return [...a].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function eq(a,b){if(!a||!b||a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0}
+// Clamps to [1,1000]. Note: plain `Number(v)||fallback` is wrong here because
+// 0 is a legitimate (if useless) input that `||` would misread as "missing"
+// and silently replace with the 1000 default instead of clamping to 1.
+function clampMaxResults(value,fallback=1000){
+  if(value===null||value===undefined||value==="")return Math.max(1,Math.min(Math.floor(fallback),1000));
+  const n=Number(value);
+  const base=Number.isFinite(n)?n:fallback;
+  return Math.max(1,Math.min(Math.floor(base),1000));
+}
 
 async function firebaseUser(env,token){
   const r=await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="+encodeURIComponent(env.FIREBASE_API_KEY),{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken:token})});
@@ -61,11 +70,150 @@ async function firestorePatch(env,collection,docId,fields){
   if(!r.ok)throw Error(`Firestore write failed: ${r.status}`);
   return await r.json();
 }
-async function firestoreList(env,collection,pageSize=50){
-  const tok=await googleToken(env);
-  const r=await fetch(`${FSBase(env)}/${collection}?pageSize=${pageSize}`,{headers:{authorization:"Bearer "+tok}});
+// Fetches one Firestore listDocuments page. Split out so pagination can be
+// exercised in tests against a mocked fetch, without real service-account auth.
+async function firestoreListPage(tok,url){
+  const r=await fetch(url,{headers:{authorization:"Bearer "+tok}});
   if(!r.ok)throw Error(`Firestore list failed: ${r.status}`);
-  const d=await r.json();return d.documents||[];
+  return await r.json();
+}
+// allPages=false preserves the original single-page behaviour (used by the
+// audit log, which intentionally only wants the first `pageSize` newest-ish
+// docs); allPages=true follows nextPageToken until the collection is exhausted
+// (used for entitlements, so a paying user past doc #50 is never dropped).
+async function firestoreListAllPages(tok,baseUrl,pageSize=50,allPages=false){
+  const all=[];
+  let pageToken=null,pages=0;
+  do{
+    pages++;
+    let url=`${baseUrl}?pageSize=${pageSize}`;
+    if(pageToken)url+=`&pageToken=${encodeURIComponent(pageToken)}`;
+    const d=await firestoreListPage(tok,url);
+    const docs=d.documents||[];
+    all.push(...docs);
+    pageToken=d.nextPageToken||null;
+    if(!allPages||!pageToken||docs.length===0)break;
+  }while(pageToken&&pages<1000);
+  return all;
+}
+async function firestoreList(env,collection,pageSize=50,allPages=false){
+  const tok=await googleToken(env);
+  return firestoreListAllPages(tok,`${FSBase(env)}/${collection}`,pageSize,allPages);
+}
+
+// ── Firebase Auth account listing (owner console population) ────────────────
+// Uses the project-scoped Identity Platform paginated endpoint, per Google's
+// documented replacement for the deprecated accounts:query listing call.
+// Requires the service account's OAuth token to carry the identitytoolkit
+// scope (see googleToken) and the firebaseauth.users.get IAM permission.
+function authProviders(u){
+  const ids=(u.providerUserInfo||[]).map(p=>p?.providerId).filter(Boolean);
+  if(ids.length)return[...new Set(ids)];
+  if(u.phoneNumber)return["phone"];
+  if(u.email)return["password"];
+  return[];
+}
+function authAccountRecord(u){
+  const providerEmails=(u.providerUserInfo||[]).map(p=>p?.email).filter(Boolean);
+  return{
+    uid:u.localId||"",email:u.email||"",phone:u.phoneNumber||"",
+    provider:authProviders(u).join(", "),
+    providerEmails,
+    createdAt:u.createdAt||null,lastLoginAt:u.lastLoginAt||null,
+  };
+}
+
+// Fetches one accounts:batchGet page. Split out so pagination can be exercised
+// in tests against a mocked fetch, without real service-account JWT signing.
+async function fetchAuthAccountsPage(tok,projectId,maxResults,pageToken){
+  let url=`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet?maxResults=${maxResults}`;
+  if(pageToken)url+=`&nextPageToken=${encodeURIComponent(pageToken)}`;
+  const res=await fetch(url,{headers:{authorization:"Bearer "+tok}});
+  if(!res.ok){
+    const err=Error(`Firebase Auth account listing failed: HTTP ${res.status}`);
+    err.status=res.status;
+    throw err;
+  }
+  const data=await res.json();
+  if(data&&data.users!==undefined&&!Array.isArray(data.users)){
+    throw Error("Firebase Auth account listing returned a malformed response (users is not an array)");
+  }
+  return data||{};
+}
+
+// Paginates accounts:batchGet to completion. Throws on any failure — callers
+// must NEVER treat a partial/failed listing as "these users are just free
+// users"; the caller must surface an explicit error instead (see
+// /api/admin/users), not a silently-incomplete 200 response.
+async function fetchAuthAccountsPaginated(tok,projectId,maxResults=1000){
+  const boundedMaxResults=clampMaxResults(maxResults);
+  const all=[];
+  let pageToken=null,pages=0;
+  do{
+    pages++;
+    const data=await fetchAuthAccountsPage(tok,projectId,boundedMaxResults,pageToken);
+    const users=data.users||[];
+    for(const u of users)all.push(authAccountRecord(u));
+    pageToken=(data.nextPageToken||"").trim();
+    if(!pageToken||users.length===0)break;
+  }while(pageToken&&pages<1000);
+  return all;
+}
+async function fetchAuthAccounts(env,maxResults=1000){
+  const projectId=String(env.FIREBASE_PROJECT_ID||"abacus-buddy").trim();
+  const tok=env._googleToken || await googleToken(env);
+  return fetchAuthAccountsPaginated(tok,projectId,maxResults);
+}
+
+// ── Duplicate user detection (manual founder review only — never auto-acts) ──
+// Signal 1: Phone match across different UIDs (strong) — IMPLEMENTED
+// Signal 2: Email match across different UIDs (strong) — IMPLEMENTED
+// Signal 3: Razorpay payment token: DEFERRED — NOT CURRENTLY STORED
+// Signal 4: Child name: DEFERRED — no server-side child-name record exists (local device state only)
+// Self-match: never flags
+// Auto-blocking: NEVER (manual founder review only)
+// Firebase Auth's phoneNumber is always E.164 (+<countrycode><number>), so normalization never truncates to
+// trailing digits — two numbers from different countries can never collide just because their last digits match.
+// Checked against every linked provider identity's email (not only the top-level account email).
+// Uses phone->uids / email->uids maps (near-linear) rather than comparing every user against every other user.
+function normalizePhone(raw){
+  if(!raw)return"";
+  const cleaned=String(raw).trim().replace(/[^\d+]/g,"");
+  if(!cleaned.startsWith("+"))return""; // not E.164 — cannot safely normalize as "unknown country"
+  const digits=cleaned.slice(1).replace(/\D/g,"");
+  return digits.length>=8?"+"+digits:"";
+}
+function normalizeEmail(raw){
+  if(!raw)return"";
+  const s=String(raw).trim().toLowerCase();
+  return s.includes("@")&&s.includes(".")?s:"";
+}
+function accountEmails(u){
+  const raw=[u.email,...(u.providerEmails||[])];
+  return[...new Set(raw.map(normalizeEmail).filter(Boolean))];
+}
+function detectDuplicates(users){
+  const phoneMap=new Map(),emailMap=new Map();
+  const norm=users.map(u=>{
+    const uid=String(u.uid||"");
+    const phone=normalizePhone(u.phone);
+    const emails=accountEmails(u);
+    if(uid){
+      if(phone){if(!phoneMap.has(phone))phoneMap.set(phone,new Set());phoneMap.get(phone).add(uid);}
+      for(const e of emails){if(!emailMap.has(e))emailMap.set(e,new Set());emailMap.get(e).add(uid);}
+    }
+    return{uid,phone,emails};
+  });
+  return users.map((u,i)=>{
+    const n=norm[i];
+    if(!n.uid)return{...u,possibleDuplicate:false,duplicateReasons:[]};
+    const phoneDup=!!(n.phone&&phoneMap.get(n.phone)?.size>1);
+    const emailDup=n.emails.some(e=>emailMap.get(e)?.size>1);
+    const duplicateReasons=[];
+    if(phoneDup)duplicateReasons.push("phone");
+    if(emailDup)duplicateReasons.push("email");
+    return{...u,possibleDuplicate:duplicateReasons.length>0,duplicateReasons};
+  });
 }
 
 // Bounded batch lookup by localId using project-scoped Identity Platform endpoint
@@ -101,117 +249,6 @@ async function lookupAuthAccountsByUids(env, uids) {
     console.warn("[admin users] auth lookup skipped:", err?.message || err);
   }
   return map;
-}
-
-// List existing Firebase Auth accounts using official project-scoped Identity Platform paginated endpoint (/accounts:batchGet)
-async function fetchAuthAccounts(env, maxResults = 100) {
-  const projectId = String(env.FIREBASE_PROJECT_ID || "abacus-buddy").trim();
-  const num = typeof maxResults === "number" ? maxResults : Number(maxResults);
-  const boundedMaxResults = Number.isFinite(num) ? Math.max(1, Math.min(Math.floor(num), 1000)) : 100;
-  const allUsers = [];
-  let pageToken = null;
-  const maxPages = 1000;
-  let pagesFetched = 0;
-
-  try {
-    const tok = env._googleToken || await googleToken(env);
-    do {
-      pagesFetched++;
-      let url = `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet?maxResults=${boundedMaxResults}`;
-      if (pageToken) {
-        url += `&nextPageToken=${encodeURIComponent(pageToken)}`;
-      }
-      const res = await fetch(url, {
-        headers: {
-          authorization: "Bearer " + tok,
-        },
-      });
-      if (!res.ok) {
-        console.warn("[admin users] auth list request failed with status:", res.status);
-        break;
-      }
-      const data = await res.json();
-      const users = data.users || [];
-      for (const u of users) {
-        allUsers.push({
-          uid: u.localId || "",
-          email: u.email || "",
-          phone: u.phoneNumber || "",
-        });
-      }
-      pageToken = (data.nextPageToken || "").trim();
-      if (!pageToken || users.length === 0) {
-        break;
-      }
-    } while (pageToken && pagesFetched < maxPages);
-  } catch (err) {
-    console.warn("[admin users] auth list skipped:", err?.message || err);
-  }
-  return allUsers;
-}
-
-// ── Duplicate user detection (manual review only) ───────────────────────────
-// Signal 1: Phone match across different UIDs (strong) — IMPLEMENTED
-// Signal 2: Email match across different UIDs (strong) — IMPLEMENTED
-// Signal 3: Razorpay payment token: DEFERRED — NOT CURRENTLY STORED
-// Signal 4: Child name: DEFERRED — no server-side child-name record exists (local device state only)
-// Self-match: never flags
-// Auto-blocking: NEVER (manual founder review only)
-
-function normalizePhone(raw) {
-  if (!raw) return "";
-  const digits = String(raw).replace(/\D/g, "");
-  if (digits.length < 7) return "";
-  if (digits.length >= 10) return digits.slice(-10);
-  return digits;
-}
-
-function normalizeEmail(raw) {
-  if (!raw) return "";
-  const s = String(raw).trim().toLowerCase();
-  return s.includes("@") && s.includes(".") ? s : "";
-}
-
-function detectDuplicates(users) {
-  if (!Array.isArray(users) || users.length <= 1) {
-    return (users || []).map(u => ({ ...u, possibleDuplicate: false, duplicateReasons: [] }));
-  }
-  const normalized = users.map(u => ({
-    uid: String(u.uid || ""),
-    phone: normalizePhone(u.phone),
-    email: normalizeEmail(u.email),
-  }));
-
-  return users.map((u, i) => {
-    const curr = normalized[i];
-    if (!curr.uid) return { ...u, possibleDuplicate: false, duplicateReasons: [] };
-
-    let phoneMatched = false;
-    let emailMatched = false;
-
-    for (let j = 0; j < users.length; j++) {
-      if (i === j) continue; // never match against self
-      const other = normalized[j];
-      if (!other.uid || other.uid === curr.uid) continue;
-
-      const pMatch = !!(curr.phone && other.phone && curr.phone === other.phone);
-      const eMatch = !!(curr.email && other.email && curr.email === other.email);
-
-      if (pMatch) phoneMatched = true;
-      if (eMatch) emailMatched = true;
-    }
-
-    const possibleDuplicate = phoneMatched || emailMatched;
-    const duplicateReasons = [];
-    if (phoneMatched) duplicateReasons.push("phone");
-    if (emailMatched) duplicateReasons.push("email");
-
-    return {
-      ...u,
-      possibleDuplicate,
-      duplicateReasons,
-    };
-  });
 }
 
 
@@ -355,7 +392,7 @@ async function main(req,env){
     return json({paid:!!ent,uid:user.uid,paidAt:ent?.paidAt||null});
   }
 
-  // ── /api/visit (anonymous visitor tracking; no IP/fingerprinting/location) ─
+  // ── /api/visit (anonymous visitor tracking; no IP, device, browser, or location tracking) ─
   if(path==="/api/visit"&&req.method==="POST"){
     let b;
     try{b=await req.json();}catch{return json({error:"Invalid JSON"},400);}
@@ -428,133 +465,141 @@ async function main(req,env){
     catch(e){return json({error:e.message},e.message.includes("Forbidden")?403:401);}
 
     // GET /api/admin/users
-    // Lists Firebase Auth accounts (including free-tier users) joined with payment entitlements,
-    // with server-side duplicate detection across phones and emails for manual founder review only.
+    // Population: every Firebase Auth account (free and paid), joined with Firestore payment
+    // entitlements, with server-side duplicate detection (phone/email) for manual owner review.
+    // Also includes anonymous visitors tracked privacy-first (no IP/device/location tracking).
     if(path==="/api/admin/users"&&req.method==="GET"){
-      // 1. Fetch existing Firebase Auth accounts (includes free-tier and paying accounts)
-      const authUsers = await fetchAuthAccounts(env, 100);
-
-      // 2. Fetch existing Firestore entitlements
-      let docs = [];
-      try { docs = await firestoreList(env, "entitlements"); } catch(e) {}
-
-      const entMap = {};
-      const entUids = [];
-      for (const d of docs) {
-        const f = d.fields || {};
-        const uid = fsVal(f.uid) || d.name.split("/").pop();
-        if (uid) {
-          entUids.push(uid);
-          entMap[uid] = {
-            paid: f.paid?.booleanValue === true,
-            paidAt: fsVal(f.paidAt) || null,
-            email: fsVal(f.email) || "",
-            phone: fsVal(f.phone) || fsVal(f.phoneNumber) || "",
-          };
-        }
+      const maxResults=clampMaxResults(u.searchParams.get("maxResults"));
+      // Fail closed: if the Auth listing is incomplete or errors, we must NOT
+      // render a 200 dashboard that silently shows those users as "free" or
+      // drops them entirely. Surface the failure explicitly instead.
+      let authUsers;
+      try{
+        authUsers=await fetchAuthAccounts(env,maxResults);
+      }catch(e){
+        console.error("[admin users] auth listing failed:",e.message);
+        return json({
+          error:"Could not load the complete user list from Firebase Auth.",
+          detail:e.message,degraded:true,
+          note:"The dashboard is not shown when the Auth listing fails or is incomplete, so users are never misrepresented as free or silently dropped.",
+        },502);
       }
 
-      // Merge population: all Auth accounts
-      const userMap = {};
-      for (const a of authUsers) {
-        if (!a.uid) continue;
-        const ent = entMap[a.uid];
-        userMap[a.uid] = {
-          uid: a.uid,
-          email: a.email || ent?.email || "",
-          phone: a.phone || ent?.phone || "",
-          paid: ent?.paid === true,
-          paidAt: ent?.paidAt || null,
+      let docs=[];
+      try{docs=await firestoreList(env,"entitlements",50,true);}catch(e){}
+      const entMap={};
+      for(const d of docs){
+        const f=d.fields||{};
+        const uid=fsVal(f.uid)||d.name.split("/").pop();
+        if(uid)entMap[uid]={
+          paid:f.paid?.booleanValue===true,
+          paidAt:fsVal(f.paidAt)||null,
+          email:fsVal(f.email)||"",
+          phone:fsVal(f.phone)||fsVal(f.phoneNumber)||"",
         };
       }
 
-      // Ensure any paying users in entitlements not captured in authUsers batch are included
-      const missingUids = entUids.filter(uid => !userMap[uid]);
-      if (missingUids.length) {
-        const lookupMap = await lookupAuthAccountsByUids(env, missingUids);
-        for (const uid of missingUids) {
-          const ent = entMap[uid];
-          const auth = lookupMap[uid] || {};
-          userMap[uid] = {
+      const byUid=new Map();
+      for(const a of authUsers){
+        if(!a.uid)continue;
+        const ent=entMap[a.uid];
+        byUid.set(a.uid,{
+          ...a,
+          email:a.email||ent?.email||"",
+          phone:a.phone||ent?.phone||"",
+          paid:ent?.paid===true,
+          paidAt:ent?.paidAt||null,
+        });
+      }
+      for(const uid of Object.keys(entMap)){
+        if(!byUid.has(uid)){
+          byUid.set(uid,{
             uid,
-            email: auth.email || ent?.email || "",
-            phone: auth.phone || ent?.phone || "",
-            paid: ent?.paid === true,
-            paidAt: ent?.paidAt || null,
-          };
+            email:entMap[uid].email||"",
+            phone:entMap[uid].phone||"",
+            provider:"",
+            providerEmails:[],
+            createdAt:null,
+            lastLoginAt:null,
+            paid:entMap[uid].paid,
+            paidAt:entMap[uid].paidAt,
+          });
         }
       }
 
-      // 3. Fetch anonymous visitors from Firestore
-      let visitorDocs = [];
-      try { visitorDocs = await firestoreList(env, "visitors", 500); } catch(e) {}
+      // Fetch anonymous visitors from Firestore
+      let visitorDocs=[];
+      try{visitorDocs=await firestoreList(env,"visitors",50,true);}catch(e){}
 
-      const visitorByUid = {};
-      const anonymousVisitors = [];
+      const visitorByUid={};
+      const anonymousVisitors=[];
 
-      for (const d of visitorDocs) {
-        const f = d.fields || {};
-        const vid = fsVal(f.visitorId) || d.name.split("/").pop();
-        if (!vid) continue;
-        const vUid = fsVal(f.uid) || null;
-        const vData = {
-          visitorId: vid,
-          firstSeen: fsVal(f.firstSeen) || null,
-          lastSeen: fsVal(f.lastSeen) || null,
-          visitCount: fsVal(f.visitCount) || 1,
-          status: fsVal(f.status) || "active",
-          uid: vUid,
+      for(const d of visitorDocs){
+        const f=d.fields||{};
+        const vid=fsVal(f.visitorId)||d.name.split("/").pop();
+        if(!vid)continue;
+        const vUid=fsVal(f.uid)||null;
+        const vData={
+          visitorId:vid,
+          firstSeen:fsVal(f.firstSeen)||null,
+          lastSeen:fsVal(f.lastSeen)||null,
+          visitCount:fsVal(f.visitCount)||1,
+          status:fsVal(f.status)||"active",
+          uid:vUid,
         };
-        if (vUid) {
-          visitorByUid[vUid] = vData;
-        } else {
+        if(vUid){
+          visitorByUid[vUid]=vData;
+        }else{
           anonymousVisitors.push(vData);
         }
       }
 
       // Enrich registered users with visitor metadata
-      for (const [uid, u] of Object.entries(userMap)) {
-        const v = visitorByUid[uid];
-        u.isAnonymous = false;
-        u.visitorId = v?.visitorId || null;
-        u.firstSeen = v?.firstSeen || u.paidAt || null;
-        u.lastSeen = v?.lastSeen || u.paidAt || null;
-        u.visitCount = v?.visitCount || 1;
-        u.visitorStatus = u.paid ? "paid" : "registered";
+      for(const [uid,u] of byUid.entries()){
+        const v=visitorByUid[uid];
+        u.isAnonymous=false;
+        u.visitorId=v?.visitorId||null;
+        u.firstSeen=v?.firstSeen||u.paidAt||u.createdAt||null;
+        u.lastSeen=v?.lastSeen||u.paidAt||u.lastLoginAt||null;
+        u.visitCount=v?.visitCount||1;
+        u.visitorStatus=u.paid?"paid":"registered";
       }
 
       // Add anonymous visitors to population
-      for (const av of anonymousVisitors) {
-        if (av.uid && userMap[av.uid]) continue;
-        const anonKey = `anon_${av.visitorId}`;
-        userMap[anonKey] = {
-          uid: anonKey,
-          visitorId: av.visitorId,
-          email: "",
-          phone: "",
-          paid: false,
-          paidAt: null,
-          firstSeen: av.firstSeen,
-          lastSeen: av.lastSeen,
-          visitCount: av.visitCount || 1,
-          visitorStatus: av.status || "anonymous",
-          isAnonymous: true,
-        };
+      for(const av of anonymousVisitors){
+        if(av.uid&&byUid.has(av.uid))continue;
+        const anonKey=`anon_${av.visitorId}`;
+        byUid.set(anonKey,{
+          uid:anonKey,
+          visitorId:av.visitorId,
+          email:"",
+          phone:"",
+          provider:"",
+          providerEmails:[],
+          createdAt:av.firstSeen,
+          lastLoginAt:av.lastSeen,
+          paid:false,
+          paidAt:null,
+          firstSeen:av.firstSeen,
+          lastSeen:av.lastSeen,
+          visitCount:av.visitCount||1,
+          visitorStatus:av.status||"anonymous",
+          isAnonymous:true,
+        });
       }
 
-      const mergedUsers = Object.values(userMap);
-      const users = detectDuplicates(mergedUsers);
-      users.sort((a, b) => {
-        const bTime = b.lastSeen || b.paidAt || b.firstSeen || "";
-        const aTime = a.lastSeen || a.paidAt || a.firstSeen || "";
+      const users=detectDuplicates([...byUid.values()]);
+      users.sort((a,b)=>{
+        const bTime=b.lastSeen||b.paidAt||b.firstSeen||b.lastLoginAt||"";
+        const aTime=a.lastSeen||a.paidAt||a.firstSeen||a.lastLoginAt||"";
         return bTime.localeCompare(aTime);
       });
 
-      const total = users.length;
-      const paidCount = users.filter(u => u.paid).length;
-      const registeredFreeCount = users.filter(u => !u.isAnonymous && !u.paid).length;
-      const anonymousCount = users.filter(u => u.isAnonymous).length;
-      const possibleDuplicateCount = users.filter(u => u.possibleDuplicate).length;
+      const total=users.length;
+      const paidCount=users.filter(u=>u.paid).length;
+      const registeredFreeCount=users.filter(u=>!u.isAnonymous&&!u.paid).length;
+      const anonymousCount=users.filter(u=>u.isAnonymous).length;
+      const possibleDuplicateCount=users.filter(u=>u.possibleDuplicate).length;
 
       return json({
         users,
@@ -563,13 +608,13 @@ async function main(req,env){
         registeredFreeCount,
         anonymousCount,
         possibleDuplicateCount,
-        note: "Lists registered users and anonymous visitors with first-seen, last-seen, visit counts, and visitor status.",
+        note:"Lists registered users and anonymous visitors with first-seen, last-seen, visit counts, and visitor status. Duplicate flags are for manual review only — nothing is ever auto-blocked.",
       });
     }
 
     // GET /api/admin/payments
     if(path==="/api/admin/payments"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements");
+      const docs=await firestoreList(env,"entitlements",50,true);
       const payments=docs.filter(d=>d.fields?.paid?.booleanValue===true).map(d=>{
         const f=d.fields||{};
         return{uid:fsVal(f.uid)||d.name.split("/").pop(),paid:true,orderId:fsVal(f.orderId)||null,paymentId:fsVal(f.paymentId)||null,paidAt:fsVal(f.paidAt)||null,product:fsVal(f.product)||null};
@@ -579,7 +624,7 @@ async function main(req,env){
 
     // GET /api/admin/entitlements
     if(path==="/api/admin/entitlements"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements");
+      const docs=await firestoreList(env,"entitlements",50,true);
       const ents=docs.map(d=>{
         const f=d.fields||{};
         return{uid:fsVal(f.uid)||d.name.split("/").pop(),paid:f.paid?.booleanValue===true,paidAt:fsVal(f.paidAt)||null,product:fsVal(f.product)||null};
@@ -657,5 +702,17 @@ async function main(req,env){
   return json({error:"Not found"},404);
 }
 
-export { main, detectDuplicates, normalizePhone, normalizeEmail, lookupAuthAccountsByUids, fetchAuthAccounts };
+export {
+  main,
+  normalizePhone,
+  normalizeEmail,
+  detectDuplicates,
+  accountEmails,
+  authAccountRecord,
+  fetchAuthAccountsPaginated,
+  fetchAuthAccounts,
+  firestoreListAllPages,
+  lookupAuthAccountsByUids,
+  clampMaxResults,
+};
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};

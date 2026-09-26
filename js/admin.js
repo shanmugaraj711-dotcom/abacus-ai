@@ -1,6 +1,6 @@
-// Owner console (#/admin) — for you (the owner), not for children.
+// Owner console (/owner.html) — for you (the owner), not for children.
 //
-// AUTHORIZATION: #/admin requires your Firebase owner account (Google sign-in).
+// AUTHORIZATION: /owner.html requires your Firebase owner account (Google sign-in).
 // There is NO PIN bypass. If you are not signed in as the owner Firebase account,
 // the console shows a sign-in prompt. The server additionally enforces OWNER_UID
 // on all /api/admin/* calls — a non-owner token is rejected with 403.
@@ -46,7 +46,7 @@ async function ensureOwnerAuth(knownUser = null) {
   try {
     initFirebase();
   } catch (e) {
-    return { ok: false, reason: 'Firebase not configured: ' + e.message };
+    return { ok: false, reason: 'unconfigured', message: 'Firebase not configured: ' + e.message };
   }
 
   // If Google sign-in just returned a credential, use that user directly.
@@ -62,15 +62,28 @@ async function ensureOwnerAuth(knownUser = null) {
       });
     });
   }
-  if (!user) return { ok: false, reason: 'not-signed-in' };
+  if (!user) return { ok: false, reason: 'not-signed-in', message: 'Sign in with your owner Google account to open the console.' };
   try {
     const token = await user.getIdToken(true);
     const res = await fetch('/api/admin/entitlements?limit=1', {
       headers: { Authorization: 'Bearer ' + token },
     });
-    if (res.status === 403) return { ok: false, reason: 'not-owner' };
-    if (res.status === 401) return { ok: false, reason: 'not-signed-in' };
-    if (!res.ok) return { ok: false, reason: 'server-error:' + res.status };
+    if (res.status === 403) {
+      return { ok: false, reason: 'forbidden', message: 'This Google account is not the owner account.' };
+    }
+    if (res.status === 401) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        ok: false,
+        reason: 'unauthorized',
+        message: data.error === 'OWNER_UID not configured on server'
+          ? 'Server configuration error: OWNER_UID not configured on server.'
+          : 'Please sign in again.'
+      };
+    }
+    if (!res.ok) {
+      return { ok: false, reason: 'server-error', message: `Server error: ${res.status}` };
+    }
     _ownerToken = token;
     _ownerUser = user;
     return { ok: true, user, token };
@@ -78,7 +91,7 @@ async function ensureOwnerAuth(knownUser = null) {
     if (_ownerUser && e.message?.includes('fetch')) {
       return { ok: true, user: _ownerUser, token: null, offline: true };
     }
-    return { ok: false, reason: 'network-error: ' + e.message };
+    return { ok: false, reason: 'network-error', message: 'Network error: ' + e.message };
   }
 }
 
@@ -96,7 +109,7 @@ const SWITCHES = [
 
 export async function admin() {
   // Show loading state while verifying owner identity
-  shell({ title: 'Owner Console', back: '#/parents', cls: 'admin', body: `
+  shell({ title: 'Owner Console', back: '/', cls: 'admin', body: `
     <section class="card intro">
       <div class="lv-big">🔐</div>
       <p class="muted">Checking owner account…</p>
@@ -105,26 +118,35 @@ export async function admin() {
   const auth = await ensureOwnerAuth();
 
   if (!auth.ok) {
-    return showAuthGate(auth.reason);
+    return showAuthGate(auth.reason, auth.message);
   }
 
   renderConsole(auth);
 }
 
-function showAuthGate(reason) {
-  const isNotOwner = reason === 'not-owner';
-  const msg = isNotOwner
-    ? 'This account is not the owner account. Only the single owner Firebase account may access this console.'
-    : reason === 'not-signed-in'
-    ? 'Sign in with your owner Google account to open the console.'
-    : `Could not verify owner account. (${reason})`;
+function showAuthGate(reason, customMessage = null) {
+  let msg;
+  if (reason === 'forbidden' || reason === 'not-owner') {
+    msg = customMessage || 'This Google account is not the owner account.';
+  } else if (reason === 'unauthorized') {
+    msg = customMessage || 'Please sign in again.';
+  } else if (reason === 'not-signed-in') {
+    msg = 'Sign in with your owner Google account to open the console.';
+  } else {
+    msg = customMessage || `Could not verify owner account. (${reason})`;
+  }
 
-  shell({ title: 'Owner Console', back: '#/parents', body: `
+  const isError = reason === 'forbidden' || reason === 'not-owner' || reason === 'unauthorized' || reason === 'server-error' || reason === 'network-error';
+  const buttonText = (reason === 'forbidden' || reason === 'not-owner')
+    ? 'Sign in with another Google account'
+    : 'Sign in with Google';
+
+  shell({ title: 'Owner Console', back: '/', body: `
     <section class="card intro">
       <div class="lv-big">🔐</div>
       <h2 class="display">Owner console</h2>
-      <p class="lead">${esc(msg)}</p>
-      ${isNotOwner ? '' : `<button class="btn primary wide" id="ownerSignIn">Sign in with Google</button>`}
+      <p class="lead" id="authGateMsg"${isError ? ' style="color:#d32f2f;font-weight:bold"' : ''}>${esc(msg)}</p>
+      <button class="btn primary wide" id="ownerSignIn">${esc(buttonText)}</button>
       <p class="muted tiny" id="authMsg"></p>
     </section>` });
 
@@ -132,16 +154,21 @@ function showAuthGate(reason) {
   if (btn) {
     btn.onclick = async () => {
       btn.disabled = true; btn.textContent = 'Signing in…';
+      const m = $('#authMsg');
+      if (m) m.textContent = '';
       try {
         initFirebase();
         const credential = await signInWithGoogle();
-        const verified = await ensureOwnerAuth(credential?.user || null);
-        if (!verified.ok) return showAuthGate(verified.reason);
+        const user = credential?.user;
+        if (!user) {
+          throw new Error('No user returned from Google sign-in');
+        }
+        const verified = await ensureOwnerAuth(user);
+        if (!verified.ok) return showAuthGate(verified.reason, verified.message);
         renderConsole(verified);
       } catch (e) {
-        const m = $('#authMsg');
         if (m) m.textContent = 'Sign-in failed: ' + e.message;
-        btn.disabled = false; btn.textContent = 'Sign in with Google';
+        btn.disabled = false; btn.textContent = buttonText;
       }
     };
   }
@@ -154,7 +181,7 @@ function renderConsole({ user, token, offline }) {
   const num = (path, label, value, min, max) =>
     `<label class="admin-num"><span>${esc(label)}</span><input type="number" data-num="${path}" value="${value}" min="${min}" max="${max}"></label>`;
 
-  shell({ title: 'Owner Console', back: '#/parents', cls: 'admin', body: `
+  shell({ title: 'Owner Console', back: '/', cls: 'admin', body: `
     ${offline ? '<p class="muted tiny" style="background:#fff3cd;padding:8px;border-radius:8px">⚠️ Offline — local changes only. Server operations disabled.</p>' : ''}
 
     <section class="card">
@@ -205,15 +232,26 @@ function renderConsole({ user, token, offline }) {
     </section>
 
     <section class="card" id="admin-users-section">
-      <p class="eyebrow">Who's Using Abacus</p>
-      <p class="muted tiny">All people using Abacus Buddy: registered/paid learners and anonymous free visitors. No IP or invasive tracking.</p>
-      <div class="row">
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadUsers">👥 Who's Using Abacus</button>
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadPayments">💳 Payments</button>
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadEntitlements">🔑 Entitlements</button>
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadAudit">📋 Audit Log</button>
+      <p class="eyebrow">Who's using Abacus</p>
+      <p class="muted tiny">Firebase Auth accounts and anonymous free visitors. No IP, device, browser or location tracking is collected.</p>
+      ${offline ? '<p class="muted tiny">⚠️ Offline — cannot load users.</p>' : `
+      <div id="ownerStats" class="owner-stats"></div>
+      <div class="owner-search-row"><input type="search" id="ownerSearch" placeholder="Search users…" aria-label="Search users"></div>
+      <div class="owner-filters" id="ownerFilters">
+        <button type="button" class="chip filter on" data-filter="all">All Users</button>
+        <button type="button" class="chip filter" data-filter="paid">Paid</button>
+        <button type="button" class="chip filter" data-filter="free">Free</button>
+        <button type="button" class="chip filter" data-filter="dup">Possible Duplicates</button>
       </div>
-      <div id="adminDataOut" class="admin-data-out"><p class="muted tiny">No data loaded yet.</p></div>
+      <div id="ownerUserList" class="user-list"><p class="muted tiny">Loading users…</p></div>
+      <div class="row" style="margin-top:14px;">
+        <button class="btn" id="loadUsers">👥 Who's Using Abacus (Detailed)</button>
+        <button class="btn" id="loadPayments">💳 Payments</button>
+        <button class="btn" id="loadEntitlements">🔑 Entitlements</button>
+        <button class="btn" id="loadAudit">📋 Audit Log</button>
+      </div>
+      <div id="adminDataOut" class="admin-data-out"><p class="muted tiny">Tap a button above to load records.</p></div>
+      `}
     </section>` });
 
   const touch = msg => { const m = $('#cfgMsg'); if (m) m.textContent = msg; const j = $('#cfgJson'); if (j) j.value = exportJson(); };
@@ -283,7 +321,7 @@ function renderConsole({ user, token, offline }) {
       await signOut();
     } catch {}
     _ownerToken = null; _ownerUser = null;
-    go('#/home');
+    showAuthGate('not-signed-in');
   };
 
   function formatDuplicateReason(reasons) {
@@ -406,8 +444,10 @@ function renderConsole({ user, token, offline }) {
                   <div class="admin-user-details">
                     ${!isAnon && u.phone ? `<span class="admin-user-field">📞 ${esc(u.phone)}</span>` : ''}
                     ${!isAnon && u.email && u.phone ? `<span class="admin-user-field">✉️ ${esc(u.email)}</span>` : ''}
+                    ${!isAnon && u.provider ? `<span class="admin-user-field">🔑 ${esc(ownerProviderLabel(u.provider))}</span>` : ''}
                     <span class="admin-user-field" title="First seen timestamp">🕒 First seen: ${esc(formatDateTime(u.firstSeen))}</span>
                     <span class="admin-user-field" title="Last seen timestamp">⏱️ Last seen: ${esc(formatDateTime(u.lastSeen))}</span>
+                    ${!isAnon && u.lastLoginAt ? `<span class="admin-user-field" title="Last login timestamp">🚪 Last login: ${esc(fmtDate(u.lastLoginAt, true))}</span>` : ''}
                     <span class="admin-user-field" title="Total visit count">🔄 Visits: <b>${u.visitCount || 1}</b></span>
                     ${u.paidAt ? `<span class="admin-user-field muted">💳 Paid: ${new Date(u.paidAt).toLocaleDateString()}</span>` : ''}
                   </div>
@@ -469,5 +509,120 @@ function renderConsole({ user, token, offline }) {
     $('#loadPayments')?.addEventListener('click', () => adminFetch('payments', 'payments'));
     $('#loadEntitlements')?.addEventListener('click', () => adminFetch('entitlements', 'entitlements'));
     $('#loadAudit')?.addEventListener('click', () => adminFetch('audit-log', 'audit log'));
+    initOwnerUsersDashboard();
   }
+}
+
+// ── Owner "Who's using Abacus" dashboard ─────────────────────────────────────
+// Human-readable users list backed by GET /api/admin/users (Firebase Auth +
+// entitlement join, server-side duplicate detection). Detect-only: this UI
+// never blocks, suspends, merges or deletes anything.
+let _ownerUsers = null;
+let _ownerFilter = 'all';
+let _ownerQuery = '';
+let _ownerExpandedUid = null;
+
+function fmtDate(value, epochMs = false) {
+  if (!value) return 'Not available';
+  const d = epochMs ? new Date(Number(value)) : new Date(value);
+  if (Number.isNaN(d.getTime())) return 'Not available';
+  return d.toLocaleString();
+}
+
+function ownerProviderLabel(providerField) {
+  if (!providerField) return 'Not available';
+  const NAMES = { 'google.com': 'Google', password: 'Email/Password', phone: 'Phone' };
+  // provider is a comma-joined list — an account can have more than one linked provider.
+  const labels = providerField.split(',').map(p => p.trim()).filter(Boolean).map(p => NAMES[p] || p);
+  return labels.length ? labels.join(', ') : 'Not available';
+}
+
+function ownerUserMatchesFilter(u, filter) {
+  if (filter === 'paid') return u.paid === true;
+  if (filter === 'free') return u.paid !== true;
+  if (filter === 'dup') return u.possibleDuplicate === true;
+  return true;
+}
+
+function ownerUserMatchesQuery(u, q) {
+  if (!q) return true;
+  const hay = `${u.email || ''} ${u.phone || ''} ${u.uid || ''}`.toLowerCase();
+  return hay.includes(q.toLowerCase());
+}
+
+function renderOwnerStats(users) {
+  const el = $('#ownerStats');
+  if (!el) return;
+  const total = users.length;
+  const paid = users.filter(u => u.paid).length;
+  const dup = users.filter(u => u.possibleDuplicate).length;
+  const stat = (label, value, warn) => `<div class="owner-stat${warn && value > 0 ? ' warn' : ''}"><b>${value}</b><small>${esc(label)}</small></div>`;
+  el.innerHTML = stat('Total Users', total) + stat('Paid Users', paid) + stat('Free Users', total - paid) + stat('Possible Duplicates', dup, true);
+}
+
+function renderOwnerUserCard(u) {
+  const expanded = _ownerExpandedUid === u.uid;
+  const statusBadge = u.paid ? '<span class="status-badge paid">🟢 Paid</span>' : '<span class="status-badge free">🆓 Free</span>';
+  const dupBadge = u.possibleDuplicate ? '<span class="status-badge dup">⚠️ Possible duplicate</span>' : '';
+  const detail = !expanded ? '' : `<div class="user-detail">
+    <div class="user-detail-row"><span>Email</span><span>${esc(u.email || 'Not available')}</span></div>
+    <div class="user-detail-row"><span>Provider</span><span>${esc(ownerProviderLabel(u.provider))}</span></div>
+    <div class="user-detail-row"><span>Account created</span><span>${esc(fmtDate(u.createdAt, true))}</span></div>
+    <div class="user-detail-row"><span>Last login</span><span>${esc(fmtDate(u.lastLoginAt, true))}</span></div>
+    <div class="user-detail-row"><span>Free/Paid</span><span>${u.paid ? 'Paid' : 'Free'}</span></div>
+    <div class="user-detail-row"><span>Payment date</span><span>${esc(fmtDate(u.paidAt))}</span></div>
+    <div class="user-detail-row"><span>Entitlement</span><span>${u.paid ? 'Levels 1–15 unlocked' : 'Levels 1–3 (free)'}</span></div>
+    <div class="user-detail-row"><span>Possible duplicate</span><span>${u.possibleDuplicate ? 'Yes' : 'No'}</span></div>
+    <div class="user-detail-row"><span>Duplicate reason</span><span>${esc(u.duplicateReasons?.length ? u.duplicateReasons.join(', ') : 'Not available')}</span></div>
+    <div class="user-detail-row"><span>UID (debug)</span><span>${esc(u.uid || 'Not available')}</span></div>
+  </div>`;
+  return `<button type="button" class="user-card" data-uid="${esc(u.uid)}">
+    <div class="user-card-head">
+      <div class="user-card-id"><b>${esc(u.email || u.phone || 'Unknown user')}</b><small>Last login: ${esc(fmtDate(u.lastLoginAt, true))}</small></div>
+      <span class="user-card-badges">${statusBadge}${dupBadge}</span>
+    </div>
+    ${detail}
+  </button>`;
+}
+
+function renderOwnerUserList() {
+  const el = $('#ownerUserList');
+  if (!el) return;
+  if (!_ownerUsers) { el.innerHTML = '<p class="muted tiny">Loading users…</p>'; return; }
+  if (!_ownerUsers.length) { el.innerHTML = '<p class="owner-empty">No users yet — once someone opens the app, they\'ll show up here.</p>'; return; }
+  const filtered = _ownerUsers.filter(u => ownerUserMatchesFilter(u, _ownerFilter) && ownerUserMatchesQuery(u, _ownerQuery));
+  if (!filtered.length) { el.innerHTML = '<p class="owner-empty">No users match your search or filter.</p>'; return; }
+  el.innerHTML = filtered.map(renderOwnerUserCard).join('');
+  $$('.user-card', el).forEach(card => card.onclick = () => {
+    const uid = card.dataset.uid;
+    _ownerExpandedUid = _ownerExpandedUid === uid ? null : uid;
+    renderOwnerUserList();
+  });
+}
+
+async function loadOwnerUsers() {
+  const listEl = $('#ownerUserList');
+  if (listEl) listEl.innerHTML = '<p class="muted tiny">Loading users…</p>';
+  try {
+    const freshToken = await getAuthInstance().currentUser.getIdToken(true);
+    const res = await fetch('/api/admin/users', { headers: { Authorization: `Bearer ${freshToken}` } });
+    const data = await res.json();
+    if (!res.ok) { if (listEl) listEl.innerHTML = `<p class="owner-error">Error: ${esc(data.error || 'Unknown error')}</p>`; return; }
+    _ownerUsers = Array.isArray(data.users) ? data.users : [];
+    renderOwnerStats(_ownerUsers);
+    renderOwnerUserList();
+  } catch (e) {
+    if (listEl) listEl.innerHTML = `<p class="owner-error">Failed to load users: ${esc(e.message)}</p>`;
+  }
+}
+
+function initOwnerUsersDashboard() {
+  const search = $('#ownerSearch');
+  if (search) search.oninput = e => { _ownerQuery = e.target.value; renderOwnerUserList(); };
+  $$('.owner-filters .filter').forEach(btn => btn.onclick = () => {
+    _ownerFilter = btn.dataset.filter;
+    $$('.owner-filters .filter').forEach(b => b.classList.toggle('on', b === btn));
+    renderOwnerUserList();
+  });
+  loadOwnerUsers();
 }

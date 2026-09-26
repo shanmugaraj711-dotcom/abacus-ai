@@ -436,4 +436,39 @@ h3.sec { font: 800 20px var(--display); margin: 20px 0 8px; }
 .badge-status.status-active, .badge-status.status-returning { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
 .badge-status.status-new { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
 
+/* ---- owner console — users dashboard (PR #16) ---- */
+.owner-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 12px 0; }
+@media (min-width: 460px) { .owner-stats { grid-template-columns: repeat(4, 1fr); } }
+.owner-stat { background: var(--paper); border-radius: 16px; padding: 10px; text-align: center; min-width: 0; }
+.owner-stat b { display: block; font: 800 26px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.owner-stat small { display: block; color: var(--ink-soft); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; overflow-wrap: break-word; }
+.owner-stat.warn b { color: var(--berry); }
 
+.owner-search-row { margin: 4px 0 8px; }
+.owner-search-row input { width: 100%; min-height: 48px; padding: 10px 16px; border: 3px solid #EAD5AE; border-radius: 16px; background: #FFFBF2; font-size: 16px; font-weight: 700; }
+.owner-search-row input:focus { border-color: var(--bead-10); outline: none; }
+
+.owner-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.owner-filters .filter { border: 0; background: var(--paper-2); color: var(--ink-soft); cursor: pointer; font-size: 13px; }
+.owner-filters .filter.on { background: var(--ink); color: #fff; }
+
+.user-list { display: grid; gap: 10px; }
+.user-card { background: var(--card); border-radius: 18px; padding: 12px 14px; box-shadow: 0 4px 0 #EFD9B0; text-align: left; border: 0; width: 100%; display: block; }
+.user-card:active { transform: translateY(2px); box-shadow: 0 2px 0 #EFD9B0; }
+.user-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: space-between; }
+.user-card-id { min-width: 0; flex: 1 1 140px; }
+.user-card-id b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-card-id small { display: block; color: var(--ink-soft); font-size: 12px; }
+.user-card-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.status-badge.paid { background: #DDF6EC; color: #1B8563; }
+.status-badge.free { background: #FFF1C2; color: #8A5A00; }
+.status-badge.dup { background: #FFE3E1; color: #A3262A; }
+.user-detail { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #EAD5AE; display: grid; gap: 6px; }
+.user-detail-row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.user-detail-row span:first-child { color: var(--ink-soft); font-weight: 700; flex: none; }
+.user-detail-row span:last-child { text-align: right; font-weight: 700; overflow-wrap: anywhere; }
+.owner-advanced { margin-top: 14px; }
+.owner-advanced summary { cursor: pointer; font-weight: 800; color: var(--ink-soft); font-size: 14px; }
+.owner-empty, .owner-error { text-align: center; padding: 18px 10px; color: var(--ink-soft); font-weight: 700; }
+.owner-error { color: #A3262A; }

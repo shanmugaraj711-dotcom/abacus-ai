@@ -686,7 +686,6 @@ function dashboard() {
       <label for="setName">Child's name</label><input id="setName" maxlength="18" value="${esc(state.profile.name)}">
       <div class="row"><button class="btn" id="unlockAll">Unlock all levels</button><button class="btn danger" id="reset">Reset all progress</button></div>
     </section>
-    <a class="sticker-link" href="#/admin"><span>🔧</span><b>Owner console</b><em>Owner</em></a>
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
