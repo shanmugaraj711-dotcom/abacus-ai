@@ -40,6 +40,34 @@ const TAMIL_TENS = {
   10: 'பத்து', 20: 'இருபது', 30: 'முப்பது', 40: 'நாற்பது',
   50: 'ஐம்பது', 60: 'அறுபது', 70: 'எழுபது', 80: 'எண்பது', 90: 'தொண்ணூறு'
 };
+const ENGLISH_UNITS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const ENGLISH_TEENS = {
+  10: 'ten', 11: 'eleven', 12: 'twelve', 13: 'thirteen', 14: 'fourteen',
+  15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen', 19: 'nineteen'
+};
+const ENGLISH_TENS = {
+  20: 'twenty', 30: 'thirty', 40: 'forty', 50: 'fifty',
+  60: 'sixty', 70: 'seventy', 80: 'eighty', 90: 'ninety'
+};
+
+/** Convert 0..999 to real English number words for speech. */
+export function englishNumberWord(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 999) return String(value);
+  if (n < 10) return ENGLISH_UNITS[n];
+  if (n < 20) return ENGLISH_TEENS[n];
+  if (n < 100) {
+    const tens = Math.floor(n / 10) * 10;
+    const units = n % 10;
+    return units ? ENGLISH_TENS[tens] + ' ' + ENGLISH_UNITS[units] : ENGLISH_TENS[tens];
+  }
+  const hundreds = Math.floor(n / 100);
+  const remainder = n % 100;
+  return remainder
+    ? ENGLISH_UNITS[hundreds] + ' hundred ' + englishNumberWord(remainder)
+    : ENGLISH_UNITS[hundreds] + ' hundred';
+}
+
 const TAMIL_HUNDREDS = {
   100: 'நூறு', 200: 'இருநூறு', 300: 'முந்நூறு', 400: 'நானூறு',
   500: 'ஐந்நூறு', 600: 'அறுநூறு', 700: 'எழுநூறு', 800: 'எண்ணூறு',
@@ -131,9 +159,12 @@ export function say(text, lang = 'en') {
         if (n <= 999) return tamilNumberWord(n);
         return String(n).split('').map(d => TAMIL_UNITS[Number(d)] ?? d).join(' ');
       };
-      const spoken = lang === 'ta'
-        ? clean.replace(/\b\d+\b/g, numberWord).replace(/\s+/g, ' ').trim()
-        : clean;
+      const spoken = clean.replace(/\b\d+\b/g, value => {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 0) return value;
+        if (lang === 'ta') return n <= 999 ? tamilNumberWord(n) : numberWord(n);
+        return n <= 999 ? englishNumberWord(n) : value;
+      }).replace(/\s+/g, ' ').trim();
       const v = voiceFor(tag);
       const u = new SpeechSynthesisUtterance(spoken);
       if (v) u.voice = v;
