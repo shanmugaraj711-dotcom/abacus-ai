@@ -161,23 +161,21 @@ async function fetchAuthAccountsPaginated(tok,projectId,maxResults=1000){
 }
 async function fetchAuthAccounts(env,maxResults=1000){
   const projectId=String(env.FIREBASE_PROJECT_ID||"abacus-buddy").trim();
-  const tok=await googleToken(env);
+  const tok=env._googleToken || await googleToken(env);
   return fetchAuthAccountsPaginated(tok,projectId,maxResults);
 }
 
 // ── Duplicate user detection (manual founder review only — never auto-acts) ──
-// Signal 1: phone match across different UIDs. Firebase Auth's phoneNumber is
-// always E.164 (+<countrycode><number>), so normalization never truncates to
-// trailing digits — two numbers from different countries can never collide
-// just because their last digits match. Signal 2: email match across
-// different UIDs, checked against every linked provider identity's email
-// (not only the top-level account email or only providerUserInfo[0]), so an
-// account that links Google + password with the same email is still one
-// account (self-matches are always excluded), while two distinct accounts
-// that share an email via any linked provider are still caught.
-// Payment-token and child-name matching are deferred (not implemented).
-// Uses phone->uids / email->uids maps (near-linear) rather than comparing
-// every user against every other user.
+// Signal 1: Phone match across different UIDs (strong) — IMPLEMENTED
+// Signal 2: Email match across different UIDs (strong) — IMPLEMENTED
+// Signal 3: Razorpay payment token: DEFERRED — NOT CURRENTLY STORED
+// Signal 4: Child name: DEFERRED — no server-side child-name record exists (local device state only)
+// Self-match: never flags
+// Auto-blocking: NEVER (manual founder review only)
+// Firebase Auth's phoneNumber is always E.164 (+<countrycode><number>), so normalization never truncates to
+// trailing digits — two numbers from different countries can never collide just because their last digits match.
+// Checked against every linked provider identity's email (not only the top-level account email).
+// Uses phone->uids / email->uids maps (near-linear) rather than comparing every user against every other user.
 function normalizePhone(raw){
   if(!raw)return"";
   const cleaned=String(raw).trim().replace(/[^\d+]/g,"");
@@ -217,6 +215,42 @@ function detectDuplicates(users){
     return{...u,possibleDuplicate:duplicateReasons.length>0,duplicateReasons};
   });
 }
+
+// Bounded batch lookup by localId using project-scoped Identity Platform endpoint
+async function lookupAuthAccountsByUids(env, uids) {
+  if (!Array.isArray(uids) || !uids.length) return {};
+  const projectId = String(env.FIREBASE_PROJECT_ID || "abacus-buddy").trim();
+  const map = {};
+  try {
+    const tok = env._googleToken || await googleToken(env);
+    for (let i = 0; i < uids.length; i += 100) {
+      const chunk = uids.slice(i, i + 100);
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:lookup`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer " + tok,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ localId: chunk }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const u of (data.users || [])) {
+          if (u.localId) {
+            map[u.localId] = {
+              email: u.email || "",
+              phone: u.phoneNumber || "",
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[admin users] auth lookup skipped:", err?.message || err);
+  }
+  return map;
+}
+
 
 function fsField(v){
   if(v===null||v===undefined)return{nullValue:null};
@@ -358,6 +392,52 @@ async function main(req,env){
     return json({paid:!!ent,uid:user.uid,paidAt:ent?.paidAt||null});
   }
 
+  // ── /api/visit (anonymous visitor tracking; no IP, device, browser, or location tracking) ─
+  if(path==="/api/visit"&&req.method==="POST"){
+    let b;
+    try{b=await req.json();}catch{return json({error:"Invalid JSON"},400);}
+    const visitorId=String(b?.visitorId||"").trim();
+    if(!visitorId||!/^[a-zA-Z0-9_\-]{8,64}$/.test(visitorId)){
+      return json({error:"Invalid visitorId"},400);
+    }
+    const uid=b.uid?String(b.uid).trim():null;
+    const now=new Date().toISOString();
+    let existing=null;
+    try{existing=await firestoreGet(env,"visitors",visitorId);}catch{}
+
+    let firstSeen=now;
+    let visitCount=1;
+    let status="new";
+    let linkedUid=uid;
+
+    if(existing?.fields){
+      const f=existing.fields;
+      firstSeen=fsVal(f.firstSeen)||now;
+      const prevLastSeen=fsVal(f.lastSeen)||firstSeen;
+      const prevCount=fsVal(f.visitCount)||1;
+      const elapsed=Date.now()-new Date(prevLastSeen).getTime();
+      const shouldIncrement=isNaN(elapsed)||elapsed>30*60*1000;
+      visitCount=shouldIncrement?prevCount+1:prevCount;
+      status=visitCount>1?"returning":"new";
+      linkedUid=uid||fsVal(f.uid)||null;
+    }
+
+    const fields={
+      visitorId:fsField(visitorId),
+      firstSeen:fsField(firstSeen),
+      lastSeen:fsField(now),
+      visitCount:fsField(visitCount),
+      status:fsField(status),
+      ...(linkedUid?{uid:fsField(linkedUid)}:{}),
+    };
+    try{
+      await firestorePatch(env,"visitors",visitorId,fields);
+    }catch(err){
+      console.warn("[visit] firestore write failed:",err?.message||err);
+    }
+    return json({ok:true,visitorId,visitCount,status,firstSeen,lastSeen:now});
+  }
+
   // ── /api/razorpay-webhook ────────────────────────────────────────────────────
   if(path==="/api/razorpay-webhook"&&req.method==="POST"){
     const raw=await req.text(), got=String(req.headers.get("x-razorpay-signature")||"").trim().toLowerCase();
@@ -387,8 +467,7 @@ async function main(req,env){
     // GET /api/admin/users
     // Population: every Firebase Auth account (free and paid), joined with Firestore payment
     // entitlements, with server-side duplicate detection (phone/email) for manual owner review.
-    // No IP, device, browser or location tracking is collected — only existing Firebase Auth
-    // account metadata (email, phone, provider, createdAt, lastLoginAt).
+    // Also includes anonymous visitors tracked privacy-first (no IP/device/location tracking).
     if(path==="/api/admin/users"&&req.method==="GET"){
       const maxResults=clampMaxResults(u.searchParams.get("maxResults"));
       // Fail closed: if the Auth listing is incomplete or errors, we must NOT
@@ -412,28 +491,124 @@ async function main(req,env){
       for(const d of docs){
         const f=d.fields||{};
         const uid=fsVal(f.uid)||d.name.split("/").pop();
-        if(uid)entMap[uid]={paid:f.paid?.booleanValue===true,paidAt:fsVal(f.paidAt)||null};
+        if(uid)entMap[uid]={
+          paid:f.paid?.booleanValue===true,
+          paidAt:fsVal(f.paidAt)||null,
+          email:fsVal(f.email)||"",
+          phone:fsVal(f.phone)||fsVal(f.phoneNumber)||"",
+        };
       }
 
       const byUid=new Map();
       for(const a of authUsers){
         if(!a.uid)continue;
         const ent=entMap[a.uid];
-        byUid.set(a.uid,{...a,paid:ent?.paid===true,paidAt:ent?.paidAt||null});
+        byUid.set(a.uid,{
+          ...a,
+          email:a.email||ent?.email||"",
+          phone:a.phone||ent?.phone||"",
+          paid:ent?.paid===true,
+          paidAt:ent?.paidAt||null,
+        });
       }
-      // An entitlement UID missing from the (now fully paginated) Auth population
-      // means that Firebase Auth account genuinely no longer exists — not an Auth
-      // API failure (those are caught above) — so its profile fields show as
-      // unavailable rather than being guessed at.
       for(const uid of Object.keys(entMap)){
-        if(!byUid.has(uid))byUid.set(uid,{uid,email:"",phone:"",provider:"",providerEmails:[],createdAt:null,lastLoginAt:null,paid:entMap[uid].paid,paidAt:entMap[uid].paidAt});
+        if(!byUid.has(uid)){
+          byUid.set(uid,{
+            uid,
+            email:entMap[uid].email||"",
+            phone:entMap[uid].phone||"",
+            provider:"",
+            providerEmails:[],
+            createdAt:null,
+            lastLoginAt:null,
+            paid:entMap[uid].paid,
+            paidAt:entMap[uid].paidAt,
+          });
+        }
+      }
+
+      // Fetch anonymous visitors from Firestore
+      let visitorDocs=[];
+      try{visitorDocs=await firestoreList(env,"visitors",50,true);}catch(e){}
+
+      const visitorByUid={};
+      const anonymousVisitors=[];
+
+      for(const d of visitorDocs){
+        const f=d.fields||{};
+        const vid=fsVal(f.visitorId)||d.name.split("/").pop();
+        if(!vid)continue;
+        const vUid=fsVal(f.uid)||null;
+        const vData={
+          visitorId:vid,
+          firstSeen:fsVal(f.firstSeen)||null,
+          lastSeen:fsVal(f.lastSeen)||null,
+          visitCount:fsVal(f.visitCount)||1,
+          status:fsVal(f.status)||"active",
+          uid:vUid,
+        };
+        if(vUid){
+          visitorByUid[vUid]=vData;
+        }else{
+          anonymousVisitors.push(vData);
+        }
+      }
+
+      // Enrich registered users with visitor metadata
+      for(const [uid,u] of byUid.entries()){
+        const v=visitorByUid[uid];
+        u.isAnonymous=false;
+        u.visitorId=v?.visitorId||null;
+        u.firstSeen=v?.firstSeen||u.paidAt||u.createdAt||null;
+        u.lastSeen=v?.lastSeen||u.paidAt||u.lastLoginAt||null;
+        u.visitCount=v?.visitCount||1;
+        u.visitorStatus=u.paid?"paid":"registered";
+      }
+
+      // Add anonymous visitors to population
+      for(const av of anonymousVisitors){
+        if(av.uid&&byUid.has(av.uid))continue;
+        const anonKey=`anon_${av.visitorId}`;
+        byUid.set(anonKey,{
+          uid:anonKey,
+          visitorId:av.visitorId,
+          email:"",
+          phone:"",
+          provider:"",
+          providerEmails:[],
+          createdAt:av.firstSeen,
+          lastLoginAt:av.lastSeen,
+          paid:false,
+          paidAt:null,
+          firstSeen:av.firstSeen,
+          lastSeen:av.lastSeen,
+          visitCount:av.visitCount||1,
+          visitorStatus:av.status||"anonymous",
+          isAnonymous:true,
+        });
       }
 
       const users=detectDuplicates([...byUid.values()]);
-      const possibleDuplicateCount=users.filter(x=>x.possibleDuplicate).length;
+      users.sort((a,b)=>{
+        const bTime=b.lastSeen||b.paidAt||b.firstSeen||b.lastLoginAt||"";
+        const aTime=a.lastSeen||a.paidAt||a.firstSeen||a.lastLoginAt||"";
+        return bTime.localeCompare(aTime);
+      });
+
+      const total=users.length;
+      const paidCount=users.filter(u=>u.paid).length;
+      const registeredFreeCount=users.filter(u=>!u.isAnonymous&&!u.paid).length;
+      const anonymousCount=users.filter(u=>u.isAnonymous).length;
+      const possibleDuplicateCount=users.filter(u=>u.possibleDuplicate).length;
+
       return json({
-        users,total:users.length,possibleDuplicateCount,
-        note:"Lists Firebase Auth users (free and paid) joined with payment entitlements. Duplicate flags are for manual review only — nothing is ever auto-blocked.",
+        users,
+        total,
+        paidCount,
+        registeredFreeCount,
+        anonymousCount,
+        possibleDuplicateCount,
+        note:"Lists registered users and anonymous visitors with first-seen, last-seen, visit counts, and visitor status. Duplicate flags are for manual review only — nothing is ever auto-blocked.",
       });
     }
 
@@ -527,5 +702,17 @@ async function main(req,env){
   return json({error:"Not found"},404);
 }
 
-export{main,normalizePhone,normalizeEmail,detectDuplicates,accountEmails,authAccountRecord,fetchAuthAccountsPaginated,firestoreListAllPages};
+export {
+  main,
+  normalizePhone,
+  normalizeEmail,
+  detectDuplicates,
+  accountEmails,
+  authAccountRecord,
+  fetchAuthAccountsPaginated,
+  fetchAuthAccounts,
+  firestoreListAllPages,
+  lookupAuthAccountsByUids,
+  clampMaxResults,
+};
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};

@@ -40,11 +40,14 @@ import { chromium } from 'playwright';
 import crypto from 'node:crypto';
 import {
   main as workerMain,
-  normalizePhone,
   detectDuplicates,
+  normalizePhone,
+  normalizeEmail,
+  fetchAuthAccounts,
   authAccountRecord,
   fetchAuthAccountsPaginated,
 } from '../worker.js';
+import { getVisitorId, pingVisit } from '../js/store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +68,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
   let _rewardsConfig = {};
   let _entitlements = {};
   let _authUsers = {}; // uid -> { email, phone, provider, createdAt, lastLoginAt } — mirrors Firebase Auth accounts:batchGet
+  let _visitors = {};
   let _remoteConfigFail = false;
 
   function bearerUid(req) {
@@ -98,6 +102,41 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
       const uid = bearerUid(req);
       if (!uid) return jsonRes(res, { error: 'missing authorization' }, 401);
       return jsonRes(res, { paid: !!_entitlements[uid]?.paid, uid, paidAt: _entitlements[uid]?.paidAt || null });
+    }
+
+    // ── /api/visit (public anonymous visitor ping) ──────────────────────────
+    if (reqPath === '/api/visit' && req.method === 'POST') {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => {
+        let parsed = {};
+        try { parsed = JSON.parse(body || '{}'); } catch {}
+        const visitorId = String(parsed?.visitorId || '').trim();
+        if (!visitorId || !/^[a-zA-Z0-9_\-]{8,64}$/.test(visitorId)) {
+          return jsonRes(res, { error: 'Invalid visitorId' }, 400);
+        }
+        const now = new Date().toISOString();
+        const existing = _visitors[visitorId];
+        const firstSeen = existing?.firstSeen || now;
+        const prevLastSeen = existing?.lastSeen || firstSeen;
+        const currentCount = existing?.visitCount || 1;
+        const elapsed = Date.now() - new Date(prevLastSeen).getTime();
+        const shouldIncrement = !existing || isNaN(elapsed) || elapsed > 30 * 60 * 1000;
+        const visitCount = existing ? (shouldIncrement ? currentCount + 1 : currentCount) : 1;
+        const status = visitCount > 1 ? 'returning' : 'new';
+        const linkedUid = parsed.uid ? String(parsed.uid).trim() : (existing?.uid || null);
+
+        _visitors[visitorId] = {
+          visitorId,
+          firstSeen,
+          lastSeen: now,
+          visitCount,
+          status,
+          uid: linkedUid,
+        };
+        jsonRes(res, { ok: true, visitorId, visitCount, status, firstSeen, lastSeen: now });
+      });
+      return;
     }
 
     // ── /api/create-order ──────────────────────────────────────────────────
@@ -162,19 +201,96 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
       if (uid !== ownerUid) return jsonRes(res, { error: 'Forbidden: owner access only' }, 403);
 
       if (reqPath === '/api/admin/users' && req.method === 'GET') {
-        // Mirrors worker.js: Firebase Auth accounts (free + paid) joined with entitlements,
-        // deduplicated with the real detectDuplicates() so tests exercise production logic.
         const byUid = new Map();
         for (const [uid, a] of Object.entries(_authUsers)) {
-          byUid.set(uid, { uid, email: a.email || '', phone: a.phone || '', provider: a.provider || '', createdAt: a.createdAt || null, lastLoginAt: a.lastLoginAt || null, paid: false, paidAt: null });
+          byUid.set(uid, {
+            uid,
+            email: a.email || '',
+            phone: a.phone || '',
+            provider: a.provider || '',
+            providerEmails: a.providerEmails || [],
+            createdAt: a.createdAt || null,
+            lastLoginAt: a.lastLoginAt || null,
+            paid: false,
+            paidAt: null
+          });
         }
         for (const [uid, e] of Object.entries(_entitlements)) {
-          const existing = byUid.get(uid) || { uid, email: '', phone: '', provider: '', createdAt: null, lastLoginAt: null };
-          byUid.set(uid, { ...existing, paid: !!e.paid, paidAt: e.paidAt || null });
+          const existing = byUid.get(uid) || { uid, email: e.email || '', phone: e.phone || '', provider: '', providerEmails: [], createdAt: null, lastLoginAt: null };
+          byUid.set(uid, {
+            ...existing,
+            email: existing.email || e.email || '',
+            phone: existing.phone || e.phone || '',
+            paid: !!e.paid,
+            paidAt: e.paidAt || null
+          });
         }
-        const users = detectDuplicates([...byUid.values()]);
+
+        const visitorByUid = {};
+        const anonymousVisitors = [];
+        for (const [vid, v] of Object.entries(_visitors)) {
+          if (v.uid) {
+            visitorByUid[v.uid] = v;
+          } else {
+            anonymousVisitors.push(v);
+          }
+        }
+
+        for (const [uid, u] of byUid.entries()) {
+          const v = visitorByUid[uid];
+          u.isAnonymous = false;
+          u.visitorId = v?.visitorId || null;
+          u.firstSeen = v?.firstSeen || u.paidAt || u.createdAt || null;
+          u.lastSeen = v?.lastSeen || u.paidAt || u.lastLoginAt || null;
+          u.visitCount = v?.visitCount || 1;
+          u.visitorStatus = u.paid ? 'paid' : 'registered';
+        }
+
+        for (const av of anonymousVisitors) {
+          if (av.uid && byUid.has(av.uid)) continue;
+          const anonKey = `anon_${av.visitorId}`;
+          byUid.set(anonKey, {
+            uid: anonKey,
+            visitorId: av.visitorId,
+            email: '',
+            phone: '',
+            provider: '',
+            providerEmails: [],
+            createdAt: av.firstSeen,
+            lastLoginAt: av.lastSeen,
+            paid: false,
+            paidAt: null,
+            firstSeen: av.firstSeen,
+            lastSeen: av.lastSeen,
+            visitCount: av.visitCount || 1,
+            visitorStatus: av.status || 'anonymous',
+            isAnonymous: true,
+          });
+        }
+
+        const mergedUsers = [...byUid.values()];
+        const users = detectDuplicates(mergedUsers);
+        users.sort((a, b) => {
+          const bTime = b.lastSeen || b.paidAt || b.firstSeen || b.lastLoginAt || '';
+          const aTime = a.lastSeen || a.paidAt || a.firstSeen || a.lastLoginAt || '';
+          return bTime.localeCompare(aTime);
+        });
+
+        const total = users.length;
+        const paidCount = users.filter(u => u.paid).length;
+        const registeredFreeCount = users.filter(u => !u.isAnonymous && !u.paid).length;
+        const anonymousCount = users.filter(u => u.isAnonymous).length;
         const possibleDuplicateCount = users.filter(u => u.possibleDuplicate).length;
-        return jsonRes(res, { users, total: users.length, possibleDuplicateCount, note: "Lists Firebase Auth users (free and paid) joined with payment entitlements. Duplicate flags are for manual review only." });
+
+        return jsonRes(res, {
+          users,
+          total,
+          paidCount,
+          registeredFreeCount,
+          anonymousCount,
+          possibleDuplicateCount,
+          note: "Lists registered users and anonymous visitors with first-seen, last-seen, visit counts, and status.",
+        });
       }
       if (reqPath === '/api/admin/payments' && req.method === 'GET') {
         const payments = Object.entries(_entitlements).filter(([, e]) => e.paid).map(([uid, e]) => ({ uid, paid: true, paidAt: e.paidAt }));
@@ -235,7 +351,18 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
     });
   });
 
-  server.expose = { get paid() { return _paid; }, set paid(v) { _paid = v; }, ordersCreated: _ordersCreated, auditLog: _auditLog, entitlements: _entitlements, authUsers: _authUsers, setRemoteConfig(c) { _remoteConfig = c; }, setRemoteConfigFail(f) { _remoteConfigFail = f; } };
+  server.expose = {
+    get paid() { return _paid; },
+    set paid(v) { _paid = v; },
+    ordersCreated: _ordersCreated,
+    auditLog: _auditLog,
+    entitlements: _entitlements,
+    authAccounts: _authUsers,
+    authUsers: _authUsers,
+    visitors: _visitors,
+    setRemoteConfig(c) { _remoteConfig = c; },
+    setRemoteConfigFail(f) { _remoteConfigFail = f; }
+  };
   return server;
 }
 
@@ -1395,6 +1522,693 @@ await test("Regression E: Network recovery correctly refreshes current user's en
     assert.equal(result.cache?.uid, uid, 'Cache must store current user UID');
   } finally {
     delete server.expose.entitlements[uid];
+    await ctx.close();
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// SECTION 20: Duplicate-User Detection & Manual Review Controls (16 Requirements)
+// ──────────────────────────────────────────────────────────────────────────────────────
+console.log('\n═══ Item 20: Duplicate-User Detection (Manual Review Only) ═══');
+
+// ── Test A: Correct project-scoped Identity Platform lookup endpoint ─────────
+await test('Correction A: Identity Platform endpoint is project-scoped (/v1/projects/{projectId}/accounts:lookup)', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(
+    workerSrc.includes('/v1/projects/${encodeURIComponent(projectId)}/accounts:lookup'),
+    'Must use project-scoped /v1/projects/{projectId}/accounts:lookup'
+  );
+  assert.ok(
+    workerSrc.includes('/v1/projects/${encodeURIComponent(projectId)}/accounts:batchGet'),
+    'Must use project-scoped /v1/projects/{projectId}/accounts:batchGet for account listing'
+  );
+  // Verify legacy unscoped admin endpoint is not used for admin lookups
+  assert.ok(
+    !workerSrc.includes('"https://identitytoolkit.googleapis.com/v1/accounts:lookup"'),
+    'Must not use legacy unscoped /v1/accounts:lookup for admin lookup'
+  );
+});
+
+// ── Test B: Firebase Auth users included even without an entitlement ─────────
+await test('Correction B: Firebase Auth users included even without an entitlement', async () => {
+  server.expose.authAccounts['free-user-b1'] = { email: 'free1@example.com', phone: '+919876543201' };
+  try {
+    const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    const user = data.users.find(u => u.uid === 'free-user-b1');
+    assert.ok(user, 'Free-tier Auth account without entitlement must be included in user list');
+    assert.equal(user.paid, false, 'Free-tier user must have paid=false');
+    assert.equal(user.paidAt, null, 'Free-tier user must have paidAt=null');
+  } finally {
+    delete server.expose.authAccounts['free-user-b1'];
+  }
+});
+
+// ── Test C: Duplicate free-tier accounts detected from existing Auth data ─────
+await test('Correction C: Duplicate free-tier accounts detected from existing Auth data', async () => {
+  server.expose.authAccounts['free-dup-c1'] = { email: 'free_shared@example.com', phone: '+919876543000' };
+  server.expose.authAccounts['free-dup-c2'] = { email: 'different@example.com', phone: '+91 98765 43000' };
+  try {
+    const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    const u1 = data.users.find(u => u.uid === 'free-dup-c1');
+    const u2 = data.users.find(u => u.uid === 'free-dup-c2');
+    assert.ok(u1 && u2, 'Both free-tier accounts must exist');
+    assert.equal(u1.possibleDuplicate, true, 'Free-tier duplicate account 1 must be flagged');
+    assert.equal(u2.possibleDuplicate, true, 'Free-tier duplicate account 2 must be flagged');
+    assert.ok(u1.duplicateReasons.includes('phone'));
+    assert.ok(u2.duplicateReasons.includes('phone'));
+  } finally {
+    delete server.expose.authAccounts['free-dup-c1'];
+    delete server.expose.authAccounts['free-dup-c2'];
+  }
+});
+
+// ── Test D: Paying users still join correctly with entitlement information ──
+await test('Correction D: Paying users join correctly with entitlement information', async () => {
+  server.expose.authAccounts['paying-user-d1'] = { email: 'paying@example.com', phone: '+919876543099' };
+  server.expose.entitlements['paying-user-d1'] = { paid: true, paidAt: '2026-09-24T18:00:00Z', email: 'paying@example.com' };
+  try {
+    const res = await fetch(`${BASE}/api/admin/users`, { headers: { Authorization: mockAuth(OWNER_UID) } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    const u = data.users.find(x => x.uid === 'paying-user-d1');
+    assert.ok(u, 'Paying user must exist in joined list');
+    assert.equal(u.paid, true, 'Paid status must be true');
+    assert.equal(u.paidAt, '2026-09-24T18:00:00Z', 'Paid date must be joined from entitlement');
+  } finally {
+    delete server.expose.authAccounts['paying-user-d1'];
+    delete server.expose.entitlements['paying-user-d1'];
+  }
+});
+
+// ── Test E: Firebase displayName is NOT treated as childName ─────────────────
+await test('Correction E: Firebase displayName is NOT treated as childName', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(!workerSrc.includes('auth.displayName'), 'worker.js must not infer childName from auth.displayName');
+  assert.ok(!workerSrc.includes('u.displayName'), 'worker.js must not read auth displayName as childName');
+});
+
+// ── Test F: Child-name signal deferred, cannot flag on child name ─────────────
+await test('Correction F: Child-name signal deferred; same child name never flags duplicate', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('Signal 4: Child name: DEFERRED'), 'worker.js must document Signal 4 as DEFERRED');
+
+  const users = [
+    { uid: 'u-f1', phone: '+919876543111', email: 'f1@example.com', childName: 'Aarav' },
+    { uid: 'u-f2', phone: '+919876543222', email: 'f2@example.com', childName: 'Aarav' },
+  ];
+  const evaluated = detectDuplicates(users);
+  assert.equal(evaluated[0].possibleDuplicate, false);
+  assert.equal(evaluated[0].duplicateReasons.length, 0);
+  assert.equal(evaluated[1].possibleDuplicate, false);
+  assert.equal(evaluated[1].duplicateReasons.length, 0);
+});
+
+// ── Test G: Phone/email matching still works ─────────────────────────────────
+await test('Correction G: Phone and email matching work with normalized formats', async () => {
+  const users = [
+    { uid: 'u-g1', phone: '+91 98765 43210', email: 'g_shared@example.com' },
+    { uid: 'u-g2', phone: '+919876543210', email: 'g_shared@example.com' },
+    { uid: 'u-g3', phone: '+919111122222', email: 'g_other@example.com' },
+  ];
+  const evaluated = detectDuplicates(users);
+  assert.equal(evaluated[0].possibleDuplicate, true);
+  assert.ok(evaluated[0].duplicateReasons.includes('phone'));
+  assert.ok(evaluated[0].duplicateReasons.includes('email'));
+  assert.equal(evaluated[1].possibleDuplicate, true);
+  assert.ok(evaluated[1].duplicateReasons.includes('phone'));
+  assert.ok(evaluated[1].duplicateReasons.includes('email'));
+  assert.equal(evaluated[2].possibleDuplicate, false);
+});
+
+await test('Duplicate detection: Same user matching itself -> NO duplicate', async () => {
+  const users = [
+    { uid: 'self-match-uid', phone: '+919876543210', email: 'self@example.com' },
+  ];
+  const evaluated = detectDuplicates(users);
+  assert.equal(evaluated[0].possibleDuplicate, false);
+  assert.equal(evaluated[0].duplicateReasons.length, 0);
+});
+
+await test('Duplicate detection: Non-owner cannot call duplicate endpoint (GET /api/admin/users) -> 403', async () => {
+  const res = await fetch(`${BASE}/api/admin/users`, {
+    headers: { Authorization: mockAuth(USER_UID) }
+  });
+  assert.equal(res.status, 403, 'Non-owner must receive HTTP 403');
+  const unauth = await fetch(`${BASE}/api/admin/users`);
+  assert.equal(unauth.status, 401, 'Unauthenticated request must receive HTTP 401');
+});
+
+await test('Duplicate detection: Browser cannot submit its own duplicate status and have server trust it', async () => {
+  server.expose.entitlements['forged-user'] = {
+    paid: true,
+    paidAt: new Date().toISOString(),
+    email: 'clean@example.com',
+    phone: '+919999900001',
+  };
+
+  const res = await fetch(`${BASE}/api/admin/users?possibleDuplicate=true&duplicateReasons=forged`, {
+    headers: { Authorization: mockAuth(OWNER_UID) }
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const found = data.users.find(u => u.uid === 'forged-user');
+  assert.ok(found, 'User must exist');
+  assert.equal(found.possibleDuplicate, false, 'Server must compute duplicate flag, not trust query params');
+  assert.deepEqual(found.duplicateReasons, [], 'Server must compute reasons');
+  delete server.expose.entitlements['forged-user'];
+});
+
+// ── Test H: No auto-blocking ────────────────────────────────────────────────
+await test('Correction H: No auto-blocking exists in code or API responses', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('Auto-blocking: NEVER (manual founder review only)'));
+  assert.ok(!workerSrc.includes('blocked: true'), 'No account blocking flags in worker');
+  assert.ok(!workerSrc.includes('suspended: true'), 'No account suspension in worker');
+});
+
+// ── Test I: No IP/device/browser/session tracking ────────────────────────────
+await test('Correction I: Zero IP, device, browser, or session tracking is introduced', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  const adminSrc = fs.readFileSync(path.join(ROOT_DIR, 'js', 'admin.js'), 'utf8');
+
+  assert.ok(!workerSrc.includes('cf-connecting-ip'), 'No IP extraction in worker');
+  assert.ok(!workerSrc.includes('x-forwarded-for'), 'No IP extraction in worker');
+  assert.ok(!adminSrc.includes('navigator.userAgent'), 'No browser fingerprinting in admin UI');
+  assert.ok(!adminSrc.includes('screen.width'), 'No device fingerprinting in admin UI');
+  assert.ok(!adminSrc.includes('canvas.toDataURL'), 'No canvas fingerprinting');
+});
+
+// ── Test J: Existing payment/entitlement behavior remains green ──────────────
+await test('Correction J: Existing payment/entitlement behavior remains unchanged', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('const PRICE = 49900;'), '₹499 fixed price preserved');
+  assert.ok(workerSrc.includes('const PRODUCT = "abacus-buddy";'), 'Product name preserved');
+  assert.ok(workerSrc.includes('if(existing?.paid){return json({paid:true});}'), 'Idempotency preserved');
+});
+
+// ── Test K: Existing owner authentication remains unchanged ─────────────────
+await test('Correction K: Existing owner authentication remains unchanged', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('ownerBearer(req,env)'), 'ownerBearer enforces single-owner authentication');
+  assert.ok(workerSrc.includes('Forbidden: owner access only'), 'Rejects non-owner');
+});
+
+await test('Duplicate detection: Payment-token signal remains disabled/deferred', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('Signal 3: Razorpay payment token: DEFERRED — NOT CURRENTLY STORED'));
+  assert.ok(!workerSrc.includes('razorpay_token_id'), 'No invented payment token identifier');
+  assert.ok(!workerSrc.includes('card_fingerprint'), 'No card fingerprinting added');
+});
+
+await test('Duplicate detection: UI Filter works for All users vs Possible duplicates', async () => {
+  server.expose.authAccounts['filter-dup-1'] = { phone: '+919988776655', email: 'dup1@example.com' };
+  server.expose.authAccounts['filter-dup-2'] = { phone: '+919988776655', email: 'dup2@example.com' };
+  server.expose.authAccounts['filter-unique-1'] = { phone: '+919911223344', email: 'unique@example.com' };
+  server.expose.entitlements['filter-dup-1'] = { paid: true };
+  server.expose.entitlements['filter-unique-1'] = { paid: true };
+
+  const { ctx, p } = await newPage();
+  try {
+    await p.addInitScript((ownerId) => {
+      window.__mockUser = { uid: ownerId, email: 'owner@example.com', getIdToken: async () => `mock-uid:${ownerId}` };
+    }, OWNER_UID);
+
+    await p.goto(`${BASE}/owner.html`);
+    await p.waitForSelector('#admin-users-section', { timeout: 8000 });
+
+    await p.click('#loadUsers');
+    await p.waitForSelector('.admin-users-mgmt', { timeout: 8000 });
+
+    const allCards = await p.$$('.admin-user-card');
+    assert.ok(allCards.length >= 3, `Expected at least 3 cards, got ${allCards.length}`);
+
+    await p.selectOption('#adminUserFilter', 'duplicates');
+    const dupCards = await p.$$('.admin-user-card');
+    assert.equal(dupCards.length, 2, 'Only the 2 duplicate cards should be shown when filtered');
+
+    await p.selectOption('#adminUserFilter', 'all');
+    const restoredCards = await p.$$('.admin-user-card');
+    assert.equal(restoredCards.length, allCards.length);
+  } finally {
+    delete server.expose.authAccounts['filter-dup-1'];
+    delete server.expose.authAccounts['filter-dup-2'];
+    delete server.expose.authAccounts['filter-unique-1'];
+    delete server.expose.entitlements['filter-dup-1'];
+    delete server.expose.entitlements['filter-unique-1'];
+    await ctx.close();
+  }
+});
+
+// ── Test Pagination: Multi-page Firebase Auth retrieval (/accounts:batchGet) and duplicate detection ──
+await test('Correction: Firebase Auth account pagination via /accounts:batchGet and multi-page duplicate detection (1-7)', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(workerSrc.includes('accounts:batchGet'), 'worker.js must use official /accounts:batchGet endpoint');
+  assert.ok(workerSrc.includes('nextPageToken'), 'worker.js must use nextPageToken for Identity Platform pagination');
+  assert.ok(workerSrc.includes('fetchAuthAccounts'), 'worker.js must define fetchAuthAccounts');
+
+  const requestedUrls = [];
+  const originalFetch = globalThis.fetch;
+
+  const page1Users = [
+    { localId: 'p1-user-1', email: 'p1_alice@example.com', phoneNumber: '+919876500001' },
+    { localId: 'p1-user-2', email: 'p1_bob@example.com', phoneNumber: '+919876500002' },
+  ];
+  const page2Users = [
+    { localId: 'p2-user-3', email: 'p2_alice_alt@example.com', phoneNumber: '+91 98765 00001' }, // Phone match with p1-user-1!
+    { localId: 'p2-user-4', email: 'p2_charlie@example.com', phoneNumber: '+919876500004' },
+  ];
+
+  globalThis.fetch = async (input, init) => {
+    const urlStr = String(input);
+    if (urlStr.includes('/accounts:batchGet')) {
+      requestedUrls.push(urlStr);
+      const parsedUrl = new URL(urlStr);
+      const cursor = parsedUrl.searchParams.get('nextPageToken');
+
+      if (!cursor) {
+        // Page 1
+        return new Response(JSON.stringify({
+          users: page1Users,
+          nextPageToken: 'token-cursor-page2',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } else if (cursor === 'token-cursor-page2') {
+        // Page 2
+        return new Response(JSON.stringify({
+          users: page2Users,
+          nextPageToken: null, // End of pages
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } else {
+        return new Response(JSON.stringify({ users: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const mockEnv = {
+      FIREBASE_PROJECT_ID: 'abacus-buddy-test',
+      _googleToken: 'mock-test-sa-token',
+    };
+
+    const retrievedUsers = await fetchAuthAccounts(mockEnv, 2);
+
+    // 1. /accounts:batchGet is used
+    assert.ok(requestedUrls.length >= 1, 'Proof 1: Requests were made');
+    assert.ok(requestedUrls[0].includes('/v1/projects/abacus-buddy-test/accounts:batchGet'), 'Proof 1: Request URL uses official /accounts:batchGet endpoint');
+
+    // 2. first request has maxResults
+    const firstReqUrl = new URL(requestedUrls[0]);
+    assert.ok(firstReqUrl.searchParams.has('maxResults'), 'Proof 2: First request contains maxResults query parameter');
+    assert.equal(firstReqUrl.searchParams.get('maxResults'), '2', 'Proof 2: First request maxResults matches requested value');
+    assert.equal(firstReqUrl.searchParams.get('nextPageToken'), null, 'Proof 2: First request has no cursor/nextPageToken');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-1'), 'Page 1 user 1 was retrieved');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p1-user-2'), 'Page 1 user 2 was retrieved');
+
+    // 3. second request carries nextPageToken
+    assert.ok(requestedUrls.length >= 2, 'Proof 3: Second page request was initiated');
+    const secondReqUrl = new URL(requestedUrls[1]);
+    assert.ok(secondReqUrl.searchParams.has('nextPageToken'), 'Proof 3: Second request contains nextPageToken parameter');
+    assert.equal(secondReqUrl.searchParams.get('nextPageToken'), 'token-cursor-page2', 'Proof 3: Second request carries expected nextPageToken from page 1');
+    assert.equal(secondReqUrl.searchParams.get('maxResults'), '2', 'Proof 3: Second request preserves maxResults parameter');
+
+    // 4. page 2 users are included
+    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-3'), 'Proof 4: Page 2 user 3 is included in result');
+    assert.ok(retrievedUsers.some(u => u.uid === 'p2-user-4'), 'Proof 4: Page 2 user 4 is included in result');
+    assert.equal(retrievedUsers.length, 4, 'Proof 4: Total accounts include all users from both page 1 and page 2');
+
+    // 5. cross-page duplicate is detected
+    const evaluated = detectDuplicates(retrievedUsers);
+    const p1Dup = evaluated.find(u => u.uid === 'p1-user-1');
+    const p2Dup = evaluated.find(u => u.uid === 'p2-user-3');
+    const p1Unique = evaluated.find(u => u.uid === 'p1-user-2');
+    const p2Unique = evaluated.find(u => u.uid === 'p2-user-4');
+
+    assert.ok(p1Dup && p2Dup, 'Proof 5: Both duplicate accounts across page 1 and page 2 are present');
+    assert.equal(p1Dup.possibleDuplicate, true, 'Proof 5: Page 1 account is flagged as possible duplicate');
+    assert.ok(p1Dup.duplicateReasons.includes('phone'), 'Proof 5: Page 1 account has phone match reason');
+    assert.equal(p2Dup.possibleDuplicate, true, 'Proof 5: Page 2 account is flagged as possible duplicate');
+    assert.ok(p2Dup.duplicateReasons.includes('phone'), 'Proof 5: Page 2 account has phone match reason');
+    assert.equal(p1Unique.possibleDuplicate, false, 'Proof 5: Unique page 1 account is not flagged');
+    assert.equal(p2Unique.possibleDuplicate, false, 'Proof 5: Unique page 2 account is not flagged');
+
+    // 6. pagination stops when token disappears
+    assert.equal(requestedUrls.length, 2, 'Proof 6: Pagination stops cleanly when nextPageToken disappears (exactly 2 requests)');
+
+    // 7. maxResults never exceeds 1000
+    requestedUrls.length = 0; // reset
+    await fetchAuthAccounts(mockEnv, 5000); // pass value > 1000
+    assert.ok(requestedUrls.length > 0, 'Proof 7: Request made for bounded check');
+    const boundedReqUrl = new URL(requestedUrls[0]);
+    assert.equal(boundedReqUrl.searchParams.get('maxResults'), '1000', 'Proof 7: maxResults is capped at 1000 when 5000 is requested');
+
+    requestedUrls.length = 0; // reset
+    await fetchAuthAccounts(mockEnv, 0); // pass value < 1
+    const minReqUrl = new URL(requestedUrls[0]);
+    assert.equal(minReqUrl.searchParams.get('maxResults'), '1', 'Proof 7: maxResults is at least 1 when 0 is requested');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// SECTION 21: Playwright Multi-Viewport & Visual Regression QA (Correction L)
+// ──────────────────────────────────────────────────────────────────────────────────────
+console.log('\n═══ Item 21: Playwright Multi-Viewport QA (Correction L) ═══');
+
+const viewports = [
+  { name: '320x640 (small mobile)', width: 320, height: 640 },
+  { name: '390x844 (standard mobile)', width: 390, height: 844 },
+  { name: '820x1180 (tablet)', width: 820, height: 1180 },
+];
+
+for (const vp of viewports) {
+  await test(`Correction L: Owner Console renders without horizontal overflow at ${vp.name}`, async () => {
+    server.expose.authAccounts['vp-dup-1'] = { phone: '+919988776655', email: 'vpdup1@example.com' };
+    server.expose.authAccounts['vp-dup-2'] = { phone: '+919988776655', email: 'vpdup2@example.com' };
+    server.expose.entitlements['vp-dup-1'] = { paid: true };
+
+    const { ctx, p } = await newPage({ width: vp.width, height: vp.height });
+    const errors = [];
+    p.on('pageerror', err => errors.push(err.message));
+    p.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+    try {
+      await p.addInitScript((ownerId) => {
+        window.__mockUser = { uid: ownerId, email: 'owner@example.com', getIdToken: async () => `mock-uid:${ownerId}` };
+      }, OWNER_UID);
+
+      await p.goto(`${BASE}/owner.html`);
+      await p.waitForSelector('#admin-users-section', { timeout: 8000 });
+
+      await p.click('#loadUsers');
+      await p.waitForSelector('.badge-duplicate', { timeout: 8000 });
+
+      const badgeText = await p.$eval('.badge-duplicate', el => el.textContent);
+      assert.ok(badgeText.includes('Possible duplicate'), 'Badge must show Possible duplicate');
+      assert.ok(badgeText.includes('Phone match'), 'Badge must show Phone match reason');
+
+      const overflow = await p.evaluate(() => {
+        return document.documentElement.scrollWidth > window.innerWidth;
+      });
+      assert.equal(overflow, false, `No horizontal overflow expected at ${vp.width}px`);
+      assert.equal(errors.length, 0, `No console/runtime errors at ${vp.width}px: ${errors.join(', ')}`);
+    } finally {
+      delete server.expose.authAccounts['vp-dup-1'];
+      delete server.expose.authAccounts['vp-dup-2'];
+      delete server.expose.entitlements['vp-dup-1'];
+      await ctx.close();
+    }
+  });
+}
+
+await test('Duplicate detection is NOT visible in normal child app', async () => {
+  const { ctx, p } = await newPage();
+  try {
+    await p.goto(`${BASE}/`);
+    await p.waitForSelector('#app', { timeout: 8000 });
+    const text = await p.$eval('#app', el => el.textContent);
+    assert.ok(!text.includes('Possible duplicate'), 'Child app must never show duplicate flags');
+    assert.ok(!text.includes('adminUsers'), 'Child app must not contain admin user management');
+  } finally {
+    await ctx.close();
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// SECTION 22: Anonymous Visitor Tracking & Who's Using Abacus (Owner Visibility)
+// ──────────────────────────────────────────────────────────────────────────────────────
+console.log("\n═══ Item 22: Anonymous Visitor Tracking & Who's Using Abacus ═══");
+
+await test('Visitor tracking: POST /api/visit registers anonymous visitor with firstSeen, lastSeen, visitCount=1, status=new', async () => {
+  const visitorId = 'vis_test_new_' + Math.random().toString(36).slice(2, 10);
+  const res = await fetch(`${BASE}/api/visit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visitorId }),
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.visitorId, visitorId);
+  assert.equal(data.visitCount, 1);
+  assert.equal(data.status, 'new');
+  assert.ok(data.firstSeen, 'Must have firstSeen timestamp');
+  assert.ok(data.lastSeen, 'Must have lastSeen timestamp');
+});
+
+await test('Visitor tracking: POST /api/visit handles repeat visits with status=returning', async () => {
+  const visitorId = 'vis_test_repeat_' + Math.random().toString(36).slice(2, 10);
+  const past = new Date(Date.now() - 3600 * 1000 * 2).toISOString(); // 2 hours ago
+  server.expose.visitors[visitorId] = {
+    visitorId,
+    firstSeen: past,
+    lastSeen: past,
+    visitCount: 1,
+    status: 'new',
+    uid: null,
+  };
+
+  const res = await fetch(`${BASE}/api/visit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visitorId }),
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.visitCount, 2, 'Visit count must increment after elapsed interval');
+  assert.equal(data.status, 'returning', 'Status must transition to returning');
+  assert.equal(data.firstSeen, past, 'firstSeen must remain preserved');
+});
+
+await test('Visitor tracking: Invalid visitorId is rejected with 400', async () => {
+  const res1 = await fetch(`${BASE}/api/visit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visitorId: 'short' }),
+  });
+  assert.equal(res1.status, 400);
+
+  const res2 = await fetch(`${BASE}/api/visit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visitorId: 'bad!id@chars#$' }),
+  });
+  assert.equal(res2.status, 400);
+});
+
+await test('Visitor tracking: GET /api/admin/users exposes all people using Abacus (registered + anonymous)', async () => {
+  const savedEntitlements = { ...server.expose.entitlements };
+  const savedAuthAccounts = { ...server.expose.authAccounts };
+  const savedVisitors = { ...server.expose.visitors };
+
+  Object.keys(server.expose.entitlements).forEach(k => delete server.expose.entitlements[k]);
+  Object.keys(server.expose.authAccounts).forEach(k => delete server.expose.authAccounts[k]);
+  Object.keys(server.expose.visitors).forEach(k => delete server.expose.visitors[k]);
+
+  server.expose.authAccounts['paid-aud-1'] = { email: 'aud_paid1@example.com', phone: '+919876543301' };
+  server.expose.entitlements['paid-aud-1'] = { paid: true, paidAt: '2026-09-20T10:00:00Z' };
+
+  server.expose.authAccounts['paid-aud-2'] = { email: 'aud_paid2@example.com', phone: '+919876543302' };
+  server.expose.entitlements['paid-aud-2'] = { paid: true, paidAt: '2026-09-21T10:00:00Z' };
+
+  server.expose.visitors['vis_anon_aud1'] = {
+    visitorId: 'vis_anon_aud1',
+    firstSeen: '2026-09-24T10:00:00Z',
+    lastSeen: '2026-09-26T08:00:00Z',
+    visitCount: 4,
+    status: 'returning',
+    uid: null,
+  };
+  server.expose.visitors['vis_anon_aud2'] = {
+    visitorId: 'vis_anon_aud2',
+    firstSeen: '2026-09-26T08:00:00Z',
+    lastSeen: '2026-09-26T08:00:00Z',
+    visitCount: 1,
+    status: 'new',
+    uid: null,
+  };
+
+  try {
+    const res = await fetch(`${BASE}/api/admin/users`, {
+      headers: { Authorization: mockAuth(OWNER_UID) },
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+
+    assert.equal(data.total, 4, 'Total must equal 4');
+    assert.equal(data.paidCount, 2, 'Paid count must equal 2');
+    assert.equal(data.registeredFreeCount, 0, 'Registered free count must equal 0');
+    assert.equal(data.anonymousCount, 2, 'Anonymous visitors count must equal 2');
+
+    const anonUser1 = data.users.find(u => u.visitorId === 'vis_anon_aud1');
+    assert.ok(anonUser1, 'Anonymous visitor 1 must exist in returned list');
+    assert.equal(anonUser1.isAnonymous, true, 'isAnonymous must be true');
+    assert.equal(anonUser1.paid, false, 'paid must be false');
+    assert.equal(anonUser1.visitCount, 4, 'visitCount must match');
+    assert.equal(anonUser1.visitorStatus, 'returning', 'status must match');
+    assert.equal(anonUser1.firstSeen, '2026-09-24T10:00:00Z');
+    assert.equal(anonUser1.lastSeen, '2026-09-26T08:00:00Z');
+
+    const paidUser1 = data.users.find(u => u.uid === 'paid-aud-1');
+    assert.ok(paidUser1, 'Paid user 1 must exist in returned list');
+    assert.equal(paidUser1.isAnonymous, false, 'isAnonymous must be false');
+    assert.equal(paidUser1.paid, true, 'paid must be true');
+    assert.equal(paidUser1.visitorStatus, 'paid', 'visitorStatus must be paid');
+  } finally {
+    Object.keys(server.expose.entitlements).forEach(k => delete server.expose.entitlements[k]);
+    Object.keys(server.expose.authAccounts).forEach(k => delete server.expose.authAccounts[k]);
+    Object.keys(server.expose.visitors).forEach(k => delete server.expose.visitors[k]);
+    Object.assign(server.expose.entitlements, savedEntitlements);
+    Object.assign(server.expose.authAccounts, savedAuthAccounts);
+    Object.assign(server.expose.visitors, savedVisitors);
+  }
+});
+
+await test('Visitor tracking: Privacy review — Zero IP, device fingerprinting, or location tracking in code, storage, or APIs', async () => {
+  const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
+  assert.ok(!workerSrc.includes('cf-connecting-ip'), 'No IP address tracking in worker.js');
+  assert.ok(!workerSrc.includes('x-forwarded-for'), 'No x-forwarded-for tracking in worker.js');
+  assert.ok(!workerSrc.includes('user-agent'), 'No user-agent tracking in worker.js');
+  assert.ok(!workerSrc.includes('geolocation'), 'No geolocation tracking in worker.js');
+
+  const storeSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/store.js'), 'utf8');
+  assert.ok(!storeSrc.includes('canvas'), 'No canvas fingerprinting in store.js');
+  assert.ok(!storeSrc.includes('screen.width'), 'No screen fingerprinting in store.js');
+  assert.ok(!storeSrc.includes('navigator.userAgent'), 'No user agent tracking in store.js');
+
+  const adminSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/admin.js'), 'utf8');
+  assert.ok(!adminSrc.includes('cf-connecting-ip'), 'No IP in admin.js');
+});
+
+await test('Visitor tracking: Offline-first resilience — pingVisit handles network failure silently', async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('Network failure (offline)'); };
+  try {
+    let threw = false;
+    try {
+      await pingVisit();
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, 'pingVisit must catch network errors silently and never throw');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+await test("Visitor tracking: Playwright verification of Who's Using Abacus in Owner Console with visual screenshot", async () => {
+  const savedEntitlements = { ...server.expose.entitlements };
+  const savedAuthAccounts = { ...server.expose.authAccounts };
+  const savedVisitors = { ...server.expose.visitors };
+
+  Object.keys(server.expose.entitlements).forEach(k => delete server.expose.entitlements[k]);
+  Object.keys(server.expose.authAccounts).forEach(k => delete server.expose.authAccounts[k]);
+  Object.keys(server.expose.visitors).forEach(k => delete server.expose.visitors[k]);
+
+  server.expose.authAccounts['paid-ui-1'] = { email: 'founder@example.com', phone: '+919876500001' };
+  server.expose.entitlements['paid-ui-1'] = { paid: true, paidAt: '2026-09-20T10:00:00Z', email: 'founder@example.com' };
+
+  server.expose.authAccounts['paid-ui-2'] = { email: 'parent@example.com', phone: '+919876500002' };
+  server.expose.entitlements['paid-ui-2'] = { paid: true, paidAt: '2026-09-22T14:30:00Z', email: 'parent@example.com' };
+
+  server.expose.visitors['vis_anon_alpha123'] = {
+    visitorId: 'vis_anon_alpha123',
+    firstSeen: '2026-09-24T08:00:00Z',
+    lastSeen: '2026-09-26T07:30:00Z',
+    visitCount: 5,
+    status: 'returning',
+    uid: null,
+  };
+  server.expose.visitors['vis_anon_beta456'] = {
+    visitorId: 'vis_anon_beta456',
+    firstSeen: '2026-09-26T06:15:00Z',
+    lastSeen: '2026-09-26T06:15:00Z',
+    visitCount: 1,
+    status: 'new',
+    uid: null,
+  };
+  server.expose.visitors['vis_anon_gamma789'] = {
+    visitorId: 'vis_anon_gamma789',
+    firstSeen: '2026-09-25T11:00:00Z',
+    lastSeen: '2026-09-26T08:00:00Z',
+    visitCount: 3,
+    status: 'active',
+    uid: null,
+  };
+
+  const { ctx, p } = await newPage({ width: 800, height: 900 });
+  try {
+    await p.addInitScript((ownerId) => {
+      window.__mockUser = { uid: ownerId, email: 'owner@example.com', getIdToken: async () => `mock-uid:${ownerId}` };
+    }, OWNER_UID);
+
+    await p.goto(`${BASE}/owner.html`);
+    await p.waitForSelector('#admin-users-section', { timeout: 8000 });
+
+    await p.click('#loadUsers');
+    await p.waitForSelector('.admin-stats-grid', { timeout: 8000 });
+
+    const statCards = await p.$$('.admin-stat-card');
+    assert.equal(statCards.length, 4, 'Must render 4 stat cards (Total, Paid, Reg Free, Anon Free)');
+
+    const totalText = await p.$eval('.admin-stat-card:nth-child(1) .admin-stat-num', el => el.textContent.trim());
+    assert.equal(totalText, '5', 'Total people must be 5');
+
+    const paidText = await p.$eval('.admin-stat-card:nth-child(2) .admin-stat-num', el => el.textContent.trim());
+    assert.equal(paidText, '2', 'Paid count must be 2');
+
+    const regFreeText = await p.$eval('.admin-stat-card:nth-child(3) .admin-stat-num', el => el.textContent.trim());
+    assert.equal(regFreeText, '0', 'Registered free count must be 0');
+
+    const anonText = await p.$eval('.admin-stat-card:nth-child(4) .admin-stat-num', el => el.textContent.trim());
+    assert.equal(anonText, '3', 'Anonymous count must be 3');
+
+    const userCards = await p.$$('.admin-user-card');
+    assert.equal(userCards.length, 5, 'Must render all 5 user & visitor cards');
+
+    const paidBadges = await p.$$('.badge-paid');
+    assert.equal(paidBadges.length, 2, 'Must render 2 Paid badges');
+
+    const anonBadges = await p.$$('.badge-visitor');
+    assert.equal(anonBadges.length, 3, 'Must render 3 Anonymous Free badges');
+
+    const cardContent = await p.$eval('.admin-users-list', el => el.textContent);
+    assert.ok(cardContent.includes('First seen:'), 'Card details must show First seen');
+    assert.ok(cardContent.includes('Last seen:'), 'Card details must show Last seen');
+    assert.ok(cardContent.includes('Visits:'), 'Card details must show Visits count');
+
+    await p.selectOption('#adminUserFilter', 'anonymous');
+    const filteredAnon = await p.$$('.admin-user-card');
+    assert.equal(filteredAnon.length, 3, 'Filtered to anonymous must show exactly 3 cards');
+
+    await p.selectOption('#adminUserFilter', 'paid');
+    const filteredPaid = await p.$$('.admin-user-card');
+    assert.equal(filteredPaid.length, 2, 'Filtered to paid must show exactly 2 cards');
+
+    await p.selectOption('#adminUserFilter', 'all');
+
+    // Take screenshot of Owner Console
+    const screenshotPath = path.join(ROOT_DIR, 'owner-console-whos-using-abacus.png');
+    await p.screenshot({ path: screenshotPath, fullPage: true });
+    assert.ok(fs.existsSync(screenshotPath), 'Owner Console screenshot must exist');
+    const stats = fs.statSync(screenshotPath);
+    assert.ok(stats.size > 10000, `Screenshot size must be valid: ${stats.size} bytes`);
+
+    const brainArtifactDir = '/home/ec2-user/.gemini/antigravity-cli/brain/e925350f-8f47-4710-840d-9befcf749622';
+    if (fs.existsSync(brainArtifactDir)) {
+      fs.copyFileSync(screenshotPath, path.join(brainArtifactDir, 'owner-console-whos-using-abacus.png'));
+    }
+  } finally {
+    Object.keys(server.expose.entitlements).forEach(k => delete server.expose.entitlements[k]);
+    Object.keys(server.expose.authAccounts).forEach(k => delete server.expose.authAccounts[k]);
+    Object.keys(server.expose.visitors).forEach(k => delete server.expose.visitors[k]);
+    Object.assign(server.expose.entitlements, savedEntitlements);
+    Object.assign(server.expose.authAccounts, savedAuthAccounts);
+    Object.assign(server.expose.visitors, savedVisitors);
     await ctx.close();
   }
 });

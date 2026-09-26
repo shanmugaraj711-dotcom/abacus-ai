@@ -1,5 +1,5 @@
 import { LEVELS, MAX_LEVEL, makeSession, planMoves, starsFor, sign, problemPool } from './engine.js';
-import { state, save, saveNow, markDay, streak, totalStars, recordAnswer, recordMistake, resetAll } from './store.js';
+import { state, save, saveNow, markDay, streak, totalStars, recordAnswer, recordMistake, resetAll, pingVisit } from './store.js';
 import { sfx, hasVoice, stopTalking } from './sound.js';
 import { t } from './i18n.js';
 import { createAbacus } from './abacusView.js';
@@ -69,6 +69,7 @@ function unlock() {
           const cred = await signInWithGoogle();
           if (cred?.user) {
             e.preventDefault();
+            pingVisit(cred.user.uid).catch(() => {});
             unlock();
             return;
           }
@@ -736,6 +737,7 @@ function route() {
 window.addEventListener('hashchange', route);
 setRouter(route);
 // Read config.json (feature switches) first, then show the first screen.
+pingVisit().catch(() => {});
 loadConfig().then(async () => { await refreshEntitlement(); route(); }, route);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.__NO_SW__) {

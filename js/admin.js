@@ -233,7 +233,7 @@ function renderConsole({ user, token, offline }) {
 
     <section class="card" id="admin-users-section">
       <p class="eyebrow">Who's using Abacus</p>
-      <p class="muted tiny">Firebase Auth is the source of truth for every user. No IP, device, browser or location tracking is collected.</p>
+      <p class="muted tiny">Firebase Auth accounts and anonymous free visitors. No IP, device, browser or location tracking is collected.</p>
       ${offline ? '<p class="muted tiny">⚠️ Offline — cannot load users.</p>' : `
       <div id="ownerStats" class="owner-stats"></div>
       <div class="owner-search-row"><input type="search" id="ownerSearch" placeholder="Search users…" aria-label="Search users"></div>
@@ -244,15 +244,14 @@ function renderConsole({ user, token, offline }) {
         <button type="button" class="chip filter" data-filter="dup">Possible Duplicates</button>
       </div>
       <div id="ownerUserList" class="user-list"><p class="muted tiny">Loading users…</p></div>
-      <details class="owner-advanced">
-        <summary>Advanced / raw data</summary>
-        <div class="row">
-          <button class="btn small" id="loadPayments">💳 Payments (raw)</button>
-          <button class="btn small" id="loadEntitlements">🔑 Entitlements (raw)</button>
-          <button class="btn small" id="loadAudit">📋 Audit Log (raw)</button>
-        </div>
-        <div id="adminDataOut" class="admin-data-out"><p class="muted tiny">No data loaded yet.</p></div>
-      </details>`}
+      <div class="row" style="margin-top:14px;">
+        <button class="btn" id="loadUsers">👥 Who's Using Abacus (Detailed)</button>
+        <button class="btn" id="loadPayments">💳 Payments</button>
+        <button class="btn" id="loadEntitlements">🔑 Entitlements</button>
+        <button class="btn" id="loadAudit">📋 Audit Log</button>
+      </div>
+      <div id="adminDataOut" class="admin-data-out"><p class="muted tiny">Tap a button above to load records.</p></div>
+      `}
     </section>` });
 
   const touch = msg => { const m = $('#cfgMsg'); if (m) m.textContent = msg; const j = $('#cfgJson'); if (j) j.value = exportJson(); };
@@ -325,6 +324,165 @@ function renderConsole({ user, token, offline }) {
     showAuthGate('not-signed-in');
   };
 
+  function formatDuplicateReason(reasons) {
+    if (!Array.isArray(reasons) || !reasons.length) return '';
+    const hasPhone = reasons.includes('phone');
+    const hasEmail = reasons.includes('email');
+    if (hasPhone && hasEmail) return 'Email + phone match';
+    if (hasPhone) return 'Phone match';
+    if (hasEmail) return 'Email match';
+    return reasons.join(', ');
+  }
+
+  function formatDateTime(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return String(iso);
+    }
+  }
+
+  function renderUsersView(data, out) {
+    const allUsers = data.users || [];
+    const total = data.total ?? allUsers.length;
+    const paidCount = data.paidCount ?? allUsers.filter(u => u.paid).length;
+    const registeredFreeCount = data.registeredFreeCount ?? allUsers.filter(u => !u.isAnonymous && !u.paid).length;
+    const anonymousCount = data.anonymousCount ?? allUsers.filter(u => u.isAnonymous).length;
+    const possibleDuplicateCount = data.possibleDuplicateCount ?? allUsers.filter(u => u.possibleDuplicate).length;
+
+    let filter = 'all'; // 'all' | 'paid' | 'registered' | 'anonymous' | 'duplicates'
+    let query = '';
+
+    function redraw() {
+      const q = query.trim().toLowerCase();
+      const filtered = allUsers.filter(u => {
+        if (filter === 'paid' && !u.paid) return false;
+        if (filter === 'registered' && (u.isAnonymous || u.paid)) return false;
+        if (filter === 'anonymous' && !u.isAnonymous) return false;
+        if (filter === 'duplicates' && !u.possibleDuplicate) return false;
+        if (!q) return true;
+        const haystack = `${u.email || ''} ${u.phone || ''} ${u.uid || ''} ${u.visitorId || ''} ${u.visitorStatus || ''}`.toLowerCase();
+        return haystack.includes(q);
+      });
+
+      out.innerHTML = `
+        <div class="admin-users-mgmt">
+          <div class="admin-notice">
+            ℹ️ <b>Who's Using Abacus:</b> Real-time visibility into all learners using Abacus Buddy, including anonymous free visitors who never sign in, registered free accounts, and ₹499 paid accounts. Privacy-first: no IP, no device fingerprinting, no location tracking.
+          </div>
+
+          <div class="admin-stats-grid">
+            <div class="admin-stat-card">
+              <span class="admin-stat-num">${total}</span>
+              <span class="admin-stat-label">Total People</span>
+            </div>
+            <div class="admin-stat-card stat-paid">
+              <span class="admin-stat-num">${paidCount}</span>
+              <span class="admin-stat-label">Paid (₹499)</span>
+            </div>
+            <div class="admin-stat-card stat-reg-free">
+              <span class="admin-stat-num">${registeredFreeCount}</span>
+              <span class="admin-stat-label">Registered Free</span>
+            </div>
+            <div class="admin-stat-card stat-anon">
+              <span class="admin-stat-num">${anonymousCount}</span>
+              <span class="admin-stat-label">Anonymous Free</span>
+            </div>
+          </div>
+
+          <div class="admin-filter-bar">
+            <label class="admin-filter-label">
+              <span>Filter:</span>
+              <select id="adminUserFilter" class="admin-select">
+                <option value="all"${filter === 'all' ? ' selected' : ''}>All users (${allUsers.length})</option>
+                <option value="paid"${filter === 'paid' ? ' selected' : ''}>Paid users (${paidCount})</option>
+                <option value="registered"${filter === 'registered' ? ' selected' : ''}>Registered free (${registeredFreeCount})</option>
+                <option value="anonymous"${filter === 'anonymous' ? ' selected' : ''}>Anonymous visitors (${anonymousCount})</option>
+                <option value="duplicates"${filter === 'duplicates' ? ' selected' : ''}>Possible duplicates (${possibleDuplicateCount})</option>
+              </select>
+            </label>
+            <input id="adminUserSearch" class="admin-search-input" placeholder="Search email, phone, UID or visitor ID..." value="${esc(query)}">
+          </div>
+
+          <div class="admin-users-list">
+            ${filtered.length === 0 ? `
+              <div class="admin-empty-state">
+                <p class="muted center">No ${filter === 'duplicates' ? 'possible duplicate ' : (filter !== 'all' ? filter + ' ' : '')}learners found.</p>
+              </div>
+            ` : filtered.map(u => {
+              const reason = formatDuplicateReason(u.duplicateReasons);
+              const isAnon = !!u.isAnonymous;
+              const displayName = isAnon ? '👤 Anonymous Visitor' : (u.email || u.phone || u.uid);
+              const subId = isAnon ? `Visitor ID: ${u.visitorId || u.uid}` : `UID: ${u.uid}`;
+              const status = u.visitorStatus || (isAnon ? 'New visitor' : (u.paid ? 'Paid learner' : 'Registered'));
+
+              return `
+                <div class="admin-user-card${u.possibleDuplicate ? ' duplicate-flagged' : ''}${isAnon ? ' visitor-card' : ''}">
+                  <div class="admin-user-header">
+                    <div class="admin-user-identity">
+                      <b class="admin-user-name">${esc(displayName)}</b>
+                      <span class="admin-user-uid"><code>${esc(subId)}</code></span>
+                    </div>
+                    <div class="admin-user-badges">
+                      ${u.possibleDuplicate ? `
+                        <span class="badge-duplicate" title="Potential duplicate detected server-side">
+                          ⚠️ Possible duplicate
+                          <small class="badge-reason">${esc(reason)}</small>
+                        </span>
+                      ` : ''}
+                      ${u.paid
+                        ? `<span class="badge-paid">Paid (₹499)</span>`
+                        : (isAnon
+                          ? `<span class="badge-visitor">Anonymous Free (1–3)</span>`
+                          : `<span class="badge-registered-free">Registered Free (1–3)</span>`)}
+                      <span class="badge-status status-${esc(String(status).toLowerCase().replace(/\s+/g, '-'))}">${esc(status)}</span>
+                    </div>
+                  </div>
+                  <div class="admin-user-details">
+                    ${!isAnon && u.phone ? `<span class="admin-user-field">📞 ${esc(u.phone)}</span>` : ''}
+                    ${!isAnon && u.email && u.phone ? `<span class="admin-user-field">✉️ ${esc(u.email)}</span>` : ''}
+                    ${!isAnon && u.provider ? `<span class="admin-user-field">🔑 ${esc(ownerProviderLabel(u.provider))}</span>` : ''}
+                    <span class="admin-user-field" title="First seen timestamp">🕒 First seen: ${esc(formatDateTime(u.firstSeen))}</span>
+                    <span class="admin-user-field" title="Last seen timestamp">⏱️ Last seen: ${esc(formatDateTime(u.lastSeen))}</span>
+                    ${!isAnon && u.lastLoginAt ? `<span class="admin-user-field" title="Last login timestamp">🚪 Last login: ${esc(fmtDate(u.lastLoginAt, true))}</span>` : ''}
+                    <span class="admin-user-field" title="Total visit count">🔄 Visits: <b>${u.visitCount || 1}</b></span>
+                    ${u.paidAt ? `<span class="admin-user-field muted">💳 Paid: ${new Date(u.paidAt).toLocaleDateString()}</span>` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <details class="admin-raw-details">
+            <summary class="muted tiny">View raw JSON</summary>
+            <pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>
+          </details>
+        </div>
+      `;
+
+      const filterSelect = $('#adminUserFilter');
+      if (filterSelect) {
+        filterSelect.onchange = e => {
+          filter = e.target.value;
+          redraw();
+        };
+      }
+
+      const searchInput = $('#adminUserSearch');
+      if (searchInput) {
+        searchInput.oninput = e => {
+          query = e.target.value;
+          redraw();
+        };
+      }
+    }
+
+    redraw();
+  }
+
   // Admin data loaders (require network + owner token)
   async function adminFetch(endpoint, label) {
     const out = $('#adminDataOut');
@@ -336,13 +494,18 @@ function renderConsole({ user, token, offline }) {
       const res = await fetch(`/api/admin/${endpoint}`, { headers: { Authorization: `Bearer ${freshToken}` } });
       const data = await res.json();
       if (!res.ok) { out.innerHTML = `<p class="muted tiny">Error: ${esc(data.error || 'Unknown error')}</p>`; return; }
-      out.innerHTML = `<pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>`;
+      if (endpoint === 'users') {
+        renderUsersView(data, out);
+      } else {
+        out.innerHTML = `<pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>`;
+      }
     } catch (e) {
       out.innerHTML = `<p class="muted tiny">Failed: ${esc(e.message)}</p>`;
     }
   }
 
   if (!offline) {
+    $('#loadUsers')?.addEventListener('click', () => adminFetch('users', 'users'));
     $('#loadPayments')?.addEventListener('click', () => adminFetch('payments', 'payments'));
     $('#loadEntitlements')?.addEventListener('click', () => adminFetch('entitlements', 'entitlements'));
     $('#loadAudit')?.addEventListener('click', () => adminFetch('audit-log', 'audit log'));

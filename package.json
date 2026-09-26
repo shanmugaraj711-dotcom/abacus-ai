@@ -5,8 +5,9 @@
   "scripts": {
     "test:engine": "node tests/engine.test.mjs",
     "test:owner": "node tests/owner-control-center.test.mjs",
-    "test:all": "node tests/engine.test.mjs && node tests/owner-control-center.test.mjs",
-    "syntax": "node --check js/app.js js/admin.js js/config.js js/payments.js js/engine.js js/store.js worker.js"
+    "test:all": "node tests/engine.test.mjs && node tests/owner-control-center.test.mjs && node tests/sound.test.mjs",
+    "syntax": "node --check js/app.js js/admin.js js/config.js js/payments.js js/engine.js js/store.js worker.js",
+    "test:sound": "node tests/sound.test.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0"
