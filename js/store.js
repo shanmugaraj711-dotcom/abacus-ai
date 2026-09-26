@@ -91,3 +91,36 @@ try {
   addEventListener('pagehide', saveNow);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveNow(); });
 } catch {}
+
+// ── Anonymous visitor tracking (privacy-first, no IP/fingerprinting/location) ──
+const VISITOR_KEY = 'abacus-visitor-id';
+
+export function getVisitorId() {
+  let id = null;
+  try {
+    id = localStorage.getItem(VISITOR_KEY);
+    if (!id || typeof id !== 'string' || !/^[a-zA-Z0-9_\-]{8,64}$/.test(id)) {
+      const randPart = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID().replace(/-/g, '')
+        : (Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+      id = 'vis_' + randPart;
+      localStorage.setItem(VISITOR_KEY, id);
+    }
+  } catch {
+    id = 'vis_ephemeral_' + Math.random().toString(36).slice(2, 10);
+  }
+  return id;
+}
+
+export async function pingVisit(uid = null) {
+  try {
+    const visitorId = getVisitorId();
+    await fetch('/api/visit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visitorId, ...(uid ? { uid: String(uid) } : {}) }),
+    });
+  } catch {
+    // Offline or network error: fail silently, zero user impact
+  }
+}

@@ -355,6 +355,52 @@ async function main(req,env){
     return json({paid:!!ent,uid:user.uid,paidAt:ent?.paidAt||null});
   }
 
+  // ── /api/visit (anonymous visitor tracking; no IP/fingerprinting/location) ─
+  if(path==="/api/visit"&&req.method==="POST"){
+    let b;
+    try{b=await req.json();}catch{return json({error:"Invalid JSON"},400);}
+    const visitorId=String(b?.visitorId||"").trim();
+    if(!visitorId||!/^[a-zA-Z0-9_\-]{8,64}$/.test(visitorId)){
+      return json({error:"Invalid visitorId"},400);
+    }
+    const uid=b.uid?String(b.uid).trim():null;
+    const now=new Date().toISOString();
+    let existing=null;
+    try{existing=await firestoreGet(env,"visitors",visitorId);}catch{}
+
+    let firstSeen=now;
+    let visitCount=1;
+    let status="new";
+    let linkedUid=uid;
+
+    if(existing?.fields){
+      const f=existing.fields;
+      firstSeen=fsVal(f.firstSeen)||now;
+      const prevLastSeen=fsVal(f.lastSeen)||firstSeen;
+      const prevCount=fsVal(f.visitCount)||1;
+      const elapsed=Date.now()-new Date(prevLastSeen).getTime();
+      const shouldIncrement=isNaN(elapsed)||elapsed>30*60*1000;
+      visitCount=shouldIncrement?prevCount+1:prevCount;
+      status=visitCount>1?"returning":"new";
+      linkedUid=uid||fsVal(f.uid)||null;
+    }
+
+    const fields={
+      visitorId:fsField(visitorId),
+      firstSeen:fsField(firstSeen),
+      lastSeen:fsField(now),
+      visitCount:fsField(visitCount),
+      status:fsField(status),
+      ...(linkedUid?{uid:fsField(linkedUid)}:{}),
+    };
+    try{
+      await firestorePatch(env,"visitors",visitorId,fields);
+    }catch(err){
+      console.warn("[visit] firestore write failed:",err?.message||err);
+    }
+    return json({ok:true,visitorId,visitCount,status,firstSeen,lastSeen:now});
+  }
+
   // ── /api/razorpay-webhook ────────────────────────────────────────────────────
   if(path==="/api/razorpay-webhook"&&req.method==="POST"){
     const raw=await req.text(), got=String(req.headers.get("x-razorpay-signature")||"").trim().toLowerCase();
@@ -439,14 +485,85 @@ async function main(req,env){
         }
       }
 
+      // 3. Fetch anonymous visitors from Firestore
+      let visitorDocs = [];
+      try { visitorDocs = await firestoreList(env, "visitors", 500); } catch(e) {}
+
+      const visitorByUid = {};
+      const anonymousVisitors = [];
+
+      for (const d of visitorDocs) {
+        const f = d.fields || {};
+        const vid = fsVal(f.visitorId) || d.name.split("/").pop();
+        if (!vid) continue;
+        const vUid = fsVal(f.uid) || null;
+        const vData = {
+          visitorId: vid,
+          firstSeen: fsVal(f.firstSeen) || null,
+          lastSeen: fsVal(f.lastSeen) || null,
+          visitCount: fsVal(f.visitCount) || 1,
+          status: fsVal(f.status) || "active",
+          uid: vUid,
+        };
+        if (vUid) {
+          visitorByUid[vUid] = vData;
+        } else {
+          anonymousVisitors.push(vData);
+        }
+      }
+
+      // Enrich registered users with visitor metadata
+      for (const [uid, u] of Object.entries(userMap)) {
+        const v = visitorByUid[uid];
+        u.isAnonymous = false;
+        u.visitorId = v?.visitorId || null;
+        u.firstSeen = v?.firstSeen || u.paidAt || null;
+        u.lastSeen = v?.lastSeen || u.paidAt || null;
+        u.visitCount = v?.visitCount || 1;
+        u.visitorStatus = u.paid ? "paid" : "registered";
+      }
+
+      // Add anonymous visitors to population
+      for (const av of anonymousVisitors) {
+        if (av.uid && userMap[av.uid]) continue;
+        const anonKey = `anon_${av.visitorId}`;
+        userMap[anonKey] = {
+          uid: anonKey,
+          visitorId: av.visitorId,
+          email: "",
+          phone: "",
+          paid: false,
+          paidAt: null,
+          firstSeen: av.firstSeen,
+          lastSeen: av.lastSeen,
+          visitCount: av.visitCount || 1,
+          visitorStatus: av.status || "anonymous",
+          isAnonymous: true,
+        };
+      }
+
       const mergedUsers = Object.values(userMap);
       const users = detectDuplicates(mergedUsers);
+      users.sort((a, b) => {
+        const bTime = b.lastSeen || b.paidAt || b.firstSeen || "";
+        const aTime = a.lastSeen || a.paidAt || a.firstSeen || "";
+        return bTime.localeCompare(aTime);
+      });
+
+      const total = users.length;
+      const paidCount = users.filter(u => u.paid).length;
+      const registeredFreeCount = users.filter(u => !u.isAnonymous && !u.paid).length;
+      const anonymousCount = users.filter(u => u.isAnonymous).length;
       const possibleDuplicateCount = users.filter(u => u.possibleDuplicate).length;
+
       return json({
         users,
-        total: users.length,
+        total,
+        paidCount,
+        registeredFreeCount,
+        anonymousCount,
         possibleDuplicateCount,
-        note: "Lists Firebase Auth users joined with payment entitlements. Duplicate detection is for manual review only.",
+        note: "Lists registered users and anonymous visitors with first-seen, last-seen, visit counts, and visitor status.",
       });
     }
 

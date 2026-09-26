@@ -205,10 +205,10 @@ function renderConsole({ user, token, offline }) {
     </section>
 
     <section class="card" id="admin-users-section">
-      <p class="eyebrow">Users & Payments</p>
-      <p class="muted tiny">Only users who made a payment attempt are recorded — free-tier visitors are not tracked (by design, to minimise data collection).</p>
+      <p class="eyebrow">Who's Using Abacus</p>
+      <p class="muted tiny">All people using Abacus Buddy: registered/paid learners and anonymous free visitors. No IP or invasive tracking.</p>
       <div class="row">
-        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadUsers">👤 Users</button>
+        <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadUsers">👥 Who's Using Abacus</button>
         <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadPayments">💳 Payments</button>
         <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadEntitlements">🔑 Entitlements</button>
         <button class="btn${offline ? ' disabled" disabled' : '"'} id="loadAudit">📋 Audit Log</button>
@@ -296,25 +296,63 @@ function renderConsole({ user, token, offline }) {
     return reasons.join(', ');
   }
 
+  function formatDateTime(iso) {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return String(iso);
+    }
+  }
+
   function renderUsersView(data, out) {
     const allUsers = data.users || [];
+    const total = data.total ?? allUsers.length;
+    const paidCount = data.paidCount ?? allUsers.filter(u => u.paid).length;
+    const registeredFreeCount = data.registeredFreeCount ?? allUsers.filter(u => !u.isAnonymous && !u.paid).length;
+    const anonymousCount = data.anonymousCount ?? allUsers.filter(u => u.isAnonymous).length;
     const possibleDuplicateCount = data.possibleDuplicateCount ?? allUsers.filter(u => u.possibleDuplicate).length;
-    let filter = 'all'; // 'all' | 'duplicates'
+
+    let filter = 'all'; // 'all' | 'paid' | 'registered' | 'anonymous' | 'duplicates'
     let query = '';
 
     function redraw() {
       const q = query.trim().toLowerCase();
       const filtered = allUsers.filter(u => {
+        if (filter === 'paid' && !u.paid) return false;
+        if (filter === 'registered' && (u.isAnonymous || u.paid)) return false;
+        if (filter === 'anonymous' && !u.isAnonymous) return false;
         if (filter === 'duplicates' && !u.possibleDuplicate) return false;
         if (!q) return true;
-        const haystack = `${u.email || ''} ${u.phone || ''} ${u.uid || ''}`.toLowerCase();
+        const haystack = `${u.email || ''} ${u.phone || ''} ${u.uid || ''} ${u.visitorId || ''} ${u.visitorStatus || ''}`.toLowerCase();
         return haystack.includes(q);
       });
 
       out.innerHTML = `
         <div class="admin-users-mgmt">
           <div class="admin-notice">
-            ℹ️ <b>Manual review only:</b> Duplicate flags are purely informational for founder review based on shared phone or email. Never used for automated account restriction, suspension, or blocking.
+            ℹ️ <b>Who's Using Abacus:</b> Real-time visibility into all learners using Abacus Buddy, including anonymous free visitors who never sign in, registered free accounts, and ₹499 paid accounts. Privacy-first: no IP, no device fingerprinting, no location tracking.
+          </div>
+
+          <div class="admin-stats-grid">
+            <div class="admin-stat-card">
+              <span class="admin-stat-num">${total}</span>
+              <span class="admin-stat-label">Total People</span>
+            </div>
+            <div class="admin-stat-card stat-paid">
+              <span class="admin-stat-num">${paidCount}</span>
+              <span class="admin-stat-label">Paid (₹499)</span>
+            </div>
+            <div class="admin-stat-card stat-reg-free">
+              <span class="admin-stat-num">${registeredFreeCount}</span>
+              <span class="admin-stat-label">Registered Free</span>
+            </div>
+            <div class="admin-stat-card stat-anon">
+              <span class="admin-stat-num">${anonymousCount}</span>
+              <span class="admin-stat-label">Anonymous Free</span>
+            </div>
           </div>
 
           <div class="admin-filter-bar">
@@ -322,25 +360,33 @@ function renderConsole({ user, token, offline }) {
               <span>Filter:</span>
               <select id="adminUserFilter" class="admin-select">
                 <option value="all"${filter === 'all' ? ' selected' : ''}>All users (${allUsers.length})</option>
+                <option value="paid"${filter === 'paid' ? ' selected' : ''}>Paid users (${paidCount})</option>
+                <option value="registered"${filter === 'registered' ? ' selected' : ''}>Registered free (${registeredFreeCount})</option>
+                <option value="anonymous"${filter === 'anonymous' ? ' selected' : ''}>Anonymous visitors (${anonymousCount})</option>
                 <option value="duplicates"${filter === 'duplicates' ? ' selected' : ''}>Possible duplicates (${possibleDuplicateCount})</option>
               </select>
             </label>
-            <input id="adminUserSearch" class="admin-search-input" placeholder="Search email, phone or UID..." value="${esc(query)}">
+            <input id="adminUserSearch" class="admin-search-input" placeholder="Search email, phone, UID or visitor ID..." value="${esc(query)}">
           </div>
 
           <div class="admin-users-list">
             ${filtered.length === 0 ? `
               <div class="admin-empty-state">
-                <p class="muted center">No ${filter === 'duplicates' ? 'possible duplicate ' : ''}users found.</p>
+                <p class="muted center">No ${filter === 'duplicates' ? 'possible duplicate ' : (filter !== 'all' ? filter + ' ' : '')}learners found.</p>
               </div>
             ` : filtered.map(u => {
               const reason = formatDuplicateReason(u.duplicateReasons);
+              const isAnon = !!u.isAnonymous;
+              const displayName = isAnon ? '👤 Anonymous Visitor' : (u.email || u.phone || u.uid);
+              const subId = isAnon ? `Visitor ID: ${u.visitorId || u.uid}` : `UID: ${u.uid}`;
+              const status = u.visitorStatus || (isAnon ? 'New visitor' : (u.paid ? 'Paid learner' : 'Registered'));
+
               return `
-                <div class="admin-user-card${u.possibleDuplicate ? ' duplicate-flagged' : ''}">
+                <div class="admin-user-card${u.possibleDuplicate ? ' duplicate-flagged' : ''}${isAnon ? ' visitor-card' : ''}">
                   <div class="admin-user-header">
                     <div class="admin-user-identity">
-                      <b class="admin-user-name">${esc(u.email || u.uid)}</b>
-                      <span class="admin-user-uid"><code>${esc(u.uid)}</code></span>
+                      <b class="admin-user-name">${esc(displayName)}</b>
+                      <span class="admin-user-uid"><code>${esc(subId)}</code></span>
                     </div>
                     <div class="admin-user-badges">
                       ${u.possibleDuplicate ? `
@@ -349,12 +395,21 @@ function renderConsole({ user, token, offline }) {
                           <small class="badge-reason">${esc(reason)}</small>
                         </span>
                       ` : ''}
-                      ${u.paid ? `<span class="badge-paid">Paid (₹499)</span>` : `<span class="badge-free">Free (1–3)</span>`}
+                      ${u.paid
+                        ? `<span class="badge-paid">Paid (₹499)</span>`
+                        : (isAnon
+                          ? `<span class="badge-visitor">Anonymous Free (1–3)</span>`
+                          : `<span class="badge-registered-free">Registered Free (1–3)</span>`)}
+                      <span class="badge-status status-${esc(String(status).toLowerCase().replace(/\s+/g, '-'))}">${esc(status)}</span>
                     </div>
                   </div>
                   <div class="admin-user-details">
-                    <span class="admin-user-field">📞 ${esc(u.phone || 'No phone')}</span>
-                    ${u.paidAt ? `<span class="admin-user-field muted">Paid: ${new Date(u.paidAt).toLocaleDateString()}</span>` : ''}
+                    ${!isAnon && u.phone ? `<span class="admin-user-field">📞 ${esc(u.phone)}</span>` : ''}
+                    ${!isAnon && u.email && u.phone ? `<span class="admin-user-field">✉️ ${esc(u.email)}</span>` : ''}
+                    <span class="admin-user-field" title="First seen timestamp">🕒 First seen: ${esc(formatDateTime(u.firstSeen))}</span>
+                    <span class="admin-user-field" title="Last seen timestamp">⏱️ Last seen: ${esc(formatDateTime(u.lastSeen))}</span>
+                    <span class="admin-user-field" title="Total visit count">🔄 Visits: <b>${u.visitCount || 1}</b></span>
+                    ${u.paidAt ? `<span class="admin-user-field muted">💳 Paid: ${new Date(u.paidAt).toLocaleDateString()}</span>` : ''}
                   </div>
                 </div>
               `;

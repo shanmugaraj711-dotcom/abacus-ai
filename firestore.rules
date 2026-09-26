@@ -37,6 +37,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── visitors/{visitorId} ─────────────────────────────────────────────────
+    // Anonymous visitor tracking records. Written/read only by Worker.
+    match /visitors/{visitorId} {
+      allow read, write: if false;
+    }
+
     // ── Deny everything else ─────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
