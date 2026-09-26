@@ -524,7 +524,8 @@ let _ownerExpandedUid = null;
 
 function fmtDate(value, epochMs = false) {
   if (!value) return 'Not available';
-  const d = epochMs ? new Date(Number(value)) : new Date(value);
+  let d = epochMs ? new Date(Number(value)) : new Date(value);
+  if (Number.isNaN(d.getTime())) d = new Date(value);
   if (Number.isNaN(d.getTime())) return 'Not available';
   return d.toLocaleString();
 }
@@ -546,7 +547,7 @@ function ownerUserMatchesFilter(u, filter) {
 
 function ownerUserMatchesQuery(u, q) {
   if (!q) return true;
-  const hay = `${u.email || ''} ${u.phone || ''} ${u.uid || ''}`.toLowerCase();
+  const hay = `${u.email || ''} ${u.phone || ''} ${u.uid || ''} ${u.visitorId || ''}`.toLowerCase();
   return hay.includes(q.toLowerCase());
 }
 
@@ -562,14 +563,23 @@ function renderOwnerStats(users) {
 
 function renderOwnerUserCard(u) {
   const expanded = _ownerExpandedUid === u.uid;
-  const statusBadge = u.paid ? '<span class="status-badge paid">🟢 Paid</span>' : '<span class="status-badge free">🆓 Free</span>';
+  const isAnon = !!u.isAnonymous;
+  const statusBadge = u.paid
+    ? '<span class="status-badge paid">🟢 Paid</span>'
+    : (isAnon ? '<span class="status-badge anon">👤 Guest/Anon</span>' : '<span class="status-badge free">🆓 Free</span>');
   const dupBadge = u.possibleDuplicate ? '<span class="status-badge dup">⚠️ Possible duplicate</span>' : '';
+  const displayName = isAnon ? '👤 Anonymous Visitor' : (u.email || u.phone || 'Unknown user');
+  const subText = isAnon
+    ? `Visitor ID: ${esc(u.visitorId || u.uid)} · Visits: ${u.visitCount || 1}`
+    : `Last login: ${esc(fmtDate(u.lastLoginAt, true))}`;
   const detail = !expanded ? '' : `<div class="user-detail">
+    ${isAnon ? `<div class="user-detail-row"><span>Visitor ID</span><span><code>${esc(u.visitorId || u.uid)}</code></span></div>` : ''}
     <div class="user-detail-row"><span>Email</span><span>${esc(u.email || 'Not available')}</span></div>
     <div class="user-detail-row"><span>Provider</span><span>${esc(ownerProviderLabel(u.provider))}</span></div>
-    <div class="user-detail-row"><span>Account created</span><span>${esc(fmtDate(u.createdAt, true))}</span></div>
-    <div class="user-detail-row"><span>Last login</span><span>${esc(fmtDate(u.lastLoginAt, true))}</span></div>
-    <div class="user-detail-row"><span>Free/Paid</span><span>${u.paid ? 'Paid' : 'Free'}</span></div>
+    <div class="user-detail-row"><span>First seen / Created</span><span>${esc(fmtDate(u.firstSeen || u.createdAt, true))}</span></div>
+    <div class="user-detail-row"><span>Last seen / Login</span><span>${esc(fmtDate(u.lastSeen || u.lastLoginAt, true))}</span></div>
+    <div class="user-detail-row"><span>Visit count</span><span>${u.visitCount || 1}</span></div>
+    <div class="user-detail-row"><span>Free/Paid</span><span>${u.paid ? 'Paid' : (isAnon ? 'Guest / Anonymous' : 'Free')}</span></div>
     <div class="user-detail-row"><span>Payment date</span><span>${esc(fmtDate(u.paidAt))}</span></div>
     <div class="user-detail-row"><span>Entitlement</span><span>${u.paid ? 'Levels 1–15 unlocked' : 'Levels 1–3 (free)'}</span></div>
     <div class="user-detail-row"><span>Possible duplicate</span><span>${u.possibleDuplicate ? 'Yes' : 'No'}</span></div>
@@ -578,7 +588,7 @@ function renderOwnerUserCard(u) {
   </div>`;
   return `<button type="button" class="user-card" data-uid="${esc(u.uid)}">
     <div class="user-card-head">
-      <div class="user-card-id"><b>${esc(u.email || u.phone || 'Unknown user')}</b><small>Last login: ${esc(fmtDate(u.lastLoginAt, true))}</small></div>
+      <div class="user-card-id"><b>${esc(displayName)}</b><small>${subText}</small></div>
       <span class="user-card-badges">${statusBadge}${dupBadge}</span>
     </div>
     ${detail}

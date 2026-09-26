@@ -23,6 +23,9 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 import FIREBASE_CONFIG, { isConfigured } from "./config.js";
@@ -162,6 +165,9 @@ export function getGoogleProvider() {
  * @returns {Promise<UserCredential>}
  */
 export async function signInWithGoogle() {
+  if (typeof window !== "undefined" && window.__mockSignInWithGoogle) {
+    return window.__mockSignInWithGoogle();
+  }
   const auth = getAuthInstance();
   const provider = getGoogleProvider();
   return signInWithPopup(auth, provider);
@@ -184,4 +190,45 @@ export async function signInWithGoogleRedirect() {
 export async function getGoogleRedirectResult() {
   const auth = getAuthInstance();
   return getRedirectResult(auth);
+}
+
+/**
+ * Sign in with email and password.
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<UserCredential>}
+ */
+export async function signInWithEmail(email, password) {
+  if (typeof window !== "undefined" && window.__mockSignInWithEmail) {
+    return window.__mockSignInWithEmail(email, password);
+  }
+  const auth = getAuthInstance();
+  return signInWithEmailAndPassword(auth, String(email).trim(), String(password));
+}
+
+/**
+ * Register a new account with email and password.
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<UserCredential>}
+ */
+export async function signUpWithEmail(email, password) {
+  if (typeof window !== "undefined" && window.__mockSignUpWithEmail) {
+    return window.__mockSignUpWithEmail(email, password);
+  }
+  const auth = getAuthInstance();
+  return createUserWithEmailAndPassword(auth, String(email).trim(), String(password));
+}
+
+/**
+ * Send password reset email.
+ * @param {string} email
+ * @returns {Promise<void>}
+ */
+export async function resetPassword(email) {
+  if (typeof window !== "undefined" && window.__mockResetPassword) {
+    return window.__mockResetPassword(email);
+  }
+  const auth = getAuthInstance();
+  return sendPasswordResetEmail(auth, String(email).trim());
 }

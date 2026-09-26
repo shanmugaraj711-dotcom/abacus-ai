@@ -7,7 +7,18 @@ import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
 import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
-import { getAuthInstance, signInWithGoogle } from '../firebase/auth.js';
+import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
+import {
+  isGuestUser,
+  canGuestAccessLevel,
+  canGuestAccessGame,
+  canGuestAccessFeature,
+  getAuthMode,
+  setAuthMode,
+  showConversionPrompt,
+  renderEmailAuthView,
+  GUEST_GAME_ID,
+} from './access.js';
 import {
   app, esc, $, $$, wait, newToken, currentToken, alive, every, clearTimers, setRouter, go,
   lang, T, V, say, voiceLang, lessonTitle, lvName, lvTip, kidName, lessonDone, AVATARS, stars, mmss,
@@ -36,7 +47,7 @@ const STICKERS = [
 const earned = () => STICKERS.filter(x => x.ok());
 const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 3));
 const playableMax = () => isPaid() ? MAX_LEVEL : freeMax();
-const levelAllowed = id => id >= 1 && id <= playableMax();
+const levelAllowed = id => id >= 1 && (isGuestUser() ? id === 1 : id <= playableMax());
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
@@ -109,42 +120,131 @@ function stickers() {
 
 // ---------- screens ----------
 function welcome() {
+  const authMode = getAuthMode();
+  const showGate = !authMode && !state.profile?.name;
   const draft = { name: state.profile?.name || '', avatar: '🦁', lang: 'en', voiceLang: 'en' };
   app.innerHTML = `
   <main class="view welcome">
-    <div class="hero">
-      ${babi('cheer', 'big bob')}
-      <div>
-        <p class="eyebrow">Abacus Buddy</p>
-        <h1 class="display">Hi! I'm Babi.</h1>
-        <p class="lead">I'll teach you to count and add with beads — one little step at a time.</p>
+    <div id="authGateStep" class="auth-gate" ${showGate ? '' : 'style="display:none;"'}>
+      <div class="hero">
+        <div style="font-size:48px;margin-bottom:8px;">🧮</div>
+        <div>
+          <p class="eyebrow">Abacus Buddy</p>
+          <h1 class="display">Welcome!</h1>
+          <p class="lead">Let's start learning.</p>
+        </div>
       </div>
+      <section class="card auth-gate-card">
+        <div class="auth-actions">
+          <button type="button" class="btn wide auth-btn-google" id="authGateGoogleBtn">
+            <svg style="width:20px;height:20px;margin-right:6px;vertical-align:middle;" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
+            Continue with Google
+          </button>
+          <button type="button" class="btn wide auth-btn-email" id="authGateEmailBtn">
+            ✉️ Login with Email & Password
+          </button>
+          <div class="auth-divider">─── or ───</div>
+          <button type="button" class="btn wide auth-btn-guest" id="authGateGuestBtn">
+            🎮 Continue as Guest
+          </button>
+        </div>
+      </section>
     </div>
-    <section class="card form">
-      <label for="kidName">What's your name?</label>
-      <input id="kidName" maxlength="18" autocomplete="off" placeholder="Type your name" value="${esc(draft.name)}">
-      <label>Pick your animal buddy</label>
-      <div class="avatars">${AVATARS.map(a => `<button type="button" class="avatar ${a === draft.avatar ? 'on' : ''}" data-avatar="${a}" aria-label="Avatar ${a}">${a}</button>`).join('')}</div>
-      <label>Have you used an abacus before?</label>
-      <div class="two">
-        <button type="button" class="choice" data-exp="new"><b>🌱 I'm new</b><small>Teach me from the start</small></button>
-        <button type="button" class="choice" data-exp="known"><b>🚀 I know it</b><small>Quick check, then skip ahead</small></button>
-      </div>
-      <label ${isOn('tamil') ? '' : 'hidden'}>What should Babi speak?</label>
-      <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
-        <button type="button" class="choice on" data-voice-lang="en"><b>English audio</b></button>
-        <button type="button" class="choice" data-voice-lang="ta"><b>Tamil audio</b></button>
-      </div>
-      <label ${isOn('tamil') ? '' : 'hidden'}>What should the screen show?</label>
-      <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
-        <button type="button" class="choice on" data-content-lang="en"><b>English content</b></button>
-        <button type="button" class="choice" data-content-lang="ta"><b>Tamil content</b></button>
-      </div>
-      <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will stay quiet until a Tamil voice is available.</p>
-      <button class="btn primary wide" id="start" disabled>Let's go! →</button>
-    </section>
-    <button class="linkish" id="demo">👀 Grown-up? Open a demo with sample progress</button>
+
+    <div id="emailAuthStep" style="display:none;padding:18px 16px;"></div>
+
+    <div id="welcomeProfileStep">
+      <section class="card form">
+        <label for="kidName">What's your name?</label>
+        <input id="kidName" maxlength="18" autocomplete="off" placeholder="Type your name" value="${esc(draft.name)}">
+        <label>Pick your animal buddy</label>
+        <div class="avatars">${AVATARS.map(a => `<button type="button" class="avatar ${a === draft.avatar ? 'on' : ''}" data-avatar="${a}" aria-label="Avatar ${a}">${a}</button>`).join('')}</div>
+        <label>Have you used an abacus before?</label>
+        <div class="two">
+          <button type="button" class="choice" data-exp="new"><b>🌱 I'm new</b><small>Teach me from the start</small></button>
+          <button type="button" class="choice" data-exp="known"><b>🚀 I know it</b><small>Quick check, then skip ahead</small></button>
+        </div>
+        <label ${isOn('tamil') ? '' : 'hidden'}>What should Babi speak?</label>
+        <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
+          <button type="button" class="choice on" data-voice-lang="en"><b>English audio</b></button>
+          <button type="button" class="choice" data-voice-lang="ta"><b>Tamil audio</b></button>
+        </div>
+        <label ${isOn('tamil') ? '' : 'hidden'}>What should the screen show?</label>
+        <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
+          <button type="button" class="choice on" data-content-lang="en"><b>English content</b></button>
+          <button type="button" class="choice" data-content-lang="ta"><b>Tamil content</b></button>
+        </div>
+        <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will stay quiet until a Tamil voice is available.</p>
+        <button class="btn primary wide" id="start" disabled>Let's go! →</button>
+      </section>
+      <button class="linkish" id="demo">👀 Grown-up? Open a demo with sample progress</button>
+    </div>
   </main>`;
+
+  const authGateStep = $('#authGateStep');
+  const emailAuthStep = $('#emailAuthStep');
+  const profileStep = $('#welcomeProfileStep');
+  const authGoogleBtn = $('#authGateGoogleBtn');
+  const authEmailBtn = $('#authGateEmailBtn');
+  const authGuestBtn = $('#authGateGuestBtn');
+
+  const proceedToProfile = () => {
+    if (authGateStep) authGateStep.style.display = 'none';
+    if (emailAuthStep) emailAuthStep.style.display = 'none';
+    if (profileStep) profileStep.style.display = 'block';
+    const nameEl = $('#kidName');
+    if (nameEl) nameEl.focus();
+  };
+
+  if (authGuestBtn) {
+    authGuestBtn.onclick = () => {
+      setAuthMode('guest');
+      pingVisit().catch(() => {});
+      proceedToProfile();
+    };
+  }
+
+  if (authGoogleBtn) {
+    authGoogleBtn.onclick = async () => {
+      authGoogleBtn.disabled = true;
+      authGoogleBtn.textContent = 'Connecting to Google…';
+      try {
+        const cred = await signInWithGoogle();
+        if (cred?.user) {
+          setAuthMode('registered');
+          pingVisit(cred.user.uid).catch(() => {});
+          proceedToProfile();
+        }
+      } catch (err) {
+        authGoogleBtn.disabled = false;
+        authGoogleBtn.innerHTML = 'Continue with Google';
+        alert(err.message || 'Google sign-in error');
+      }
+    };
+  }
+
+  if (authEmailBtn) {
+    authEmailBtn.onclick = () => {
+      if (authGateStep) authGateStep.style.display = 'none';
+      if (emailAuthStep) {
+        emailAuthStep.style.display = 'block';
+        renderEmailAuthView({
+          container: emailAuthStep,
+          initialMode: 'login',
+          onSuccess: (user) => {
+            setAuthMode('registered');
+            if (user?.uid) pingVisit(user.uid).catch(() => {});
+            proceedToProfile();
+          },
+          onBack: () => {
+            emailAuthStep.style.display = 'none';
+            if (authGateStep) authGateStep.style.display = 'block';
+          },
+        });
+      }
+    };
+  }
+
   let exp = '';
   const ready = () => { $('#start').disabled = !($('#kidName').value.trim() && exp); };
   $('#kidName').addEventListener('input', ready);
@@ -163,11 +263,16 @@ function welcome() {
     say(t(draft.voiceLang || draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
   });
   $('#start').onclick = () => {
+    if (!getAuthMode()) {
+      setAuthMode('guest');
+      pingVisit().catch(() => {});
+    }
     state.profile = { name: $('#kidName').value.trim().slice(0, 18), avatar: draft.avatar, experience: exp, lang: draft.lang, voiceLang: draft.voiceLang };
     saveNow(); sfx.good(); say(V('welcomeKid', state.profile.name));
     go(exp === 'known' ? '#/check' : '#/home');
   };
   $('#demo').onclick = () => {
+    setAuthMode('registered');
     Object.assign(state, {
       profile: { name: 'Aru', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
       lessonsDone: [1, 2, 3, 4, 5, 6, 7, 8], unlocked: 5,
@@ -214,7 +319,17 @@ function nextMission() {
 function home() {
   const isTa = lang() === 'ta';
   const m = nextMission(), sk = streak();
+  const guest = isGuestUser();
   shell({ body: `
+    ${guest ? `
+      <section class="card guest-home-banner" style="background:#eef2ff;border:1px solid #c7d2fe;margin-bottom:12px;padding:12px 14px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div>
+          <b style="color:#3730a3;font-size:14px;display:block;">🎮 ${isTa ? 'விருந்தினர் பயன்முறை' : 'Guest Mode'}</b>
+          <span style="font-size:12px;color:#4338ca;">${isTa ? 'லெவல் 1 மற்றும் புதிர் எண் திறக்கப்பட்டுள்ளது.' : 'Level 1 and Mystery Number unlocked. Save your progress!'}</span>
+        </div>
+        <button type="button" class="btn primary small" id="guestUpgradeBtn" style="white-space:nowrap;padding:6px 12px;font-size:13px;">${isTa ? 'கணக்கு உருவாக்கு' : 'Save Progress'}</button>
+      </section>
+    ` : ''}
     <section class="hello">
       <div class="kid-avatar">${esc(state.profile.avatar)}</div>
       <div><p class="eyebrow">${isTa ? 'மீண்டும் வருக' : 'Welcome back'}</p><h2 class="display">Hi, ${kidName()}!</h2></div>
@@ -235,6 +350,10 @@ function home() {
     </nav>
     ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>${isTa ? 'என் ஸ்டிக்கர்கள்' : 'My Stickers'}</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
     <a class="grownups" href="#/parents">👨‍👩‍👧 ${isTa ? 'பெற்றோருக்கான பகுதி' : 'Grown-ups corner'}</a>` });
+  const guestBtn = $('#guestUpgradeBtn');
+  if (guestBtn) {
+    guestBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => route() });
+  }
   setTimeout(() => say(voiceLang() === 'ta'
     ? (m.kind === 'lesson' ? V('missionLearn', m.voiceTitle) : V('missionPractise', m.voiceTitle))
     : V('hello', state.profile.name, m.say)), 250);
@@ -428,22 +547,40 @@ function lesson(id) {
 // ---------- Practice ----------
 function practiceMap() {
   const isTa = lang() === 'ta';
+  const guest = isGuestUser();
   shell({ title: isTa ? 'பயிற்சி' : 'Practise', back: '#/home', body: `
     ${bubble(T('pickLevel'), 'happy')}
     <div class="levels">${LEVELS.slice(1).map(L => {
-      const open = levelAllowed(L.id), paywall = !open && L.id > freeMax(), rec = state.levels[L.id];
-      return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${open ? `href="#/level/${L.id}"` : paywall ? 'href="#/unlock"' : 'aria-disabled="true"'}>
-        <span class="lv-emoji">${open ? L.emoji : paywall ? '🔐' : '🔒'}</span>
+      const open = levelAllowed(L.id);
+      const guestLocked = guest && L.id > 1;
+      const paywall = !guest && !open && L.id > freeMax();
+      const rec = state.levels[L.id];
+      return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${
+        open ? `href="#/level/${L.id}"` :
+        guestLocked ? `data-guest-locked-level="${L.id}" href="javascript:void(0)"` :
+        paywall ? 'href="#/unlock"' : 'aria-disabled="true"'
+      }>
+        <span class="lv-emoji">${open ? L.emoji : guestLocked || paywall ? '🔐' : '🔒'}</span>
         <span class="lv-body"><small>${isTa ? `லெவல் ${L.id}` : `Level ${L.id}`}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
-        ${paywall ? `<strong>${isTa ? '₹499 செலுத்தி திற' : '₹499 unlock'}</strong>` : stars(rec?.stars || 0)}
+        ${guestLocked ? `<strong>${isTa ? 'கணக்கு தொடங்கு' : 'Free account'}</strong>` : paywall ? `<strong>${isTa ? '₹499 செலுத்தி திற' : '₹499 unlock'}</strong>` : stars(rec?.stars || 0)}
       </a>`;
     }).join('')}</div>` });
 
+  $$('[data-guest-locked-level]').forEach(el => {
+    el.onclick = (e) => {
+      e.preventDefault();
+      showConversionPrompt({ onSuccessAuth: () => route() });
+    };
+  });
 }
 
 function levelIntro(id) {
   const isTa = lang() === 'ta';
   const L = LEVELS[id]; if (!L) return go('#/practice');
+  if (isGuestUser() && id > 1) {
+    showConversionPrompt({ onContinueGuest: () => go('#/practice'), onSuccessAuth: () => route() });
+    return;
+  }
   if (!levelAllowed(id)) return go('#/unlock');
   const needLesson = LESSON_FOR_LEVEL[id], lessonNeeded = needLesson && !lessonDone(needLesson);
   const LL = LESSONS.find(l => l.id === needLesson);
@@ -686,7 +823,14 @@ function dashboard() {
       <label for="setName">Child's name</label><input id="setName" maxlength="18" value="${esc(state.profile.name)}">
       <div class="row"><button class="btn" id="unlockAll">Unlock all levels</button><button class="btn danger" id="reset">Reset all progress</button></div>
     </section>
+    <section class="card auth-status">
+      <h3>${isGuestUser() ? '🎮 Guest Mode' : '👤 Account Status'}</h3>
+      <p class="muted tiny">${isGuestUser() ? 'You are exploring Abacus as a guest. Create a free account or sign in to save your child’s progress across devices and unlock more levels & games.' : 'Logged in with linked progress.'}</p>
+      ${isGuestUser() ? `<button type="button" class="btn primary small" id="parentsAccountBtn">Create Account / Sign In</button>` : ''}
+    </section>
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
+  const parentsBtn = $('#parentsAccountBtn');
+  if (parentsBtn) parentsBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => dashboard() });
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
   $$('[data-setvoice-lang]').forEach(b => b.onclick = () => {
@@ -726,15 +870,18 @@ function route() {
     lesson: () => lesson(n),
     level: () => levelIntro(n),
     game: () => (isOn('play') ? openGame(arg) : home()),
-    tests: () => (examsOpen() ? testCentre() : home()),
-    exam: () => runExam(arg),
-    certificates: () => (isOn('certificates') ? certificates() : home()),
-    certificate: () => (isOn('certificates') ? certificate(n || 0) : home()),
+    tests: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (examsOpen() ? testCentre() : home())),
+    exam: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : runExam(arg)),
+    certificates: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificates() : home())),
+    certificate: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificate(n || 0) : home())),
   };
   (pages[page] || home)();
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', route);
+window.addEventListener('abacus:guest-locked', () => {
+  showConversionPrompt({ onSuccessAuth: () => route() });
+});
 setRouter(route);
 // Read config.json (feature switches) first, then show the first screen.
 pingVisit().catch(() => {});

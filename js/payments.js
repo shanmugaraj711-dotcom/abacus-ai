@@ -11,6 +11,7 @@
 //     preventing any cross-user response exposure on shared devices.
 
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
+import { pingVisit } from "./store.js";
 
 const CACHE_KEY = 'abacus-entitlement-v1';
 
@@ -51,18 +52,32 @@ try {
     const newUid = user ? user.uid : null;
     if (newUid !== currentUid) {
       currentUid = newUid;
+      if (typeof window !== 'undefined') {
+        window._abacusAuthUid = newUid;
+      }
       const cache = readCache();
       if (!newUid) {
         // Signed out: immediately revoke paid state and clear cache
         paid = false;
         clearCache();
-      } else if (cache && cache.uid === newUid && cache.paid === true) {
-        // Same user matching cache: keep paid
-        paid = true;
+        try {
+          if (localStorage.getItem('abacus-auth-mode') === 'registered') {
+            localStorage.setItem('abacus-auth-mode', 'guest');
+          }
+        } catch {}
       } else {
-        // User changed: never use another user's cached entitlement
-        paid = false;
-        clearCache();
+        try {
+          localStorage.setItem('abacus-auth-mode', 'registered');
+        } catch {}
+        pingVisit(newUid).catch(() => {});
+        if (cache && cache.uid === newUid && cache.paid === true) {
+          // Same user matching cache: keep paid
+          paid = true;
+        } else {
+          // User changed: never use another user's cached entitlement
+          paid = false;
+          clearCache();
+        }
       }
     }
   });

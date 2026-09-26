@@ -137,6 +137,17 @@ export function initAuthUI() {
 
 /** Called by otp-verification when Firebase confirms the credential. */
 function handleSignedIn(credential) {
+  try {
+    localStorage.setItem("abacus-auth-mode", "registered");
+    const visitorId = localStorage.getItem("abacus-visitor-id");
+    if (visitorId && credential?.user?.uid) {
+      fetch("/api/visit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId, uid: String(credential.user.uid) }),
+      }).catch(() => {});
+    }
+  } catch {}
   showSignedInPanel(credential.user);
 }
 

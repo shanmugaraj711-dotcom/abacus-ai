@@ -115,10 +115,15 @@ export function getVisitorId() {
 export async function pingVisit(uid = null) {
   try {
     const visitorId = getVisitorId();
+    let effectiveUid = uid;
+    if (!effectiveUid && typeof window !== 'undefined') {
+      if (window.__mockUser?.uid) effectiveUid = window.__mockUser.uid;
+      else if (window._abacusAuthUid) effectiveUid = window._abacusAuthUid;
+    }
     await fetch('/api/visit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ visitorId, ...(uid ? { uid: String(uid) } : {}) }),
+      body: JSON.stringify({ visitorId, ...(effectiveUid ? { uid: String(effectiveUid) } : {}) }),
     });
   } catch {
     // Offline or network error: fail silently, zero user impact

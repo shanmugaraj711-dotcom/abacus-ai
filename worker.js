@@ -566,8 +566,9 @@ async function main(req,env){
       }
 
       // Add anonymous visitors to population
+      const registeredVisitorIds = new Set([...byUid.values()].map(u => u.visitorId).filter(Boolean));
       for(const av of anonymousVisitors){
-        if(av.uid&&byUid.has(av.uid))continue;
+        if((av.uid&&byUid.has(av.uid)) || registeredVisitorIds.has(av.visitorId))continue;
         const anonKey=`anon_${av.visitorId}`;
         byUid.set(anonKey,{
           uid:anonKey,
