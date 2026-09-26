@@ -27,7 +27,52 @@ export const sfx = {
 
 const VOICE_LANG = { en: 'en-IN', ta: 'ta-IN' };
 
+const TAMIL_UNITS = {
+  0: 'பூஜ்ஜியம்', 1: 'ஒன்று', 2: 'இரண்டு', 3: 'மூன்று', 4: 'நான்கு',
+  5: 'ஐந்து', 6: 'ஆறு', 7: 'ஏழு', 8: 'எட்டு', 9: 'ஒன்பது'
+};
+const TAMIL_TEENS = {
+  11: 'பதினொன்று', 12: 'பன்னிரண்டு', 13: 'பதின்மூன்று',
+  14: 'பதினான்கு', 15: 'பதினைந்து', 16: 'பதினாறு',
+  17: 'பதினேழு', 18: 'பதினெட்டு', 19: 'பத்தொன்பது'
+};
+const TAMIL_TENS = {
+  10: 'பத்து', 20: 'இருபது', 30: 'முப்பது', 40: 'நாற்பது',
+  50: 'ஐம்பது', 60: 'அறுபது', 70: 'எழுபது', 80: 'எண்பது', 90: 'தொண்ணூறு'
+};
+const TAMIL_HUNDREDS = {
+  100: 'நூறு', 200: 'இருநூறு', 300: 'முந்நூறு', 400: 'நானூறு',
+  500: 'ஐந்நூறு', 600: 'அறுநூறு', 700: 'எழுநூறு', 800: 'எண்ணூறு',
+  900: 'தொள்ளாயிரம்'
+};
+
+/** Convert 0..999 to real Tamil number words for speech. */
+export function tamilNumberWord(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 999) return String(value);
+  if (n < 10) return TAMIL_UNITS[n];
+  if (n < 20) return n === 10 ? TAMIL_TENS[10] : TAMIL_TEENS[n];
+  if (n < 100) {
+    const tens = Math.floor(n / 10) * 10;
+    const units = n % 10;
+    return units ? `${TAMIL_TENS[tens]} ${TAMIL_UNITS[units]}` : TAMIL_TENS[tens];
+  }
+
+  const hundreds = Math.floor(n / 100) * 100;
+  const remainder = n % 100;
+  if (!remainder) return TAMIL_HUNDREDS[hundreds];
+
+  // Compound hundreds use the grammatical connecting form:
+  // நூறு -> நூற்று, இருநூறு -> இருநூற்று, தொள்ளாயிரம் -> தொள்ளாயிரத்து.
+  const base = TAMIL_HUNDREDS[hundreds];
+  const connector = hundreds === 900
+    ? base.replace(/ம்$/, 'த்து')
+    : base.replace(/று$/, 'ற்று');
+  return `${connector} ${tamilNumberWord(remainder)}`;
+}
+
 function voiceFor(tag) {
+ {
   try {
     const vs = speechSynthesis.getVoices();
     return vs.find(v => v.lang?.replace('_', '-') === tag) || vs.find(v => v.lang?.startsWith(tag.slice(0, 2))) || null;
@@ -77,75 +122,11 @@ export function say(text, lang = 'en') {
       };
       // Tamil number words used by the voice layer. Keep this separate from
       // the UI's numeric values: 100 must be spoken as "நூறு", not "ஒன் ஜீரோ ஜீரோ".
-      const tamilUnits = {
-        0: 'பூஜ்ஜியம்',
-        1: 'ஒன்று',
-        2: 'இரண்டு',
-        3: 'மூன்று',
-        4: 'நான்கு',
-        5: 'ஐந்து',
-        6: 'ஆறு',
-        7: 'ஏழு',
-        8: 'எட்டு',
-        9: 'ஒன்பது'
-      };
-      const tamilTens = {
-        10: 'பத்து',
-        20: 'இருபது',
-        30: 'முப்பது',
-        40: 'நாற்பது',
-        50: 'ஐம்பது',
-        60: 'அறுபது',
-        70: 'எழுபது',
-        80: 'எண்பது',
-        90: 'தொண்ணூறு'
-      };
-      const tamilHundreds = {
-        100: 'நூறு',
-        200: 'இருநூறு',
-        300: 'முந்நூறு',
-        400: 'நானூறு',
-        500: 'ஐந்நூறு',
-        600: 'அறுநூறு',
-        700: 'எழுநூறு',
-        800: 'எண்ணூறு',
-        900: 'தொள்ளாயிரம்'
-      };
-
-      export const tamilNumberWord = value => {
-        const n = Number(value);
-        if (!Number.isInteger(n) || n < 0 || n > 999) return String(value);
-
-        if (n < 10) return tamilUnits[n];
-        if (n < 20) {
-          const special = {
-            11: 'பதினொன்று', 12: 'பன்னிரண்டு', 13: 'பதின்மூன்று',
-            14: 'பதினான்கு', 15: 'பதினைந்து', 16: 'பதினாறு',
-            17: 'பதினேழு', 18: 'பதினெட்டு', 19: 'பத்தொன்பது'
-          };
-          return special[n];
-        }
-        if (n < 100) {
-          const tens = Math.floor(n / 10) * 10;
-          const units = n % 10;
-          return units ? `${tamilTens[tens]} ${tamilUnits[units]}` : tamilTens[tens];
-        }
-
-        const hundreds = Math.floor(n / 100) * 100;
-        const remainder = n % 100;
-        if (!remainder) return tamilHundreds[hundreds];
-
-        // In compound numbers நூறு becomes நூற்று; the same construction
-        // applies to இருநூறு, முந்நூறு, ... before the remaining tens/ones.
-        const hundredBase = tamilHundreds[hundreds].replace(/று$/, 'ற்று');
-        return `${hundredBase} ${tamilNumberWord(remainder)}`;
-      };
-
       const numberWord = value => {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 0) return value;
         if (n <= 999) return tamilNumberWord(n);
-        return String(n).split('').map(d => tamilUnits[Number(d)] ?? d).join(' ');
+        return String(n).split('').map(d => TAMIL_UNITS[Number(d)] ?? d).join(' ');
       };
       const spoken = lang === 'ta'
         ? clean.replace(/\b\d+\b/g, numberWord).replace(/\s+/g, ' ').trim()
