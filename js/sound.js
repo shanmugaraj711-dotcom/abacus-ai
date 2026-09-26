@@ -76,7 +76,6 @@ export function tamilNumberWord(value) {
 }
 
 function voiceFor(tag) {
- {
   try {
     const vs = speechSynthesis.getVoices();
     return vs.find(v => v.lang?.replace('_', '-') === tag) || vs.find(v => v.lang?.startsWith(tag.slice(0, 2))) || null;
