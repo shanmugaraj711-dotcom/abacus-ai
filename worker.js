@@ -10,9 +10,9 @@
 //
 // Coupon foundation: scaffolded but disabled. COUPONS_ENABLED = false. Do NOT route.
 
-const PRICE = 49900; // ₹499 — fixed, immutable via any admin UI
+const PRICE = 49900; // ₹499 base price
 const PRODUCT = "abacus-buddy";
-const COUPONS_ENABLED = false;
+const COUPONS_ENABLED = true;
 
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","access-control-allow-origin":"*","access-control-allow-headers":"content-type,authorization","access-control-allow-methods":"GET,POST,OPTIONS"}})}
 function b64u(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
@@ -70,6 +70,34 @@ async function firestorePatch(env,collection,docId,fields){
   if(!r.ok)throw Error(`Firestore write failed: ${r.status}`);
   return await r.json();
 }
+function normalizeCouponCode(raw){return String(raw||"").trim().toUpperCase();}
+function couponFinalPrice(coupon){
+  const base=PRICE;
+  if(!coupon)return {basePrice:base,discountApplied:0,finalPrice:base};
+  const type=String(coupon.discountType||"").toLowerCase(), value=Number(coupon.discountValue);
+  if(!Number.isFinite(value)||value<0)throw Error("Invalid coupon discount");
+  const discount=type==="percent"?Math.floor(base*value/100):type==="flat"?Math.floor(value):NaN;
+  if(!Number.isFinite(discount)||discount<0||discount>=base)throw Error("Discount must leave a positive payable amount");
+  return {basePrice:base,discountApplied:discount,finalPrice:base-discount};
+}
+async function getCoupon(env,code){
+  if(!COUPONS_ENABLED)return null;
+  const normalized=normalizeCouponCode(code);
+  if(!normalized)return null;
+  return firestoreGet(env,"coupons",normalized);
+}
+function validateCouponDoc(doc){
+  if(!doc?.fields)throw Error("Invalid coupon");
+  const f=doc.fields;
+  const coupon={code:normalizeCouponCode(fsVal(f.code)),discountType:String(fsVal(f.discountType)||"flat").toLowerCase(),discountValue:Number(fsVal(f.discountValue)),basePrice:Number(fsVal(f.basePrice)||PRICE),finalPrice:Number(fsVal(f.finalPrice)),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0)};
+  if(!coupon.active)throw Error("Coupon is inactive");
+  if(!["flat","percent"].includes(coupon.discountType))throw Error("Invalid coupon discount type");
+  if(!Number.isFinite(coupon.discountValue)||coupon.discountValue<0)throw Error("Invalid coupon discount");
+  if(coupon.discountType==="percent"&&coupon.discountValue>100)throw Error("Invalid coupon percentage");
+  if(coupon.maxRedemptions!==null&&coupon.maxRedemptions!==undefined&&coupon.redemptionCount>=Number(coupon.maxRedemptions))throw Error("Coupon redemption limit reached");
+  return {...coupon,...couponFinalPrice(coupon)};
+}
+
 // Fetches one Firestore listDocuments page. Split out so pagination can be
 // exercised in tests against a mocked fetch, without real service-account auth.
 async function firestoreListPage(tok,url){
@@ -353,9 +381,14 @@ async function main(req,env){
       await writeAudit(env,{action:"create_order_skipped",target:`entitlement/${user.uid}`,after:{paid:true},uid:user.uid});
       return json({paid:true});
     }
-    const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:PRICE,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:PRODUCT}})});
-    await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:PRICE,uid:user.uid},uid:user.uid});
-    return json({orderId:order.id,amount:PRICE,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
+    let body={}; try{body=await req.json();}catch{}
+    const couponCode=normalizeCouponCode(body?.couponCode);
+    let coupon=null, pricing=couponFinalPrice(null);
+    if(couponCode){try{coupon=validateCouponDoc(await getCoupon(env,couponCode));pricing=couponFinalPrice(coupon);}catch(e){return json({error:e.message||"Invalid coupon"},400);}}
+    const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:pricing.finalPrice,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:PRODUCT,couponCode:coupon?.code||""}})});
+    await firestorePatch(env,"orders",order.id,{amount:fsField(pricing.finalPrice),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
+    await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:pricing.finalPrice,basePrice:pricing.basePrice,couponCode:coupon?.code||null,uid:user.uid},uid:user.uid});
+    return json({orderId:order.id,amount:pricing.finalPrice,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,couponCode:coupon?.code||null,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
   }
 
   // ── /api/verify-payment ──────────────────────────────────────────────────────
@@ -370,18 +403,16 @@ async function main(req,env){
       await writeAudit(env,{action:"payment_sig_invalid",target:`payment/${b.razorpay_payment_id}`,before:{orderId:b.razorpay_order_id},uid:user.uid});
       return json({error:"Invalid payment signature"},400);
     }
+    const recorded=await firestoreGet(env,"orders",String(b.razorpay_order_id)), rf=recorded?.fields||{};
+    const expectedAmount=Number(fsVal(rf.amount)), expectedUid=String(fsVal(rf.uid)||""), recordedStatus=String(fsVal(rf.status)||"");
+    if(!recorded||!Number.isFinite(expectedAmount)||expectedAmount<1||expectedUid!==user.uid||!["created","paid"].includes(recordedStatus))return json({error:"Order validation failed"},400);
     const order=await razor(env,"/orders/"+encodeURIComponent(b.razorpay_order_id));
-    if(Number(order.amount)!==PRICE||order.currency!=="INR"||order.notes?.uid!==user.uid||order.notes?.product!==PRODUCT){
-      await writeAudit(env,{action:"payment_order_mismatch",target:`razorpay/order/${b.razorpay_order_id}`,before:{expectedAmount:PRICE,expectedUid:user.uid},after:{actualAmount:order.amount,actualUid:order.notes?.uid},uid:user.uid});
-      return json({error:"Order validation failed"},400);
-    }
+    if(Number(order.amount)!==expectedAmount||order.currency!=="INR"||order.notes?.uid!==user.uid||order.notes?.product!==PRODUCT)return json({error:"Order validation failed"},400);
     const payment=await razor(env,"/payments/"+encodeURIComponent(b.razorpay_payment_id));
-    if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==PRICE||payment.currency!=="INR"){
-      await writeAudit(env,{action:"payment_capture_invalid",target:`razorpay/payment/${b.razorpay_payment_id}`,before:{expectedStatus:"captured",expectedAmount:PRICE},after:{actualStatus:payment.status,actualAmount:payment.amount},uid:user.uid});
-      return json({error:"Payment is not captured or does not match the order"},400);
-    }
+    if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==expectedAmount||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
     await putEntitlement(env,user.uid,{orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id});
-    await writeAudit(env,{action:"payment_verified",target:`entitlement/${user.uid}`,before:{paid:false},after:{paid:true,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,amount:PRICE},uid:user.uid});
+    await firestorePatch(env,"orders",String(b.razorpay_order_id),{status:fsField("paid")});
+    await writeAudit(env,{action:"payment_verified",target:`entitlement/${user.uid}`,before:{paid:false},after:{paid:true,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,amount:expectedAmount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid:user.uid});
     return json({paid:true});
   }
 
@@ -446,12 +477,15 @@ async function main(req,env){
     if(!sec||!eq(got,want)){return json({error:"Invalid webhook signature"},400);}
     const e=JSON.parse(raw), p=e.payload?.payment?.entity, o=e.payload?.order?.entity, pay=p||null, ord=o||null;
     if(e.event==="payment.captured"||e.event==="order.paid"){
-      const amount=Number(pay?.amount??ord?.amount),currency=pay?.currency??ord?.currency,uid=pay?.notes?.uid??ord?.notes?.uid,product=pay?.notes?.product??ord?.notes?.product;
-      if(amount===PRICE&&currency==="INR"&&uid&&product===PRODUCT){
+      const orderId=String(pay?.order_id||ord?.id||""), recorded=orderId?await firestoreGet(env,"orders",orderId):null, rf=recorded?.fields||{};
+      const expectedAmount=Number(fsVal(rf.amount)), amount=Number(pay?.amount??ord?.amount), currency=pay?.currency??ord?.currency;
+      const uid=String(fsVal(rf.uid)||pay?.notes?.uid||ord?.notes?.uid||""), product=pay?.notes?.product??ord?.notes?.product;
+      if(recorded&&Number.isFinite(expectedAmount)&&amount===expectedAmount&&currency==="INR"&&uid&&product===PRODUCT){
         const existing=await getEntitlement(env,uid);
         if(!existing?.paid){
-          await putEntitlement(env,uid,{orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});
-          await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:false},after:{paid:true,orderId:pay?.order_id||ord?.id,event:e.event,amount},uid});
+          await putEntitlement(env,uid,{orderId,paymentId:pay?.id||""});
+          await firestorePatch(env,"orders",orderId,{status:fsField("paid")});
+          await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:false},after:{paid:true,orderId,paymentId:pay?.id||"",event:e.event,amount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid});
         }
       }
     }
@@ -641,6 +675,24 @@ async function main(req,env){
         return Object.fromEntries(Object.entries(f).map(([k,v])=>[k,fsVal(v)]));
       }).sort((a,b)=>(b.timestamp||"").localeCompare(a.timestamp||""));
       return json({entries,total:entries.length});
+    }
+
+    // GET /api/admin/coupons
+    if(path==="/api/admin/coupons"&&req.method==="GET"){
+      const docs=await firestoreList(env,"coupons",100,true);
+      const coupons=docs.map(d=>{const f=d.fields||{};return {code:normalizeCouponCode(fsVal(f.code)||d.name.split("/").pop()),discountType:fsVal(f.discountType)||"flat",discountValue:Number(fsVal(f.discountValue)||0),basePrice:Number(fsVal(f.basePrice)||PRICE),finalPrice:Number(fsVal(f.finalPrice)||PRICE),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0),validFrom:fsVal(f.validFrom),validUntil:fsVal(f.validUntil),createdAt:fsVal(f.createdAt)};});
+      return json({coupons,total:coupons.length});
+    }
+    // POST /api/admin/coupons
+    if(path==="/api/admin/coupons"&&req.method==="POST"){
+      const b=await req.json(), code=normalizeCouponCode(b?.code);
+      if(!/^[A-Z0-9_-]{3,40}$/.test(code))return json({error:"Coupon code must be 3-40 letters, numbers, _ or -"},400);
+      const discountType=String(b?.discountType||"flat").toLowerCase(), discountValue=Number(b?.discountValue);
+      if(!["flat","percent"].includes(discountType)||!Number.isFinite(discountValue)||discountValue<0)return json({error:"Invalid discount"},400);
+      if(discountType==="percent"&&discountValue>100)return json({error:"Percent discount cannot exceed 100"},400);
+      const pricing=couponFinalPrice({discountType,discountValue}), existing=await firestoreGet(env,"coupons",code);
+      await firestorePatch(env,"coupons",code,{code:fsField(code),discountType:fsField(discountType),discountValue:fsField(discountValue),basePrice:fsField(PRICE),finalPrice:fsField(pricing.finalPrice),active:fsField(b?.active!==false),maxRedemptions:fsField(b?.maxRedemptions==null?null:Number(b.maxRedemptions)),redemptionCount:existing?.fields?.redemptionCount||fsField(0),validFrom:fsField(b?.validFrom??null),validUntil:fsField(b?.validUntil??null),createdAt:existing?.fields?.createdAt||fsField(new Date().toISOString())});
+      return json({ok:true,coupon:{code,discountType,discountValue,basePrice:PRICE,finalPrice:pricing.finalPrice,active:b?.active!==false}});
     }
 
     // GET /api/admin/remote-config
