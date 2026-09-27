@@ -10,7 +10,7 @@
 // computed final amount. Lifetime entitlement remains unchanged.
 
 const PRICE_RUPEES = 499;
-const PRICE = PRICE_RUPEES * 100;
+const PRICE = 49900;
 const PRODUCT = "abacus-buddy";
 const COUPONS_ENABLED = true;
 

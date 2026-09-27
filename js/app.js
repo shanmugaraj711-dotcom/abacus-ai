@@ -60,8 +60,8 @@ function unlock() {
       ${babi('happy', 'big bob')}
       <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்' : 'Abacus Buddy lifetime unlock'}</p>
       <h2 class="display">${isTa ? 'லெவல்கள் 3–15 & விளையாட்டுகள்' : 'Levels 3–15 & All Games'}</h2>
-      <p class="lead"><span id="unlock-base-price"><s>₹499</s></span> <b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span></p>
-      <p class="muted">${isTa ? 'ஒரே முறை கட்டணம். சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
+      <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>மட்டும்.' : '<span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>'}</p>
+      <p class="muted">${isTa ? 'சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
       <ul class="muted">
         <li>${isTa ? 'லெவல்கள் 1–2 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Levels 1–2 and starter games stay free.'}</li>
         <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 3–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 3–15 and all games unlock permanently for this account.'}</li>
@@ -98,7 +98,7 @@ function unlock() {
   let appliedCoupon = '';
 
   const setPrice = (base, final, discount) => {
-    if(basePriceEl) basePriceEl.textContent = final < base ? `₹${base}` : '';
+    if(basePriceEl) basePriceEl.innerHTML = final < base ? `<s>₹${base}</s> ` : '';
     if(finalPriceEl) finalPriceEl.textContent = `₹${final}`;
     if(discountEl) discountEl.textContent = discount > 0 ? `(${isTa ? 'தள்ளுபடி' : 'Save'} ₹${discount})` : '';
     if(buy) buy.textContent = isTa ? `₹${final} செலுத்தி திறக்கவும்` : `Pay ₹${final} & Unlock`;
