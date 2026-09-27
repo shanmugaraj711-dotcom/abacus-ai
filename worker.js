@@ -436,7 +436,7 @@ async function main(req,env){
       const latest=await firestoreGet(env,"orders",String(b.razorpay_order_id));
       if(String(fsVal(latest?.fields?.status)||"")!=="paid")return json({error:"Order could not be finalized safely"},409);
     }
-    if(orderWasCreated){
+    if(orderWasCreated&&orderMarkedPaid){
       const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
       if(couponCode){
         const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
