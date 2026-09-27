@@ -27,7 +27,7 @@ const DEFAULTS = {
   appName: 'Abacus Buddy',
   centreName: '',          // shown on certificates, e.g. "Sunshine Abacus Academy"
   freeLevels: 2,           // FIXED: levels 1-2 free, 3-15 paid at ₹499. Do not change.
-  couponsEnabled: false,   // Coupon foundation: OFF. Do not enable without owner decision.
+  couponsEnabled: true,    // Server-authoritative coupon discounts are enabled.
   features: {
     learn: true, practice: true, play: true, freePlay: true, stickers: true,
     tests: true, exams: true, certificates: true,
