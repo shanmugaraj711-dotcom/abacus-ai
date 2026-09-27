@@ -314,7 +314,7 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
             const before = { ..._remoteConfig };
             _remoteConfig = safeCfg;
             _auditLog.push({ action: 'remote_config_updated', target: '_config/remote', before, after: safeCfg, uid, timestamp: new Date().toISOString() });
-            jsonRes(res, { ok: true, note: "freeLevels is fixed at 3 (stripped)" });
+            jsonRes(res, { ok: true, note: "freeLevels is fixed at 2 (stripped)" });
           });
           return;
         }
@@ -776,9 +776,9 @@ await test('worker.js accesses Firestore only via service account (not client SD
 // ──────────────────────────────────────────────────────────────────────────────────────
 console.log('\n═══ Item 8: Free 1-3 / Paid 4-15 (browser) ═══');
 
-await test('Level gating: freeLevels defaults to 3, MAX_LEVEL is 15', async () => {
+await test('Level gating: freeLevels defaults to 2, MAX_LEVEL is 15', async () => {
   const src = fs.readFileSync(path.join(ROOT_DIR, 'js/config.js'), 'utf8');
-  assert.ok(src.includes('freeLevels: 3'), 'Default freeLevels must be 3');
+  assert.ok(src.includes('freeLevels: 2'), 'Default freeLevels must be 2');
   const engSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/engine.js'), 'utf8');
   assert.ok(engSrc.includes('MAX_LEVEL'), 'MAX_LEVEL must be exported from engine.js');
   // MAX_LEVEL = LEVELS.length - 1; verify LEVELS array has 16 entries (index 0 unused + 1-15)

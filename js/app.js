@@ -10,6 +10,8 @@ import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
 import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
 import {
   isGuestUser,
+  canAccessLevel,
+  canAccessGame,
   canGuestAccessLevel,
   canGuestAccessGame,
   canGuestAccessFeature,
@@ -45,23 +47,23 @@ const STICKERS = [
   { id: 'exam', e: '📝', name: 'Test Passed', how: 'Pass any test or exam', ok: () => state.exams.some(r => r.passed) },
 ];
 const earned = () => STICKERS.filter(x => x.ok());
-const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 3));
+const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 2));
 const playableMax = () => isPaid() ? MAX_LEVEL : freeMax();
-const levelAllowed = id => id >= 1 && (isGuestUser() ? id === 1 : id <= playableMax());
+const levelAllowed = id => id >= 1 && canAccessLevel(id);
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
   const isTa = lang() === 'ta';
   const ctaText = isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to unlock with Google';
-  shell({ title: isTa ? 'லெவல் 4–15 திறக்கவும்' : 'Unlock Levels 4–15', back: '#/practice', body: `
+  shell({ title: isTa ? 'லெவல் 3–15 திறக்கவும்' : 'Unlock Levels 3–15', back: '#/practice', body: `
     <section class="card intro">
       ${babi('happy', 'big bob')}
       <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்' : 'Abacus Buddy lifetime unlock'}</p>
-      <h2 class="display">${isTa ? 'லெவல்கள் 4–15' : 'Levels 4–15'}</h2>
+      <h2 class="display">${isTa ? 'லெவல்கள் 3–15 & விளையாட்டுகள்' : 'Levels 3–15 & All Games'}</h2>
       <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <b>₹499</b> மட்டும். சந்தா ஏதும் இல்லை.' : 'One-time payment of <b>₹499</b>. No subscription.'}</p>
       <ul class="muted">
-        <li>${isTa ? 'லெவல்கள் 1–3 எப்போதும் இலவசம்.' : 'Levels 1–3 stay free.'}</li>
-        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 4–15 நிரந்தரமாக திறக்கப்படும்.' : 'Levels 4–15 unlock permanently for this account.'}</li>
+        <li>${isTa ? 'லெவல்கள் 1–2 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Levels 1–2 and starter games stay free.'}</li>
+        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 3–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 3–15 and all games unlock permanently for this account.'}</li>
         <li>${isTa ? 'Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்.' : 'Payment is processed securely by Razorpay.'}</li>
       </ul>
       <div class="stack">
@@ -97,7 +99,7 @@ function unlock() {
     const msg = $('#pay-status');
     try {
       await buyUnlock({
-        onSuccess: () => { if (msg) msg.textContent = isTa ? 'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 4–15 திறக்கப்பட்டன.' : 'Payment verified ✓ Levels 4–15 are unlocked.'; },
+        onSuccess: () => { if (msg) msg.textContent = isTa ? 'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 3–15 திறக்கப்பட்டன.' : 'Payment verified ✓ Levels 3–15 are unlocked.'; },
         onError: e => { if (msg) msg.textContent = e.message; },
       });
       if (isPaid()) setTimeout(() => go('#/practice'), 700);

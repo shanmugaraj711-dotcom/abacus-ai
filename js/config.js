@@ -17,7 +17,7 @@
 // Authorization: /owner.html requires Firebase Google sign-in as the owner account.
 // There is NO PIN. The ownerPin field is removed.
 //
-// Price model: Levels 1-3 free, Levels 4-15 at ₹499. freeLevels is fixed at 3.
+// Price model: Levels 1-2 free, Levels 3-15 at ₹499. freeLevels is fixed at 2.
 // The server strips freeLevels from any remote config push to prevent misuse.
 //
 // Nothing here can break the app: unknown keys are ignored and missing files
@@ -26,7 +26,7 @@
 const DEFAULTS = {
   appName: 'Abacus Buddy',
   centreName: '',          // shown on certificates, e.g. "Sunshine Abacus Academy"
-  freeLevels: 3,           // FIXED: levels 1-3 free, 4-15 paid at ₹499. Do not change.
+  freeLevels: 2,           // FIXED: levels 1-2 free, 3-15 paid at ₹499. Do not change.
   couponsEnabled: false,   // Coupon foundation: OFF. Do not enable without owner decision.
   features: {
     learn: true, practice: true, play: true, freePlay: true, stickers: true,
@@ -64,8 +64,8 @@ let current = deepMerge(DEFAULTS, localOverrides);
 /** Rebuild current from all layers */
 function rebuild() {
   const merged = deepMerge(deepMerge(deepMerge(DEFAULTS, _siteConfig), _remoteConfig), localOverrides);
-  // freeLevels is always 3 — enforce fixed price model
-  merged.freeLevels = 3;
+  // freeLevels is always 2 — enforce fixed price model
+  merged.freeLevels = 2;
   // ownerPin is never exposed in current config (auth is Firebase, not PIN)
   delete merged.ownerPin;
   current = merged;

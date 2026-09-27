@@ -36,6 +36,7 @@ function writeCache(uid, paidValue) {
 }
 
 export function clearCache() {
+  paid = false;
   try {
     localStorage.removeItem(CACHE_KEY);
   } catch {}

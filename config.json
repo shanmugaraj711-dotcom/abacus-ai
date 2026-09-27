@@ -1,7 +1,7 @@
 {
   "appName": "Abacus Buddy",
   "centreName": "",
-  "freeLevels": 3,
+  "freeLevels": 2,
   "features": {
     "learn": true,
     "practice": true,

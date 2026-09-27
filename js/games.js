@@ -6,7 +6,7 @@ import { sfx } from './sound.js';
 import { createAbacus, miniAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { isOn } from './config.js';
-import { canGuestAccessGame } from './access.js';
+import { canAccessGame, isGuestUser } from './access.js';
 import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, voiceLang, go } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
@@ -42,15 +42,18 @@ export function playRoom() {
   shell({ title: 'Play', back: '#/home', body: `
     ${bubble(T('pickGame'), 'happy')}
     <div class="games">${games.map(g => {
-      const allowed = canGuestAccessGame(g.id);
+      const allowed = canAccessGame(g.id);
       if (allowed) {
         return `<a class="game ${g.cls}" href="#/game/${g.id}"><span>${g.emoji}</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>Best: ${bestOf(g.id, 'star') || '—'} ${g.best}</em></a>`;
       }
-      return `<button type="button" class="game ${g.cls} locked" data-locked-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>Create free account to play</em></button>`;
+      if (isGuestUser()) {
+        return `<button type="button" class="game ${g.cls} locked" data-locked-guest-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>Create free account to play</em></button>`;
+      }
+      return `<a class="game ${g.cls} locked" href="#/unlock" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>₹499 to unlock all games</em></a>`;
     }).join('')}</div>
     ${games.length ? '' : '<p class="muted center">Games are switched off right now.</p>'}` });
-  $$('[data-locked-game]').forEach(b => {
-    b.onclick = () => window.dispatchEvent(new CustomEvent('abacus:guest-locked', { detail: { type: 'game', id: b.dataset.lockedGame } }));
+  $$('[data-locked-guest-game]').forEach(b => {
+    b.onclick = () => window.dispatchEvent(new CustomEvent('abacus:guest-locked', { detail: { type: 'game', id: b.dataset.lockedGuestGame } }));
   });
 }
 
@@ -367,9 +370,12 @@ const RUNNERS = { race, mystery, match, flash, speed, friend, ladder };
 export function openGame(id) {
   const game = G(id);
   if (!game || !isOn(game.flag) || !RUNNERS[id]) return playRoom();
-  if (!canGuestAccessGame(id)) {
+  if (isGuestUser() && !canAccessGame(id)) {
     window.dispatchEvent(new CustomEvent('abacus:guest-locked', { detail: { type: 'game', id } }));
     return playRoom();
+  }
+  if (!canAccessGame(id)) {
+    return go('#/unlock');
   }
   RUNNERS[id]();
 }
