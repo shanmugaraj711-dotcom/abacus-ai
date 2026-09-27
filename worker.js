@@ -6,9 +6,8 @@
 //   - User endpoints: any valid Firebase ID token
 //   - Admin endpoints: Firebase ID token whose UID === OWNER_UID secret (single owner, no other admin)
 //
-// Payment: ₹499 (49900 paise) is fixed in code. It cannot be changed from any admin UI.
-//
-// Coupon foundation: scaffolded but disabled. COUPONS_ENABLED = false. Do NOT route.
+// Payment: ₹499 base price. Coupon discounts are server-controlled; Razorpay receives the
+// computed final amount. Lifetime entitlement remains unchanged.
 
 const PRICE_RUPEES = 499;
 const PRICE = PRICE_RUPEES * 100;
