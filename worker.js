@@ -69,7 +69,14 @@ async function firestorePatch(env,collection,docId,fields){
   const r=await fetch(`${FSBase(env)}/${collection}/${encodeURIComponent(docId)}`,{method:"PATCH",headers:{authorization:"Bearer "+tok,"content-type":"application/json"},body:JSON.stringify({fields})});
   if(!r.ok)throw Error(`Firestore write failed: ${r.status}`);
   return await r.json();
+}async function firestorePatchIfCurrent(env,collection,docId,fields,updateTime){
+  const tok=await googleToken(env);
+  const url=FSBase(env)+"/"+collection+"/"+encodeURIComponent(docId);
+  const r=await fetch(url,{method:"PATCH",headers:{authorization:"Bearer "+tok,"content-type":"application/json"},body:JSON.stringify({fields,currentDocument:{updateTime}})});
+  if(!r.ok)return false;
+  return true;
 }
+
 function normalizeCouponCode(raw){return String(raw||"").trim().toUpperCase();}
 function couponFinalPrice(coupon){
   const base=PRICE;
@@ -373,6 +380,17 @@ async function main(req,env){
     }
   }
 
+  // ── /api/validate-coupon
+  if(path==="/api/validate-coupon"&&req.method==="POST"){
+    const user=await bearer(req,env); let b={}; try{b=await req.json();}catch{}
+    const code=normalizeCouponCode(b?.couponCode);
+    if(!code)return json({error:"Enter a coupon code."},400);
+    try{
+      const coupon=validateCouponDoc(await getCoupon(env,code)), pricing=couponFinalPrice(coupon);
+      return json({valid:true,couponCode:coupon.code,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,finalPrice:pricing.finalPrice});
+    }catch(e){return json({valid:false,error:e.message||"Invalid coupon"},400);}
+  }
+
   // ── /api/create-order ────────────────────────────────────────────────────────
   if(path==="/api/create-order"&&req.method==="POST"){
     const user=await bearer(req,env);
@@ -411,7 +429,19 @@ async function main(req,env){
     const payment=await razor(env,"/payments/"+encodeURIComponent(b.razorpay_payment_id));
     if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==expectedAmount||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
     await putEntitlement(env,user.uid,{orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id});
-    await firestorePatch(env,"orders",String(b.razorpay_order_id),{status:fsField("paid")});
+    const orderWasCreated=recordedStatus==="created";
+    const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",String(b.razorpay_order_id),{status:fsField("paid")},recorded.updateTime) : true;
+    if(orderWasCreated&&!orderMarkedPaid){
+      const latest=await firestoreGet(env,"orders",String(b.razorpay_order_id));
+      if(String(fsVal(latest?.fields?.status)||"")!=="paid")return json({error:"Order could not be finalized safely"},409);
+    }
+    if(orderWasCreated){
+      const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
+      if(couponCode){
+        const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
+        await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
+      }
+    }
     await writeAudit(env,{action:"payment_verified",target:`entitlement/${user.uid}`,before:{paid:false},after:{paid:true,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,amount:expectedAmount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid:user.uid});
     return json({paid:true});
   }
@@ -484,7 +514,15 @@ async function main(req,env){
         const existing=await getEntitlement(env,uid);
         if(!existing?.paid){
           await putEntitlement(env,uid,{orderId,paymentId:pay?.id||""});
-          await firestorePatch(env,"orders",orderId,{status:fsField("paid")});
+          const orderWasCreated=String(fsVal(rf.status)||"")==="created";
+          const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;
+          if(orderWasCreated&&orderMarkedPaid){
+            const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
+            if(couponCode){
+              const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
+              await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
+            }
+          }
           await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:false},after:{paid:true,orderId,paymentId:pay?.id||"",event:e.event,amount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid});
         }
       }
