@@ -181,7 +181,22 @@ async function loadRazorpay() {
   });
 }
 
-export async function buyUnlock({ onSuccess, onError } = {}) {
+export async function validateCoupon(couponCode) {
+  initFirebase();
+  const user = getAuthInstance().currentUser;
+  if (!user) throw new Error("Please sign in first.");
+  const token = await user.getIdToken(true);
+  const res = await fetch("/api/validate-coupon", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ couponCode: String(couponCode || "").trim().toUpperCase() }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Invalid coupon.");
+  return data;
+}
+
+export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
   try {
     initFirebase();
     const user = getAuthInstance().currentUser;
@@ -189,7 +204,8 @@ export async function buyUnlock({ onSuccess, onError } = {}) {
     const token = await user.getIdToken(true);
     const orderRes = await fetch("/api/create-order", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ couponCode: String(couponCode || "").trim().toUpperCase() }),
     });
     const order = await orderRes.json();
     if (!orderRes.ok) throw new Error(order.error || "Could not create payment order.");
