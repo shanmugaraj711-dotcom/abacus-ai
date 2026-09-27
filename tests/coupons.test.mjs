@@ -88,9 +88,9 @@ function signature(orderId,paymentId){
 
 try {
   assert.equal(normalizeCouponCode("  earlybird "), "EARLYBIRD");
-  assert.deepEqual(couponFinalPrice({discountType:"flat",discountValue:100}),{basePrice:49900,discountApplied:100,finalPrice:49800});
-  assert.deepEqual(couponFinalPrice({discountType:"percent",discountValue:20}),{basePrice:49900,discountApplied:9980,finalPrice:39920});
-  assert.throws(()=>couponFinalPrice({discountType:"flat",discountValue:49900}),/positive payable/);
+  assert.deepEqual(couponFinalPrice({discountType:"flat",discountValue:100}),{basePrice:499,discountApplied:100,finalPrice:399});
+  assert.deepEqual(couponFinalPrice({discountType:"percent",discountValue:20}),{basePrice:499,discountApplied:99,finalPrice:400});
+  assert.throws(()=>couponFinalPrice({discountType:"flat",discountValue:499}),/positive payable/);
   assert.throws(()=>validateCouponDoc(doc({code:fs("BAD"),discountType:fs("flat"),discountValue:fs(100),active:{booleanValue:false},redemptionCount:fs(0),maxRedemptions:{nullValue:null}})),/inactive/);
 
   const noCoupon=await req("/api/create-order","POST",{amount:1});
