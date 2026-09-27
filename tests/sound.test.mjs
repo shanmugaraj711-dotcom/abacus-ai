@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { tamilNumberWord } from '../js/sound.js';
+import { tamilNumberWord, englishNumberWord } from '../js/sound.js';
 
 const cases = new Map([
   [0, 'பூஜ்ஜியம்'],
@@ -34,3 +34,34 @@ assert.notEqual(tamilNumberWord(100), 'ஒன்று பூஜ்ஜியம�
 assert.notEqual(tamilNumberWord(200), 'இரண்டு பூஜ்ஜியம் பூஜ்ஜியம்');
 
 console.log(`Tamil number speech tests passed: ${cases.size}/${cases.size}`);
+
+// ── English number speech tests ─────────────────────────────────────────────
+const englishCases = new Map([
+  [0, 'zero'],
+  [1, 'one'],
+  [9, 'nine'],
+  [10, 'ten'],
+  [11, 'eleven'],
+  [19, 'nineteen'],
+  [20, 'twenty'],
+  [21, 'twenty one'],
+  [30, 'thirty'],
+  [42, 'forty two'],
+  [99, 'ninety nine'],
+  [100, 'one hundred'],
+  [101, 'one hundred one'],
+  [110, 'one hundred ten'],
+  [125, 'one hundred twenty five'],
+  [200, 'two hundred'],
+  [201, 'two hundred one'],
+  [999, 'nine hundred ninety nine'],
+]);
+
+for (const [n, expected] of englishCases) {
+  assert.equal(englishNumberWord(n), expected, `English number mismatch for ${n}`);
+}
+
+assert.notEqual(englishNumberWord(100), 'one zero zero');
+assert.notEqual(englishNumberWord(200), 'two zero zero');
+
+console.log(`English number speech tests passed: ${englishCases.size}/${englishCases.size}`);
