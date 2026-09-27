@@ -27,7 +27,7 @@ function doc(fields, updateTime="2026-09-27T00:00:00.000Z"){ return { fields, up
 
 db.coupons.EARLYBIRD = doc({
   code: fs("EARLYBIRD"), discountType: fs("flat"), discountValue: fs(100),
-  basePrice: fs(49900), finalPrice: fs(39900), active: {booleanValue:true},
+  basePrice: fs(499), finalPrice: fs(399), active: {booleanValue:true},
   maxRedemptions: {nullValue:null}, redemptionCount: fs(0),
 });
 
@@ -119,6 +119,7 @@ try {
   assert.equal(db.orders[discountedData.orderId].fields.status.stringValue,"paid");
   assert.equal(db.coupons.EARLYBIRD.fields.redemptionCount.integerValue,"1");
 
+  delete db.entitlements["user-1"];
   const mismatchOrder=await req("/api/create-order","POST",{couponCode:"EARLYBIRD"});
   const mismatchData=await mismatchOrder.json();
   razorPayments.pay2={id:"pay2",order_id:mismatchData.orderId,status:"captured",amount:39800,currency:"INR"};
