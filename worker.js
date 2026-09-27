@@ -10,7 +10,8 @@
 //
 // Coupon foundation: scaffolded but disabled. COUPONS_ENABLED = false. Do NOT route.
 
-const PRICE = 49900; // ₹499 base price
+const PRICE_RUPEES = 499;
+const PRICE = PRICE_RUPEES * 100;
 const PRODUCT = "abacus-buddy";
 const COUPONS_ENABLED = true;
 
@@ -80,7 +81,7 @@ async function firestorePatch(env,collection,docId,fields){
 
 function normalizeCouponCode(raw){return String(raw||"").trim().toUpperCase();}
 function couponFinalPrice(coupon){
-  const base=PRICE;
+  const base=PRICE_RUPEES;
   if(!coupon)return {basePrice:base,discountApplied:0,finalPrice:base};
   const type=String(coupon.discountType||"").toLowerCase(), value=Number(coupon.discountValue);
   if(!Number.isFinite(value)||value<0)throw Error("Invalid coupon discount");
@@ -97,7 +98,7 @@ async function getCoupon(env,code){
 function validateCouponDoc(doc){
   if(!doc?.fields)throw Error("Invalid coupon");
   const f=doc.fields;
-  const coupon={code:normalizeCouponCode(fsVal(f.code)),discountType:String(fsVal(f.discountType)||"flat").toLowerCase(),discountValue:Number(fsVal(f.discountValue)),basePrice:Number(fsVal(f.basePrice)||PRICE),finalPrice:Number(fsVal(f.finalPrice)),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0)};
+  const coupon={code:normalizeCouponCode(fsVal(f.code)),discountType:String(fsVal(f.discountType)||"flat").toLowerCase(),discountValue:Number(fsVal(f.discountValue)),basePrice:Number(fsVal(f.basePrice)||PRICE_RUPEES),finalPrice:Number(fsVal(f.finalPrice)),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0)};
   if(!coupon.active)throw Error("Coupon is inactive");
   if(!["flat","percent"].includes(coupon.discountType))throw Error("Invalid coupon discount type");
   if(!Number.isFinite(coupon.discountValue)||coupon.discountValue<0)throw Error("Invalid coupon discount");
@@ -404,10 +405,10 @@ async function main(req,env){
     const couponCode=normalizeCouponCode(body?.couponCode);
     let coupon=null, pricing=couponFinalPrice(null);
     if(couponCode){try{coupon=validateCouponDoc(await getCoupon(env,couponCode));pricing=couponFinalPrice(coupon);}catch(e){return json({error:e.message||"Invalid coupon"},400);}}
-    const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:pricing.finalPrice,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:PRODUCT,couponCode:coupon?.code||""}})});
-    await firestorePatch(env,"orders",order.id,{amount:fsField(pricing.finalPrice),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
+    const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:pricing.finalPrice*100,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:PRODUCT,couponCode:coupon?.code||""}})});
+    await firestorePatch(env,"orders",order.id,{amount:fsField(pricing.finalPrice*100),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
     await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:pricing.finalPrice,basePrice:pricing.basePrice,couponCode:coupon?.code||null,uid:user.uid},uid:user.uid});
-    return json({orderId:order.id,amount:pricing.finalPrice,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,couponCode:coupon?.code||null,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
+    return json({orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,couponCode:coupon?.code||null,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
   }
 
   // ── /api/verify-payment ──────────────────────────────────────────────────────
@@ -719,7 +720,7 @@ async function main(req,env){
     // GET /api/admin/coupons
     if(path==="/api/admin/coupons"&&req.method==="GET"){
       const docs=await firestoreList(env,"coupons",100,true);
-      const coupons=docs.map(d=>{const f=d.fields||{};return {code:normalizeCouponCode(fsVal(f.code)||d.name.split("/").pop()),discountType:fsVal(f.discountType)||"flat",discountValue:Number(fsVal(f.discountValue)||0),basePrice:Number(fsVal(f.basePrice)||PRICE),finalPrice:Number(fsVal(f.finalPrice)||PRICE),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0),validFrom:fsVal(f.validFrom),validUntil:fsVal(f.validUntil),createdAt:fsVal(f.createdAt)};});
+      const coupons=docs.map(d=>{const f=d.fields||{};return {code:normalizeCouponCode(fsVal(f.code)||d.name.split("/").pop()),discountType:fsVal(f.discountType)||"flat",discountValue:Number(fsVal(f.discountValue)||0),basePrice: Number(fsVal(f.basePrice)||PRICE_RUPEES),finalPrice:Number(fsVal(f.finalPrice)||PRICE),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0),validFrom:fsVal(f.validFrom),validUntil:fsVal(f.validUntil),createdAt:fsVal(f.createdAt)};});
       return json({coupons,total:coupons.length});
     }
     // POST /api/admin/coupons
@@ -730,8 +731,8 @@ async function main(req,env){
       if(!["flat","percent"].includes(discountType)||!Number.isFinite(discountValue)||discountValue<0)return json({error:"Invalid discount"},400);
       if(discountType==="percent"&&discountValue>100)return json({error:"Percent discount cannot exceed 100"},400);
       const pricing=couponFinalPrice({discountType,discountValue}), existing=await firestoreGet(env,"coupons",code);
-      await firestorePatch(env,"coupons",code,{code:fsField(code),discountType:fsField(discountType),discountValue:fsField(discountValue),basePrice:fsField(PRICE),finalPrice:fsField(pricing.finalPrice),active:fsField(b?.active!==false),maxRedemptions:fsField(b?.maxRedemptions==null?null:Number(b.maxRedemptions)),redemptionCount:existing?.fields?.redemptionCount||fsField(0),validFrom:fsField(b?.validFrom??null),validUntil:fsField(b?.validUntil??null),createdAt:existing?.fields?.createdAt||fsField(new Date().toISOString())});
-      return json({ok:true,coupon:{code,discountType,discountValue,basePrice:PRICE,finalPrice:pricing.finalPrice,active:b?.active!==false}});
+      await firestorePatch(env,"coupons",code,{code:fsField(code),discountType:fsField(discountType),discountValue:fsField(discountValue),basePrice:fsField(PRICE_RUPEES),finalPrice:fsField(pricing.finalPrice),active:fsField(b?.active!==false),maxRedemptions:fsField(b?.maxRedemptions==null?null:Number(b.maxRedemptions)),redemptionCount:existing?.fields?.redemptionCount||fsField(0),validFrom:fsField(b?.validFrom??null),validUntil:fsField(b?.validUntil??null),createdAt:existing?.fields?.createdAt||fsField(new Date().toISOString())});
+      return json({ok:true,coupon:{code,discountType,discountValue,basePrice:PRICE_RUPEES,finalPrice:pricing.finalPrice,active:b?.active!==false}});
     }
 
     // GET /api/admin/remote-config
