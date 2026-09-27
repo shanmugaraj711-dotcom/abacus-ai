@@ -218,9 +218,9 @@ function renderConsole({ user, token, offline }) {
       <p class="eyebrow">Coupons & Discounts</p>
       <p class="muted">Create a coupon here. The server controls the final price sent to Razorpay. Example: ₹100 off makes ₹499 become ₹399.</p>
       <div class="admin-grid">
-        <label class="admin-num"><span>Coupon code</span><input type="text" id="couponCode" maxlength="40" placeholder="DIWALI100"></label>
+        <label class="admin-num"><span>Coupon code</span><input type="text" id="couponCode" maxlength="40" value="EARLYBIRD"></label>
         <label class="admin-num"><span>Discount type</span><select id="couponType"><option value="flat">Flat ₹</option><option value="percent">Percent %</option></select></label>
-        <label class="admin-num"><span>Discount</span><input type="number" id="couponValue" min="0" step="1" placeholder="100"></label>
+        <label class="admin-num"><span>Discount</span><input type="number" id="couponValue" min="0" step="1" value="100"></label>
         <label class="admin-num"><span>Status</span><select id="couponActive"><option value="true">Active</option><option value="false">Inactive</option></select></label>
       </div>
       <div class="row"><button class="btn primary" id="saveCoupon">Save Coupon</button><button class="btn" id="refreshCoupons">Refresh Coupons</button></div>
