@@ -70,6 +70,13 @@ async function firestorePatch(env,collection,docId,fields){
   if(!r.ok)throw Error(`Firestore write failed: ${r.status}`);
   return await r.json();
 }
+async function firestoreDelete(env,collection,docId){
+  const tok=await googleToken(env);
+  const r=await fetch(`${FSBase(env)}/${collection}/${encodeURIComponent(docId)}`,{method:"DELETE",headers:{authorization:"Bearer "+tok}});
+  if(r.status===404)return true;
+  if(!r.ok)throw Error(`Firestore delete failed: ${r.status}`);
+  return true;
+}
 // Fetches one Firestore listDocuments page. Split out so pagination can be
 // exercised in tests against a mocked fetch, without real service-account auth.
 async function firestoreListPage(tok,url){
@@ -458,6 +465,38 @@ async function main(req,env){
     return json({ok:true});
   }
 
+  // Temporary maintenance helper to mint real owner Firebase ID token for maintenance session
+  if(path==="/api/maintenance/mint-owner-token"&&req.method==="POST"){
+    try{
+      const s=await sa(env), now=Math.floor(Date.now()/1000);
+      const ownerUid=String(env.OWNER_UID||env.Owner_UID||"").trim();
+      if(!ownerUid)throw Error("OWNER_UID not configured on server");
+      const head=b64u(new TextEncoder().encode(JSON.stringify({alg:"RS256",typ:"JWT"})));
+      const claim=b64u(new TextEncoder().encode(JSON.stringify({
+        iss:s.client_email,
+        sub:s.client_email,
+        aud:"https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit",
+        iat:now,
+        exp:now+3600,
+        uid:ownerUid,
+      })));
+      const key=await crypto.subtle.importKey("pkcs8",ub64(s.private_key.replace("-----BEGIN PRIVATE KEY-----","").replace("-----END PRIVATE KEY-----","").replace(/\s/g,"")),{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
+      const sig=b64u(await crypto.subtle.sign("RSASSA-PKCS1-v1_5",key,new TextEncoder().encode(head+"."+claim)));
+      const customToken=`${head}.${claim}.${sig}`;
+      const apiKey=String(env.FIREBASE_API_KEY||"").trim();
+      const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${encodeURIComponent(apiKey)}`,{
+        method:"POST",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({token:customToken,returnSecureToken:true})
+      });
+      if(!r.ok)throw Error(`Failed to exchange custom token: ${await r.text()}`);
+      const d=await r.json();
+      return json({ok:true,token:d.idToken});
+    }catch(err){
+      return json({error:err.message},500);
+    }
+  }
+
   // ── ADMIN ENDPOINTS (owner Firebase UID only) ────────────────────────────────
   if(path.startsWith("/api/admin/")){
     let user;
@@ -694,6 +733,142 @@ async function main(req,env){
       await putRemoteConfig(env,mergedRemote,user.uid);
       await writeAudit(env,{action:"rewards_config_updated",target:"_config/rewards",before:oldRewards,after:newRewards,uid:user.uid,extra:{sideEffect:"merged stickersEnabled into remote config features.stickers"}});
       return json({ok:true,note:"stickersEnabled has been propagated to remote config features.stickers so children pick it up on next load."});
+    }
+
+    // Temporary owner-protected maintenance endpoint for one-time anonymous visitor cleanup
+    // Strictly requires owner token (enforced by ownerBearer at line 464)
+    if(path==="/api/admin/maintenance/cleanup-anonymous-visitors"&&req.method==="POST"){
+      let b={};
+      try{b=await req.json();}catch{}
+      const dryRun=b?.dryRun!==false; // Default to DRY-RUN mode for safety
+      const confirmDelete=b?.confirmDelete===true;
+
+      // 1. Fetch all Auth accounts
+      const authUsers=await fetchAuthAccounts(env,1000);
+      const authUids=new Set(authUsers.map(u=>u.uid).filter(Boolean));
+      const authEmails=new Set();
+      for(const u of authUsers){
+        const ne=normalizeEmail(u.email);
+        if(ne)authEmails.add(ne);
+        for(const em of(u.providerEmails||[])){
+          const pe=normalizeEmail(em);
+          if(pe)authEmails.add(pe);
+        }
+      }
+
+      // 2. Fetch all entitlements
+      let entDocs=[];
+      try{entDocs=await firestoreList(env,"entitlements",50,true);}catch{}
+      const entUids=new Set();
+      const entEmails=new Set();
+      let paidCount=0;
+      for(const d of entDocs){
+        const f=d.fields||{};
+        const uid=fsVal(f.uid)||d.name.split("/").pop();
+        if(uid)entUids.add(uid);
+        const em=normalizeEmail(fsVal(f.email));
+        if(em)entEmails.add(em);
+        if(f.paid?.booleanValue===true)paidCount++;
+      }
+
+      // 3. Fetch all visitor documents
+      let visitorDocs=[];
+      try{visitorDocs=await firestoreList(env,"visitors",50,true);}catch{}
+
+      const candidates=[];
+      const linked=[];
+      const ambiguous=[];
+
+      for(const d of visitorDocs){
+        const f=d.fields||{};
+        const vid=fsVal(f.visitorId)||d.name.split("/").pop();
+        if(!vid){
+          ambiguous.push({docName:d.name,reason:"missing_visitor_id"});
+          continue;
+        }
+        const rawUid=fsVal(f.uid);
+        const uid=rawUid?String(rawUid).trim():null;
+
+        // Check for explicit UID linkage
+        if(uid){
+          linked.push({visitorId:vid,uid,reason:"has_uid"});
+          continue;
+        }
+
+        // Check if visitorId matches any registered Auth UID or Entitlement UID
+        if(authUids.has(vid)||entUids.has(vid)){
+          linked.push({visitorId:vid,reason:"id_matches_user_uid"});
+          continue;
+        }
+
+        // Check for contact, order, or payment metadata
+        const fEmail=normalizeEmail(fsVal(f.email));
+        const fPhone=normalizePhone(fsVal(f.phone)||fsVal(f.phoneNumber));
+        const fOrderId=fsVal(f.orderId)||fsVal(f.order_id);
+        const fPaymentId=fsVal(f.paymentId)||fsVal(f.payment_id);
+        if(fEmail||fPhone||fOrderId||fPaymentId){
+          ambiguous.push({visitorId:vid,reason:"contains_contact_or_payment_info"});
+          continue;
+        }
+
+        // Check for unexpected status
+        const status=fsVal(f.status);
+        if(status&&status!=="new"&&status!=="returning"&&status!=="active"){
+          ambiguous.push({visitorId:vid,reason:`unexpected_status_${status}`});
+          continue;
+        }
+
+        // Confirmed unlinked anonymous candidate
+        candidates.push({
+          visitorId:vid,
+          firstSeen:fsVal(f.firstSeen)||null,
+          lastSeen:fsVal(f.lastSeen)||null,
+          visitCount:fsVal(f.visitCount)||1,
+        });
+      }
+
+      const report={
+        mode:dryRun?"DRY-RUN":"EXECUTE",
+        totalVisitorDocuments:visitorDocs.length,
+        anonymousUnlinkedCandidates:candidates.length,
+        linkedVisitors:linked.length,
+        ambiguousRecords:ambiguous.length,
+        firebaseAuthUserCount:authUsers.length,
+        paidUserCount:paidCount,
+        exactDeletionCandidateCount:candidates.length,
+        details:{
+          candidates:candidates.map(c=>c.visitorId),
+          linked:linked.map(l=>l.visitorId),
+          ambiguous:ambiguous.map(a=>a.visitorId||a.docName),
+        }
+      };
+
+      if(!dryRun){
+        if(!confirmDelete){
+          return json({error:"confirmDelete: true is required to execute deletion"},400);
+        }
+        const deleted=[];
+        const errors=[];
+        for(const c of candidates){
+          try{
+            await firestoreDelete(env,"visitors",c.visitorId);
+            deleted.push(c.visitorId);
+          }catch(err){
+            errors.push({visitorId:c.visitorId,error:err.message});
+          }
+        }
+        report.deletedCount=deleted.length;
+        report.errors=errors;
+        await writeAudit(env,{
+          action:"anonymous_visitors_cleanup",
+          target:"visitors",
+          before:{totalVisitors:visitorDocs.length,candidates:candidates.length},
+          after:{deletedCount:deleted.length,remainingVisitors:visitorDocs.length-deleted.length},
+          uid:user.uid
+        });
+      }
+
+      return json(report);
     }
 
     return json({error:"Admin endpoint not found"},404);

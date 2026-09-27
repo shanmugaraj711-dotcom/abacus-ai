@@ -2461,6 +2461,185 @@ await test('detectDuplicates: unrelated users with distinct phones/emails are ne
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────
+// Temporary Maintenance Endpoint: Anonymous Visitor Cleanup (Dry-Run & Safety)
+// ──────────────────────────────────────────────────────────────────────────────────────
+console.log('\n═══ Maintenance: Anonymous Visitor Cleanup (Dry-Run & Safety) ═══');
+
+function makeMaintenanceMockFetch({
+  authUsers = [],
+  entitlements = [],
+  visitors = [],
+} = {}) {
+  const deletedDocUrls = [];
+  const auditLogs = [];
+  const fn = async (url, opts = {}) => {
+    const u = new URL(String(url));
+    const method = opts.method || 'GET';
+
+    if (u.hostname === 'oauth2.googleapis.com') {
+      return { ok: true, status: 200, json: async () => ({ access_token: 'fake-access-token' }) };
+    }
+    if (u.pathname === '/v1/accounts:lookup') {
+      let body = {};
+      try { body = typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body || {}; } catch {}
+      const tok = body.idToken;
+      if (tok === 'owner-token') {
+        return { ok: true, status: 200, json: async () => ({ users: [{ localId: WORKER_TEST_OWNER_UID, email: 'owner@test.com' }] }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ users: [{ localId: 'non-owner-uid', email: 'other@test.com' }] }) };
+    }
+    if (u.pathname.endsWith('/accounts:batchGet')) {
+      return { ok: true, status: 200, json: async () => ({ users: authUsers }) };
+    }
+    if (u.pathname.includes('/documents/entitlements')) {
+      return { ok: true, status: 200, json: async () => ({ documents: entitlements }) };
+    }
+    if (u.pathname.includes('/documents/visitors')) {
+      if (method === 'DELETE') {
+        deletedDocUrls.push(u.pathname);
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({ documents: visitors }) };
+    }
+    if (u.pathname.includes('/documents/audit_log')) {
+      auditLogs.push(opts.body ? JSON.parse(opts.body) : {});
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    throw new Error('Unexpected fetch in maintenance mock: ' + url);
+  };
+  fn.deletedDocUrls = deletedDocUrls;
+  fn.auditLogs = auditLogs;
+  return fn;
+}
+
+await test('Maintenance cleanup: Unauthenticated or non-owner requests are rejected', async () => {
+  const mockFetch = makeMaintenanceMockFetch();
+  // 1. No auth
+  const resNoAuth = await withMockedFetch(mockFetch, () => workerMain(new Request('https://worker.test/api/admin/maintenance/cleanup-anonymous-visitors', { method: 'POST' }), WORKER_TEST_ENV));
+  assert.equal(resNoAuth.status, 401, 'Must reject unauthenticated request with 401');
+
+  // 2. Non-owner auth
+  const resNonOwner = await withMockedFetch(mockFetch, () => workerMain(new Request('https://worker.test/api/admin/maintenance/cleanup-anonymous-visitors', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer other-token' },
+  }), WORKER_TEST_ENV));
+  assert.equal(resNonOwner.status, 403, 'Must reject non-owner request with 403');
+});
+
+await test('Maintenance cleanup: DRY-RUN accurately enumerates candidates without deleting anything', async () => {
+  const testAuthUsers = [
+    { localId: 'auth_user_1', email: 'user1@example.com' },
+    { localId: 'auth_user_2', email: 'user2@example.com' },
+  ];
+  const testEntitlements = [
+    {
+      name: 'projects/test-project/databases/(default)/documents/entitlements/auth_user_2',
+      fields: { uid: { stringValue: 'auth_user_2' }, paid: { booleanValue: true }, email: { stringValue: 'user2@example.com' } }
+    }
+  ];
+  const testVisitors = [
+    // 2 pure anonymous candidates
+    {
+      name: 'projects/test-project/databases/(default)/documents/visitors/vis_anon_1',
+      fields: { visitorId: { stringValue: 'vis_anon_1' }, status: { stringValue: 'new' }, visitCount: { integerValue: '1' } }
+    },
+    {
+      name: 'projects/test-project/databases/(default)/documents/visitors/vis_anon_2',
+      fields: { visitorId: { stringValue: 'vis_anon_2' }, status: { stringValue: 'returning' }, visitCount: { integerValue: '3' } }
+    },
+    // 1 linked visitor (has UID matching auth_user_1)
+    {
+      name: 'projects/test-project/databases/(default)/documents/visitors/vis_linked_1',
+      fields: { visitorId: { stringValue: 'vis_linked_1' }, uid: { stringValue: 'auth_user_1' }, status: { stringValue: 'active' } }
+    },
+    // 1 ambiguous visitor (has email)
+    {
+      name: 'projects/test-project/databases/(default)/documents/visitors/vis_ambiguous_1',
+      fields: { visitorId: { stringValue: 'vis_ambiguous_1' }, email: { stringValue: 'contact@example.com' } }
+    }
+  ];
+
+  const mockFetch = makeMaintenanceMockFetch({
+    authUsers: testAuthUsers,
+    entitlements: testEntitlements,
+    visitors: testVisitors,
+  });
+
+  const res = await withMockedFetch(mockFetch, () => workerMain(new Request('https://worker.test/api/admin/maintenance/cleanup-anonymous-visitors', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dryRun: true }),
+  }), WORKER_TEST_ENV));
+
+  assert.equal(res.status, 200);
+  const data = await res.json();
+
+  assert.equal(data.mode, 'DRY-RUN');
+  assert.equal(data.totalVisitorDocuments, 4);
+  assert.equal(data.anonymousUnlinkedCandidates, 2);
+  assert.equal(data.linkedVisitors, 1);
+  assert.equal(data.ambiguousRecords, 1);
+  assert.equal(data.firebaseAuthUserCount, 2);
+  assert.equal(data.paidUserCount, 1);
+  assert.equal(data.exactDeletionCandidateCount, 2);
+
+  assert.deepEqual(data.details.candidates, ['vis_anon_1', 'vis_anon_2']);
+  assert.deepEqual(data.details.linked, ['vis_linked_1']);
+  assert.deepEqual(data.details.ambiguous, ['vis_ambiguous_1']);
+
+  // Absolutely zero deletes must happen in DRY-RUN mode
+  assert.equal(mockFetch.deletedDocUrls.length, 0, 'DRY-RUN mode must NEVER call delete');
+  assert.equal(mockFetch.auditLogs.length, 0, 'DRY-RUN mode must not write audit logs');
+});
+
+await test('Maintenance cleanup: Execution requires confirmDelete: true and deletes ONLY confirmed anonymous candidates', async () => {
+  const testAuthUsers = [{ localId: 'auth_user_1', email: 'user1@example.com' }];
+  const testEntitlements = [];
+  const testVisitors = [
+    {
+      name: 'projects/test-project/databases/(default)/documents/visitors/vis_anon_del',
+      fields: { visitorId: { stringValue: 'vis_anon_del' }, status: { stringValue: 'new' } }
+    },
+    {
+      name: 'projects/test-project/databases/(default)/documents/visitors/vis_linked_keep',
+      fields: { visitorId: { stringValue: 'vis_linked_keep' }, uid: { stringValue: 'auth_user_1' } }
+    },
+  ];
+
+  const mockFetch = makeMaintenanceMockFetch({
+    authUsers: testAuthUsers,
+    entitlements: testEntitlements,
+    visitors: testVisitors,
+  });
+
+  // 1. Without confirmDelete: true => 400 Bad Request
+  const resNoConfirm = await withMockedFetch(mockFetch, () => workerMain(new Request('https://worker.test/api/admin/maintenance/cleanup-anonymous-visitors', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dryRun: false }),
+  }), WORKER_TEST_ENV));
+  assert.equal(resNoConfirm.status, 400, 'Must require confirmDelete: true when dryRun: false');
+  assert.equal(mockFetch.deletedDocUrls.length, 0);
+
+  // 2. With confirmDelete: true => executes deletion
+  const resExec = await withMockedFetch(mockFetch, () => workerMain(new Request('https://worker.test/api/admin/maintenance/cleanup-anonymous-visitors', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer owner-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dryRun: false, confirmDelete: true }),
+  }), WORKER_TEST_ENV));
+  assert.equal(resExec.status, 200);
+  const data = await resExec.json();
+
+  assert.equal(data.mode, 'EXECUTE');
+  assert.equal(data.deletedCount, 1);
+  assert.equal(mockFetch.deletedDocUrls.length, 1);
+  assert.ok(mockFetch.deletedDocUrls[0].includes('visitors/vis_anon_del'), 'Must delete only the anonymous visitor');
+  assert.ok(!mockFetch.deletedDocUrls[0].includes('vis_linked_keep'), 'Must NEVER delete linked visitors');
+  assert.equal(mockFetch.auditLogs.length, 1, 'Must record audit log entry');
+  assert.equal(mockFetch.auditLogs[0]?.fields?.action?.stringValue, 'anonymous_visitors_cleanup');
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────
 // Owner "Who's using Abacus" dashboard (UI)
 // ──────────────────────────────────────────────────────────────────────────────────────
 console.log('\n═══ Owner users dashboard (UI) ═══');
