@@ -25,7 +25,7 @@
 // Toggling "Sticker book" OFF removes stickers from children and is recorded in audit log.
 // The separate rewards-config endpoint propagates this to all devices via remote config.
 //
-// Coupon foundation: scaffold present in server, permanently disabled, not surfaced here.
+// Coupon management: owner creates server-controlled discounts; Razorpay receives the computed final amount.
 
 import { cfg, setOverrides, clearOverrides, exportJson } from './config.js';
 import { state, saveNow } from './store.js';
