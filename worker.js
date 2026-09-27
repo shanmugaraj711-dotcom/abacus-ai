@@ -407,7 +407,7 @@ async function main(req,env){
     if(couponCode){try{coupon=validateCouponDoc(await getCoupon(env,couponCode));pricing=couponFinalPrice(coupon);}catch(e){return json({error:e.message||"Invalid coupon"},400);}}
     const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:pricing.finalPrice*100,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:PRODUCT,couponCode:coupon?.code||""}})});
     await firestorePatch(env,"orders",order.id,{amount:fsField(pricing.finalPrice*100),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
-    await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:pricing.finalPrice,basePrice:pricing.basePrice,couponCode:coupon?.code||null,uid:user.uid},uid:user.uid});
+    await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,couponCode:coupon?.code||null,uid:user.uid},uid:user.uid});
     return json({orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,couponCode:coupon?.code||null,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
   }
 
@@ -720,7 +720,7 @@ async function main(req,env){
     // GET /api/admin/coupons
     if(path==="/api/admin/coupons"&&req.method==="GET"){
       const docs=await firestoreList(env,"coupons",100,true);
-      const coupons=docs.map(d=>{const f=d.fields||{};return {code:normalizeCouponCode(fsVal(f.code)||d.name.split("/").pop()),discountType:fsVal(f.discountType)||"flat",discountValue:Number(fsVal(f.discountValue)||0),basePrice: Number(fsVal(f.basePrice)||PRICE_RUPEES),finalPrice:Number(fsVal(f.finalPrice)||PRICE),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0),validFrom:fsVal(f.validFrom),validUntil:fsVal(f.validUntil),createdAt:fsVal(f.createdAt)};});
+      const coupons=docs.map(d=>{const f=d.fields||{};return {code:normalizeCouponCode(fsVal(f.code)||d.name.split("/").pop()),discountType:fsVal(f.discountType)||"flat",discountValue:Number(fsVal(f.discountValue)||0),basePrice: Number(fsVal(f.basePrice)||PRICE_RUPEES),finalPrice:Number(fsVal(f.finalPrice)||PRICE_RUPEES),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0),validFrom:fsVal(f.validFrom),validUntil:fsVal(f.validUntil),createdAt:fsVal(f.createdAt)};});
       return json({coupons,total:coupons.length});
     }
     // POST /api/admin/coupons
