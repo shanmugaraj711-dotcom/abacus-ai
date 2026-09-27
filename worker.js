@@ -46,6 +46,7 @@ async function ownerBearer(req,env){
 
 async function sa(env){return JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON)}
 async function googleToken(env){
+  if(env._googleToken)return env._googleToken;
   const s=await sa(env), now=Math.floor(Date.now()/1000);
   const head=b64u(new TextEncoder().encode(JSON.stringify({alg:"RS256",typ:"JWT"})));
   const claim=b64u(new TextEncoder().encode(JSON.stringify({iss:s.client_email,scope:"https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase https://www.googleapis.com/auth/identitytoolkit",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3600})));
@@ -805,5 +806,8 @@ export {
   firestoreListAllPages,
   lookupAuthAccountsByUids,
   clampMaxResults,
+  normalizeCouponCode,
+  couponFinalPrice,
+  validateCouponDoc,
 };
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};
