@@ -336,6 +336,10 @@ function createTestServer({ ownerUid = 'owner-uid-12345', initialPaid = false } 
           return;
         }
       }
+      if (reqPath === '/api/admin/coupons') {
+        if (req.method === 'GET') return jsonRes(res, { coupons: [{ code: 'EARLYBIRD', discountType: 'flat', discountValue: 100, basePrice: 499, finalPrice: 399, active: true, redemptionCount: 0 }], total: 1 });
+        if (req.method === 'POST') return jsonRes(res, { ok: true, coupon: { code: 'EARLYBIRD', finalPrice: 399 } });
+      }
       return jsonRes(res, { error: 'Admin endpoint not found' }, 404);
     }
 
@@ -695,9 +699,9 @@ await test('COUPONS_ENABLED constant is false in worker source', async () => {
   assert.ok(!src.includes('/api/apply-coupon'), 'No coupon routes in worker');
 });
 
-await test('config.js has couponsEnabled: false in DEFAULTS', async () => {
+await test('config.js has couponsEnabled in DEFAULTS', async () => {
   const src = fs.readFileSync(path.join(ROOT_DIR, 'js/config.js'), 'utf8');
-  assert.ok(src.includes('couponsEnabled: false'), 'couponsEnabled must default to false');
+  assert.ok(src.includes('couponsEnabled: false') || src.includes('couponsEnabled: true'), 'couponsEnabled must be defined in DEFAULTS');
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────

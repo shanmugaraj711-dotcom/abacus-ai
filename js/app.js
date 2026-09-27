@@ -60,52 +60,85 @@ function unlock() {
       ${babi('happy', 'big bob')}
       <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்' : 'Abacus Buddy lifetime unlock'}</p>
       <h2 class="display">${isTa ? 'லெவல்கள் 3–15 & விளையாட்டுகள்' : 'Levels 3–15 & All Games'}</h2>
-      <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <b>₹499</b> மட்டும். சந்தா ஏதும் இல்லை.' : 'One-time payment of <b>₹499</b>. No subscription.'}</p>
+      <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>மட்டும்.' : '<span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>'}</p>
+      <p class="muted">${isTa ? 'சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
       <ul class="muted">
         <li>${isTa ? 'லெவல்கள் 1–2 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Levels 1–2 and starter games stay free.'}</li>
         <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 3–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 3–15 and all games unlock permanently for this account.'}</li>
         <li>${isTa ? 'Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்.' : 'Payment is processed securely by Razorpay.'}</li>
       </ul>
-      <div class="stack">
-        ${signedIn ? `<button class="btn primary wide" id="buy">${isTa ? '₹499 செலுத்தி திறக்கவும்' : 'Unlock for ₹499'}</button>` : `<a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a>`}
-        <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
-      </div>
+      ${signedIn ? `
+        <div class="stack">
+          <label for="couponCode"><b>${isTa ? 'கூப்பன் குறியீடு' : 'Coupon code'}</b></label>
+          <div class="row">
+            <input id="couponCode" maxlength="40" autocomplete="off" placeholder="EARLYBIRD" style="flex:1;">
+            <button class="btn" id="applyCoupon" type="button">Apply</button>
+          </div>
+          <button class="btn primary wide" id="buy">Pay ₹499 & Unlock</button>
+        </div>` : `
+        <div class="stack"><a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a></div>`}
+      <p class="muted tiny center" id="coupon-status"></p>
       <p class="muted tiny center" id="pay-status"></p>
+      <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
     </section>` });
 
   const signinBtn = $('#signin-btn');
-  if (signinBtn) {
-    signinBtn.onclick = async (e) => {
-      if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
-        try {
-          signinBtn.textContent = isTa ? 'Google உள்நுழைகிறது…' : 'Connecting to Google…';
-          const cred = await signInWithGoogle();
-          if (cred?.user) {
-            e.preventDefault();
-            pingVisit(cred.user.uid).catch(() => {});
-            unlock();
-            return;
-          }
-        } catch (err) {
-          console.warn('[Unlock] Popup sign-in fallback to sign-in page:', err);
-        }
-      }
-    };
-  }
+  if (signinBtn) signinBtn.onclick = async (e) => {
+    if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
+      try {
+        signinBtn.textContent = isTa ? 'Google உள்நுழைகிறது…' : 'Connecting to Google…';
+        const cred = await signInWithGoogle();
+        if (cred?.user) { e.preventDefault(); pingVisit(cred.user.uid).catch(() => {}); unlock(); return; }
+      } catch (err) { console.warn('[Unlock] Popup sign-in fallback:', err); }
+    }
+  };
 
-  const buy = $('#buy');
+  const buy = $('#buy'), apply = $('#applyCoupon'), couponInput = $('#couponCode');
+  const finalPriceEl = $('#unlock-final-price'), basePriceEl = $('#unlock-base-price'), discountEl = $('#unlock-discount-label');
+  let appliedCoupon = '';
+
+  const setPrice = (base, final, discount) => {
+    if(basePriceEl) basePriceEl.innerHTML = final < base ? `<s>₹${base}</s> ` : '';
+    if(finalPriceEl) finalPriceEl.textContent = `₹${final}`;
+    if(discountEl) discountEl.textContent = discount > 0 ? `(${isTa ? 'தள்ளுபடி' : 'Save'} ₹${discount})` : '';
+    if(buy) buy.textContent = isTa ? `₹${final} செலுத்தி திறக்கவும்` : `Pay ₹${final} & Unlock`;
+  };
+  setPrice(499,499,0);
+
+  if (apply) apply.onclick = async () => {
+    const code = couponInput?.value.trim().toUpperCase() || '';
+    const msg = $('#coupon-status');
+    if(!code){ appliedCoupon=''; setPrice(499,499,0); if(msg)msg.textContent='Enter a coupon code.'; return; }
+    apply.disabled=true; apply.textContent='Checking…';
+    try{
+      const { validateCoupon } = await import('./payments.js');
+      const data=await validateCoupon(code);
+      appliedCoupon=data.couponCode;
+      setPrice(data.basePrice,data.finalPrice,data.discountApplied);
+      if(msg)msg.textContent=`Coupon applied ✓ You save ₹${data.discountApplied}.`;
+    }catch(e){
+      appliedCoupon='';
+      setPrice(499,499,0);
+      if(msg)msg.textContent=e.message;
+    }
+    apply.disabled=false; apply.textContent='Apply';
+  };
+
   if (buy) buy.onclick = async () => {
-    buy.disabled = true; buy.textContent = isTa ? 'பாதுகாப்பான கட்டண முறை திறக்கிறது…' : 'Opening secure checkout…';
-    const msg = $('#pay-status');
-    try {
+    buy.disabled=true;
+    const msg=$('#pay-status');
+    try{
       await buyUnlock({
-        onSuccess: () => { if (msg) msg.textContent = isTa ? 'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 3–15 திறக்கப்பட்டன.' : 'Payment verified ✓ Levels 3–15 are unlocked.'; },
-        onError: e => { if (msg) msg.textContent = e.message; },
+        couponCode: appliedCoupon,
+        onSuccess: () => { if(msg)msg.textContent=isTa?'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 3–15 திறக்கப்பட்டன.':'Payment verified ✓ Levels 3–15 are unlocked.'; },
+        onError: e => { if(msg)msg.textContent=e.message; },
       });
-      if (isPaid()) setTimeout(() => go('#/practice'), 700);
-    } catch (e) {
-      if (msg) msg.textContent = e.message;
-      buy.disabled = false; buy.textContent = isTa ? '₹499 செலுத்தி திறக்கவும்' : 'Unlock for ₹499';
+      if(isPaid()) setTimeout(()=>go('#/practice'),700);
+    }catch(e){
+      if(msg)msg.textContent=e.message;
+      buy.disabled=false;
+      const final=Number(finalPriceEl?.textContent?.replace(/[^0-9]/g,''))||499;
+      buy.textContent=isTa?`₹${final} செலுத்தி திறக்கவும்`:`Pay ₹${final} & Unlock`;
     }
   };
 }
