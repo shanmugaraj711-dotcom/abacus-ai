@@ -93,6 +93,13 @@ try {
   assert.throws(()=>couponFinalPrice({discountType:"flat",discountValue:499}),/positive payable/);
   assert.throws(()=>validateCouponDoc(doc({code:fs("BAD"),discountType:fs("flat"),discountValue:fs(100),active:{booleanValue:false},redemptionCount:fs(0),maxRedemptions:{nullValue:null}})),/inactive/);
 
+  const preview=await req("/api/validate-coupon","POST",{couponCode:" earlybird "});
+  assert.equal(preview.status,200);
+  const previewData=await preview.json();
+  assert.deepEqual({basePrice:previewData.basePrice,discountApplied:previewData.discountApplied,finalPrice:previewData.finalPrice},{basePrice:499,discountApplied:100,finalPrice:399});
+  const badPreview=await req("/api/validate-coupon","POST",{couponCode:"NOPE"});
+  assert.equal(badPreview.status,400);
+
   const noCoupon=await req("/api/create-order","POST",{amount:1});
   assert.equal(noCoupon.status,200);
   const noCouponData=await noCoupon.json();
