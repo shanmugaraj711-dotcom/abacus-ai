@@ -7,7 +7,7 @@
 //
 // There is no second admin. There is no add-admin feature.
 //
-// ₹499 price: fixed in code. No UI control can change the payment amount.
+// ₹499 is the base price; coupon management can apply server-controlled discounts.
 // freeLevels (always 2 for the free tier) is display-only and cannot be pushed
 // to remote config from this console — the server strips it from any push.
 //
