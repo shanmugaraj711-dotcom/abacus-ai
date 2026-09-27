@@ -215,6 +215,20 @@ function renderConsole({ user, token, offline }) {
     </section>
 
     <section class="card">
+      <p class="eyebrow">Coupons & Discounts</p>
+      <p class="muted">Create a coupon here. The server controls the final price sent to Razorpay. Example: ₹100 off makes ₹499 become ₹399.</p>
+      <div class="admin-grid">
+        <label class="admin-num"><span>Coupon code</span><input type="text" id="couponCode" maxlength="40" placeholder="DIWALI100"></label>
+        <label class="admin-num"><span>Discount type</span><select id="couponType"><option value="flat">Flat ₹</option><option value="percent">Percent %</option></select></label>
+        <label class="admin-num"><span>Discount</span><input type="number" id="couponValue" min="0" step="1" placeholder="100"></label>
+        <label class="admin-num"><span>Status</span><select id="couponActive"><option value="true">Active</option><option value="false">Inactive</option></select></label>
+      </div>
+      <div class="row"><button class="btn primary" id="saveCoupon">Save Coupon</button><button class="btn" id="refreshCoupons">Refresh Coupons</button></div>
+      <div id="couponMsg" class="muted tiny"></div>
+      <div id="couponList" class="admin-json">Loading coupons…</div>
+    </section>
+
+    <section class="card">
       <p class="eyebrow">Publish to everyone</p>
       <p class="muted">Changes above are local until you push. <b>Push to remote config</b> makes them live for all children on next app load. config.json remains the static fallback.</p>
       <textarea id="cfgJson" rows="8" readonly>${esc(exportJson())}</textarea>
@@ -255,6 +269,35 @@ function renderConsole({ user, token, offline }) {
     </section>` });
 
   const touch = msg => { const m = $('#cfgMsg'); if (m) m.textContent = msg; const j = $('#cfgJson'); if (j) j.value = exportJson(); };
+
+  async function loadCoupons(){
+    const out=$('#couponList'), msg=$('#couponMsg');
+    if(!out||offline)return;
+    try{
+      const freshToken=await getAuthInstance().currentUser.getIdToken(true);
+      const res=await fetch('/api/admin/coupons',{headers:{Authorization:'Bearer '+freshToken}});
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||'Failed to load coupons');
+      out.innerHTML=(data.coupons||[]).map(c=>`<div style="padding:8px 0;border-bottom:1px solid #eee;"><b>${esc(c.code)}</b> — ${c.discountType==='percent'?c.discountValue+'%':'₹'+c.discountValue+' off'} → <b>₹${c.finalPrice}</b> · ${c.active?'Active':'Inactive'} · used ${c.redemptionCount||0}</div>`).join('')||'<span>No coupons yet.</span>';
+    }catch(e){out.textContent='Failed: '+e.message;}
+  }
+  $('#saveCoupon')?.addEventListener('click',async()=>{
+    const btn=$('#saveCoupon'),msg=$('#couponMsg');
+    const code=$('#couponCode')?.value.trim().toUpperCase(), type=$('#couponType')?.value, value=Number($('#couponValue')?.value), active=$('#couponActive')?.value==='true';
+    if(!code||!Number.isFinite(value)||value<0){msg.textContent='Enter a valid coupon code and discount.';return;}
+    btn.disabled=true; msg.textContent='Saving…';
+    try{
+      const token=await getAuthInstance().currentUser.getIdToken(true);
+      const res=await fetch('/api/admin/coupons',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({code,discountType:type,discountValue:value,active})});
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||'Save failed');
+      msg.textContent=`Saved ${code}: ₹${data.coupon.finalPrice} payable.`;
+      await loadCoupons();
+    }catch(e){msg.textContent='Save failed: '+e.message;}
+    btn.disabled=false;
+  });
+  $('#refreshCoupons')?.addEventListener('click',loadCoupons);
+  loadCoupons();
 
   $$('[data-feature]').forEach(input => input.onchange = () => {
     setOverrides({ features: { [input.dataset.feature]: input.checked } });
