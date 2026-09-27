@@ -1,5 +1,5 @@
 // Paid unlock integration for Abacus Buddy.
-// Business model: free levels 1–3, one-time ₹499 lifetime unlock for levels 4–15.
+// Business model: free levels 1–2, one-time ₹499 base lifetime unlock for levels 3–15.
 //
 // Offline paid entitlement isolation:
 //   - A cached entitlement { paid: true, uid, cachedAt } in localStorage ('abacus-entitlement-v1')
