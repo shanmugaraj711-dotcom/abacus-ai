@@ -372,6 +372,7 @@ try {
       localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ paid: true, uid: 'paid-user-uid', cachedAt: new Date().toISOString() }));
       const payMod = await import('/js/payments.js');
       const accessMod = await import('/js/access.js');
+      await payMod.refreshEntitlement();
       accessMod.setAuthMode('registered');
       const isGuest = accessMod.isGuestUser();
       const level15Allowed = accessMod.canGuestAccessLevel(15);
@@ -382,7 +383,7 @@ try {
     assert.equal(res.level15Allowed, true);
   });
 
-  await itAsync(22, 'Free registered user rules unchanged (Levels 1–3 open, 4–15 require unlock)', async () => {
+  await itAsync(22, 'Free registered user rules (Levels 1–2 open, 3–15 require unlock; Games 1–2 open, remaining require unlock)', async () => {
     const res = await page.evaluate(async () => {
       window.__mockUser = { uid: 'free-reg-uid', email: 'freereg@example.com' };
       const payMod = await import('/js/payments.js');
@@ -391,15 +392,33 @@ try {
       accessMod.setAuthMode('registered');
       return {
         isGuest: accessMod.isGuestUser(),
-        level2: accessMod.canGuestAccessLevel(2),
-        level3: accessMod.canGuestAccessLevel(3),
-        raceGame: accessMod.canGuestAccessGame('race'),
+        level1: accessMod.canAccessLevel(1),
+        level2: accessMod.canAccessLevel(2),
+        level3: accessMod.canAccessLevel(3),
+        level4: accessMod.canAccessLevel(4),
+        level15: accessMod.canAccessLevel(15),
+        raceGame: accessMod.canAccessGame('race'),
+        mysteryGame: accessMod.canAccessGame('mystery'),
+        matchGame: accessMod.canAccessGame('match'),
+        flashGame: accessMod.canAccessGame('flash'),
+        speedGame: accessMod.canAccessGame('speed'),
+        friendGame: accessMod.canAccessGame('friend'),
+        ladderGame: accessMod.canAccessGame('ladder'),
       };
     });
     assert.equal(res.isGuest, false);
-    assert.equal(res.level2, true);
-    assert.equal(res.level3, true);
-    assert.equal(res.raceGame, true);
+    assert.equal(res.level1, true, 'Level 1 must be open for free registered users');
+    assert.equal(res.level2, true, 'Level 2 must be open for free registered users');
+    assert.equal(res.level3, false, 'Level 3 must be locked for free registered users');
+    assert.equal(res.level4, false, 'Level 4 must be locked for free registered users');
+    assert.equal(res.level15, false, 'Level 15 must be locked for free registered users');
+    assert.equal(res.raceGame, true, 'Game 1 race must be free for registered users');
+    assert.equal(res.mysteryGame, true, 'Game 2 mystery must be free for registered users');
+    assert.equal(res.matchGame, false, 'Game 3 match must be locked for free registered users');
+    assert.equal(res.flashGame, false, 'Game 4 flash must be locked for free registered users');
+    assert.equal(res.speedGame, false, 'Game 5 speed must be locked for free registered users');
+    assert.equal(res.friendGame, false, 'Game 6 friend must be locked for free registered users');
+    assert.equal(res.ladderGame, false, 'Game 7 ladder must be locked for free registered users');
   });
 
   await itAsync(23, 'Existing local progress preserved when auth mode transitions', async () => {
@@ -641,6 +660,163 @@ try {
     await context.close();
   });
 
+  // ── 6. MONETIZATION GATING & ANTI-TAMPERING (Specifications 39–44) ──────────
+  console.log('\n═══ SECTION 6: LEVEL 3 & GAMES MONETIZATION GATING (Items 39–44) ═══');
+
+  await itAsync(39, 'Free registered user: Level 3 in practice map renders href="#/unlock" with 🔐 and ₹499 label', async () => {
+    const context = await browser.newContext();
+    const p = await context.newPage();
+    await p.addInitScript(() => {
+      localStorage.setItem('abacus-auth-mode', 'registered');
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'Aarav', avatar: '🦁', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [1, 2, 3],
+        unlocked: 2,
+        levels: { 1: { stars: 3, best: 8, plays: 1 }, 2: { stars: 3, best: 8, plays: 1 } },
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: [],
+      }));
+    });
+    await p.goto(`${BASE_URL}/index.html#/practice`);
+    await p.waitForSelector('.levels a.level');
+
+    const level3Href = await p.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('.levels a.level'));
+      const l3 = links.find(el => el.textContent.includes('Level 3'));
+      return {
+        href: l3 ? l3.getAttribute('href') : null,
+        text: l3 ? l3.textContent : '',
+        isLocked: l3 ? l3.classList.contains('locked') : false,
+      };
+    });
+
+    assert.equal(level3Href.href, '#/unlock', 'Level 3 link must point to #/unlock');
+    assert.equal(level3Href.isLocked, true, 'Level 3 must have locked class');
+    assert.ok(level3Href.text.includes('₹499 unlock'), 'Level 3 must show ₹499 unlock text');
+    await context.close();
+  });
+
+  await itAsync(40, 'Free registered user: direct hash navigation #/level/3 redirects to #/unlock', async () => {
+    const context = await browser.newContext();
+    const p = await context.newPage();
+    await p.addInitScript(() => {
+      localStorage.setItem('abacus-auth-mode', 'registered');
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'Aarav', avatar: '🦁', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [1, 2, 3],
+        unlocked: 2,
+        levels: {},
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: [],
+      }));
+    });
+    await p.goto(`${BASE_URL}/index.html#/level/3`);
+    await p.waitForFunction(() => window.location.hash.includes('unlock'));
+    const currentHash = await p.evaluate(() => window.location.hash);
+    assert.equal(currentHash, '#/unlock', 'Direct navigation to #/level/3 must redirect to #/unlock');
+    await context.close();
+  });
+
+  await itAsync(41, 'Free registered user: direct hash navigation to locked game #/game/match redirects to #/unlock', async () => {
+    const context = await browser.newContext();
+    const p = await context.newPage();
+    await p.addInitScript(() => {
+      localStorage.setItem('abacus-auth-mode', 'registered');
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'Aarav', avatar: '🦁', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [1, 2, 3],
+        unlocked: 2,
+        levels: {},
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: [],
+      }));
+    });
+    await p.goto(`${BASE_URL}/index.html#/game/match`);
+    await p.waitForFunction(() => window.location.hash.includes('unlock'));
+    const currentHash = await p.evaluate(() => window.location.hash);
+    assert.equal(currentHash, '#/unlock', 'Direct navigation to #/game/match must redirect to #/unlock');
+    await context.close();
+  });
+
+  await itAsync(42, 'LocalStorage tampering: setting unlocked=15 cannot bypass Level 3 or locked games', async () => {
+    const res = await page.evaluate(async () => {
+      const storeMod = await import('/js/store.js');
+      const accessMod = await import('/js/access.js');
+      const payMod = await import('/js/payments.js');
+      payMod.clearCache();
+      accessMod.setAuthMode('registered');
+
+      // Tamper localStorage with fake maximum progress
+      storeMod.state.unlocked = 15;
+      storeMod.saveNow();
+
+      return {
+        level1: accessMod.canAccessLevel(1),
+        level2: accessMod.canAccessLevel(2),
+        level3: accessMod.canAccessLevel(3),
+        level15: accessMod.canAccessLevel(15),
+        gameMatch: accessMod.canAccessGame('match'),
+        gameLadder: accessMod.canAccessGame('ladder'),
+      };
+    });
+    assert.equal(res.level1, true);
+    assert.equal(res.level2, true);
+    assert.equal(res.level3, false, 'Tampered unlocked=15 MUST NOT grant Level 3');
+    assert.equal(res.level15, false, 'Tampered unlocked=15 MUST NOT grant Level 15');
+    assert.equal(res.gameMatch, false, 'Tampered unlocked=15 MUST NOT grant Bead Match');
+    assert.equal(res.gameLadder, false, 'Tampered unlocked=15 MUST NOT grant Bead Ladder');
+  });
+
+  await itAsync(43, 'LocalStorage tampering: fake abacus-entitlement-v1 is rejected without valid UID', async () => {
+    const res = await page.evaluate(async () => {
+      window.__mockUser = null; // No authenticated user
+      // Tamper entitlement cache
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ paid: true, uid: 'attacker-uid', cachedAt: new Date().toISOString() }));
+      const payMod = await import('/js/payments.js');
+      const accessMod = await import('/js/access.js');
+      const isEntitled = await payMod.refreshEntitlement();
+      const level3 = accessMod.canAccessLevel(3);
+      const cacheAfter = localStorage.getItem('abacus-entitlement-v1');
+      return { isEntitled, level3, cacheAfter };
+    });
+    assert.equal(res.isEntitled, false, 'Fake entitlement must return false');
+    assert.equal(res.level3, false, 'Level 3 must remain locked');
+    assert.equal(res.cacheAfter, null, 'Tampered cache must be wiped immediately');
+  });
+
+  await itAsync(44, 'Paid user: All 15 levels and all 7 games unlocked authoritatively', async () => {
+    const res = await page.evaluate(async () => {
+      window.__mockUser = { uid: 'real-paid-uid', email: 'realpaid@example.com' };
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ paid: true, uid: 'real-paid-uid', cachedAt: new Date().toISOString() }));
+      const payMod = await import('/js/payments.js');
+      const accessMod = await import('/js/access.js');
+      await payMod.refreshEntitlement();
+      accessMod.setAuthMode('registered');
+
+      const levels = [];
+      for (let lv = 1; lv <= 15; lv++) {
+        levels.push({ lv, ok: accessMod.canAccessLevel(lv) });
+      }
+
+      const games = ['race', 'mystery', 'match', 'flash', 'speed', 'friend', 'ladder'];
+      const gamesResult = games.map(g => ({ g, ok: accessMod.canAccessGame(g) }));
+
+      payMod.clearCache();
+      return { levels, gamesResult, isPaid: payMod.isPaid() };
+    });
+    for (const l of res.levels) {
+      assert.equal(l.ok, true, `Paid user must have Level ${l.lv} unlocked`);
+    }
+    for (const g of res.gamesResult) {
+      assert.equal(g.ok, true, `Paid user must have Game ${g.g} unlocked`);
+    }
+  });
 } finally {
   await browser.close();
   server.close();

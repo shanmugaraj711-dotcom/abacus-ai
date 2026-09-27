@@ -657,13 +657,13 @@ async function main(req,env){
       // Read before for audit
       let oldCfg=null;
       try{oldCfg=await getRemoteConfig(env);}catch{}
-      // SECURITY: price (freeLevels) can only be 3 (fixed payment model: levels 1-3 free, 4-15 paid).
+      // SECURITY: price (freeLevels) can only be 2 (fixed payment model: levels 1-2 free, 3-15 paid).
       // The ₹499 price is enforced in code; freeLevels is a display only parameter.
       // We strip freeLevels from remote config pushes to prevent confusion — price is fixed.
       const {freeLevels:_stripped,...safeCfg}=newCfg;
       await putRemoteConfig(env,safeCfg,user.uid);
       await writeAudit(env,{action:"remote_config_updated",target:"_config/remote",before:oldCfg,after:safeCfg,uid:user.uid});
-      return json({ok:true,note:"freeLevels is fixed at 3 (price model: 1-3 free, 4-15 paid at ₹499). It was stripped from this push."});
+      return json({ok:true,note:"freeLevels is fixed at 2 (price model: 1-2 free, 3-15 paid at ₹499). It was stripped from this push."});
     }
 
     // GET /api/admin/rewards-config
