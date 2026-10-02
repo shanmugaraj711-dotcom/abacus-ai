@@ -18,7 +18,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
-  let reqPath = url.pathname.replace(/^\\/+/, '') || 'index.html';
+  let reqPath = url.pathname.replace(/^\/+/, '') || 'index.html';
   const filePath = path.join(ROOT_DIR, reqPath);
   if (!filePath.startsWith(ROOT_DIR) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     res.writeHead(404); return res.end('Not found');
@@ -98,7 +98,7 @@ try {
     await page.waitForSelector('#heroSignInCta');
     assert.equal(await page.getAttribute('#heroSignInCta','href'),'#/home');
     await page.click('#heroSignInCta');
-    await page.waitForURL(/#\\/home$/);
+    await page.waitForURL(/#\/home$/);
     await page.waitForSelector('.view.welcome');
     assert.ok(await page.isVisible('#authGateGoogleBtn'));
     assert.ok(!page.url().includes('auth-ui/sign-in.html'));
@@ -108,19 +108,31 @@ try {
   await test('6. No Hindi onboarding option and old Hindi state normalizes to English', async () => {
     const page=await browser.newPage();
     await page.addInitScript(()=>{
-      localStorage.setItem('abacus-kids-v3',JSON.stringify({v:3,profile:{name:'Child',lang:'hi',voiceLang:'hi'},settings:{sound:false,voice:false}}));
+      localStorage.clear();sessionStorage.clear();
     });
     await page.goto(`${BASE_URL}/index.html#/home`);
+    await page.waitForSelector('#authGateGoogleBtn');
+    await page.evaluate(() => {
+      document.getElementById('authGateStep').style.display = 'none';
+      document.getElementById('welcomeProfileStep').style.display = 'block';
+    });
     const langs=await page.locator('[data-lang-choice]').allTextContents();
     assert.deepEqual(langs.map(x=>x.trim()),['English','தமிழ்']);
+    await page.close();
+
     // The loaded in-memory profile is normalized even when an older save contains Hindi.
-    const normalized=await page.evaluate(async()=>{
+    const page2 = await browser.newPage();
+    await page2.addInitScript(() => {
+      localStorage.setItem('abacus-kids-v3',JSON.stringify({v:3,profile:{name:'Child',lang:'hi',voiceLang:'hi'},settings:{sound:false,voice:false}}));
+    });
+    await page2.goto(`${BASE_URL}/index.html#/home`);
+    const normalized=await page2.evaluate(async()=>{
       const mod=await import('/js/store.js');
       return {lang:mod.state.profile?.lang,voiceLang:mod.state.profile?.voiceLang};
     });
     assert.equal(normalized.lang,'en');
     assert.equal(normalized.voiceLang,'en');
-    await page.close();
+    await page2.close();
   });
 
   await test('7. Duplicate standalone sign-in page is absent from the product', async () => {

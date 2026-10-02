@@ -459,7 +459,7 @@ try {
     const signinBtn = page.locator('#signin-starter-btn');
     assert.ok(await signinBtn.isVisible(), 'Sign-in CTA visible when unauthenticated');
     const href = await signinBtn.getAttribute('href');
-    assert.ok(href.includes('return=../#starter'), 'Must return to #starter after sign-in');
+    assert.equal(href, '#/home', 'Must link to #/home for canonical in-app auth');
 
     await page.close();
   });
@@ -476,7 +476,7 @@ try {
     await desktopPage.close();
 
     // Mobile Viewport (390x844)
-    const mobilePage = await setupPage(browser, { viewport: { width: 390, height: 844 }, isAuth: false });
+    const mobilePage = await setupPage(browser, { viewport: { width: 390, height: 844 }, isAuth: false, profileState: { profile: null } });
     await mobilePage.goto(`${BASE_URL}/#/starter`);
     await mobilePage.waitForSelector('.tier-comparison');
 

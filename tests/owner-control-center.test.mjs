@@ -985,10 +985,17 @@ for (const vp of VIEWPORTS) {
     const p = await ctx.newPage();
     try {
       await p.goto(`${BASE}/#/home`);
-      await p.waitForSelector('#kidName', { timeout: 8000 });
+      await p.waitForSelector('#authGateGoogleBtn', { timeout: 8000 });
       const scrollW = await p.evaluate(() => document.documentElement.scrollWidth);
       const innerW = await p.evaluate(() => window.innerWidth);
       assert.ok(scrollW <= innerW + 1, `Horizontal overflow at ${vp.width}px: scrollWidth=${scrollW} innerWidth=${innerW}`);
+      await p.evaluate(() => {
+        document.getElementById('authGateStep').style.display = 'none';
+        document.getElementById('welcomeProfileStep').style.display = 'block';
+      });
+      await p.waitForSelector('#kidName', { timeout: 8000 });
+      const scrollW2 = await p.evaluate(() => document.documentElement.scrollWidth);
+      assert.ok(scrollW2 <= innerW + 1, `Horizontal overflow on profile step at ${vp.width}px: scrollWidth=${scrollW2} innerWidth=${innerW}`);
     } finally { await ctx.close(); }
   });
 }

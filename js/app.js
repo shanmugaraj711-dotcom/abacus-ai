@@ -293,7 +293,6 @@ function welcome() {
   const showGate = !authMode;
   const draft = {
     name: state.profile?.name || '',
-    age: state.profile?.age || '6-8',
     avatar: state.profile?.avatar || '🦁',
     experience: state.profile?.experience || 'new',
     lang: state.profile?.lang || (lang() === 'ta' ? 'ta' : 'en'),
@@ -328,18 +327,10 @@ function welcome() {
 
     <div id="emailAuthStep" style="display:none;padding:18px 16px;"></div>
 
-    <div id="welcomeProfileStep">
+    <div id="welcomeProfileStep" ${showGate ? 'style="display:none;"' : ''}>
       <section class="card form">
         <label for="kidName">What's your name?</label>
         <input id="kidName" maxlength="18" autocomplete="off" placeholder="Type your name" value="${esc(draft.name)}">
-
-        <label>How old are you?</label>
-        <div class="age-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
-          <button type="button" class="choice ${draft.age === '3-5' ? 'on' : ''}" data-age="3-5"><b>3–5</b></button>
-          <button type="button" class="choice ${draft.age === '6-8' || !draft.age ? 'on' : ''}" data-age="6-8"><b>6–8</b></button>
-          <button type="button" class="choice ${draft.age === '8-10' ? 'on' : ''}" data-age="8-10"><b>8–10</b></button>
-          <button type="button" class="choice ${draft.age === '10+' ? 'on' : ''}" data-age="10+"><b>10+</b></button>
-        </div>
 
         <label>Pick your animal buddy</label>
         <div class="avatars">${AVATARS.map(a => `<button type="button" class="avatar ${a === draft.avatar ? 'on' : ''}" data-avatar="${a}" aria-label="Avatar ${a}">${a}</button>`).join('')}</div>
@@ -350,22 +341,10 @@ function welcome() {
           <button type="button" class="choice ${draft.experience === 'known' ? 'on' : ''}" data-exp="known"><b>🚀 I know it</b><small>Quick check, then skip ahead</small></button>
         </div>
 
-        <label>Language & Speech</label>
-        <div class="three" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px;">
+        <label>Language</label>
+        <div class="two" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px;">
           <button type="button" class="choice ${draft.lang === 'en' ? 'on' : ''}" data-lang-choice="en"><b>English</b></button>
           <button type="button" class="choice ${draft.lang === 'ta' ? 'on' : ''}" data-lang-choice="ta"><b>தமிழ்</b></button>
-        </div>
-
-        <label ${isOn('tamil') ? '' : 'hidden'}>What should Babi speak?</label>
-        <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
-          <button type="button" class="choice ${draft.voiceLang === 'en' ? 'on' : ''}" data-voice-lang="en"><b>English audio</b></button>
-          <button type="button" class="choice ${draft.voiceLang === 'ta' ? 'on' : ''}" data-voice-lang="ta"><b>Tamil audio</b></button>
-        </div>
-
-        <label ${isOn('tamil') ? '' : 'hidden'}>What should the screen show?</label>
-        <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
-          <button type="button" class="choice ${draft.lang === 'en' ? 'on' : ''}" data-content-lang="en"><b>English content</b></button>
-          <button type="button" class="choice ${draft.lang === 'ta' ? 'on' : ''}" data-content-lang="ta"><b>Tamil content</b></button>
         </div>
 
         <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will stay quiet until a Tamil voice is available.</p>
@@ -438,10 +417,8 @@ function welcome() {
   }
 
   let exp = draft.experience || 'new';
-  let chosenAge = draft.age || '6-8';
   const ready = () => { $('#start').disabled = !($('#kidName').value.trim() && exp); };
   $('#kidName').addEventListener('input', ready);
-  $$('[data-age]').forEach(b => b.onclick = () => { chosenAge = b.dataset.age; $$('[data-age]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); });
   $$('[data-avatar]').forEach(b => b.onclick = () => { draft.avatar = b.dataset.avatar; $$('[data-avatar]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); });
   $$('[data-exp]').forEach(b => b.onclick = () => { exp = b.dataset.exp; $$('[data-exp]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); ready(); });
   $$('[data-lang-choice]').forEach(b => b.onclick = () => {
@@ -449,17 +426,8 @@ function welcome() {
     draft.lang = l;
     draft.voiceLang = l;
     $$('[data-lang-choice]').forEach(x => x.classList.toggle('on', x === b));
+    state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang };
     sfx.tap();
-  });
-  $$('[data-voice-lang]').forEach(b => b.onclick = () => {
-    draft.voiceLang = b.dataset.voiceLang; $$('[data-voice-lang]').forEach(x => x.classList.toggle('on', x === b));
-    state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
-    const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
-    say(t(draft.voiceLang || draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
-  });
-  $$('[data-content-lang]').forEach(b => b.onclick = () => {
-    draft.lang = b.dataset.contentLang; $$('[data-content-lang]').forEach(x => x.classList.toggle('on', x === b));
-    state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
     const note = $('#langNote'); if (note) note.hidden = !(draft.voiceLang === 'ta' && !hasVoice('ta'));
     say(t(draft.voiceLang || draft.lang, 'welcomeKid', $('#kidName').value.trim() || (draft.lang === 'ta' ? 'நண்பா' : 'friend')));
   });
@@ -471,7 +439,6 @@ function welcome() {
     }
     state.profile = {
       name: $('#kidName').value.trim().slice(0, 18),
-      age: chosenAge || '6-8',
       avatar: draft.avatar,
       experience: exp,
       lang: draft.lang,
