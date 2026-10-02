@@ -29,7 +29,7 @@ function load() {
     return base;
   }
   // Deep-merge so new fields added later never crash old saves.
-  const profile = data.profile ? { ...data.profile, voiceLang: data.profile.voiceLang === 'ta' ? 'ta' : (data.profile.voiceLang === 'en' ? 'en' : (data.profile.lang === 'ta' ? 'ta' : 'en')) } : null;
+  const profile = data.profile ? { ...data.profile, lang: data.profile.lang === 'ta' ? 'ta' : 'en', voiceLang: data.profile.voiceLang === 'ta' ? 'ta' : (data.profile.voiceLang === 'en' ? 'en' : (data.profile.lang === 'ta' ? 'ta' : 'en')) } : null;
   return { ...base, ...data, profile, settings: { ...base.settings, ...data.settings }, stats: { ...base.stats, ...data.stats, byRule: { ...base.stats.byRule, ...(data.stats?.byRule || {}) } }, games: { ...base.games, ...data.games }, exams: Array.isArray(data.exams) ? data.exams : [], stickersSeen: Array.isArray(data.stickersSeen) ? data.stickersSeen : [] };
 }
 

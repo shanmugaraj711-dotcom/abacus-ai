@@ -119,9 +119,19 @@ export function hasVoice(lang) {
 
 let last = { text: '', at: 0 };
 /** Speak one line. Returns a Promise that resolves when speech completes or fails. */
-export function say(text, lang = 'en') {
+export async function say(text, lang = 'en') {
   if (!state.settings.voice || !('speechSynthesis' in window) || !text) {
-    return Promise.resolve();
+    return;
+  }
+  // Android Chrome can return an empty voice list on the first call. Wait briefly
+  // for the browser voice registry before selecting a language-specific voice.
+  if (!speechSynthesis.getVoices().length) {
+    await new Promise(resolve => {
+      let settled = false;
+      const finish = () => { if (!settled) { settled = true; try { speechSynthesis.removeEventListener('voiceschanged', finish); } catch {} resolve(); } };
+      try { speechSynthesis.addEventListener('voiceschanged', finish, { once: true }); } catch {}
+      setTimeout(finish, 800);
+    });
   }
   const now = Date.now();
   if (text === last.text && now - last.at < 1200) {

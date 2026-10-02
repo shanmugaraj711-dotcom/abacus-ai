@@ -485,8 +485,8 @@ try {
     assert.ok(scrollWidth <= clientWidth + 2, `No mobile horizontal overflow: ${scrollWidth} <= ${clientWidth}`);
 
     // Check auth page at mobile
-    await mobilePage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
-    await mobilePage.waitForSelector('#phase1-google-btn');
+    await mobilePage.goto(`${BASE_URL}/index.html#/home`);
+    await mobilePage.waitForSelector('#authGateGoogleBtn');
     scrollWidth = await mobilePage.evaluate(() => document.documentElement.scrollWidth);
     clientWidth = await mobilePage.evaluate(() => document.documentElement.clientWidth);
     assert.ok(scrollWidth <= clientWidth + 2, `No mobile auth horizontal overflow: ${scrollWidth} <= ${clientWidth}`);
