@@ -128,7 +128,7 @@ function starter() {
           <a class="btn wide" href="#/unlock">View Lifetime Plan (₹499)</a>
         </div>` : `
         <div class="stack">
-          <a class="btn primary wide" id="signin-starter-btn" href="./auth-ui/sign-in.html?return=../#starter">${isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to get Starter (₹99)'}</a>
+          <a class="btn primary wide" id="signin-starter-btn" href="#/home">${isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to get Starter (₹99)'}</a>
           <a class="btn wide" href="#/unlock">View Lifetime Plan (₹499)</a>
         </div>`}
       <p class="muted tiny center" id="starter-status"></p>
@@ -145,7 +145,7 @@ function starter() {
         await buyStarter({
           onSuccess: () => {
             if (msg) msg.textContent = isTa ? 'கட்டணம் சரிபார்க்கப்பட்டது ✓ ஸ்டார்ட்டர் திறக்கப்பட்டது.' : 'Payment verified ✓ Starter tier is active.';
-            setTimeout(() => go('#/practice'), 700);
+            setTimeout(() => go(state.profile?.name ? '#/practice' : '#/home'), 700);
           },
           onError: err => {
             if (msg) msg.textContent = formatPaymentError(err?.message);
@@ -190,7 +190,7 @@ function unlock() {
           </div>
           <button class="btn primary wide" id="buy">Unlock for ₹499</button>
         </div>` : `
-        <div class="stack"><a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a></div>`}
+        <div class="stack"><a class="btn primary wide" id="signin-btn" href="#/home">${ctaText}</a></div>`}
       <p class="muted tiny center" id="coupon-status"></p>
       <p class="muted tiny center" id="pay-status"></p>
       <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
@@ -248,7 +248,7 @@ function unlock() {
         onSuccess: () => { if(msg)msg.textContent=isTa?'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 3–15 திறக்கப்பட்டன.':'Payment verified ✓ Levels 3–15 are unlocked.'; },
         onError: e => { if(msg)msg.textContent=formatPaymentError(e?.message); },
       });
-      if(isPaid()) setTimeout(()=>go('#/practice'),700);
+      if(isPaid()) setTimeout(()=>go(state.profile?.name ? '#/practice' : '#/home'),700);
     }catch(e){
       if(msg)msg.textContent=formatPaymentError(e?.message);
       buy.disabled=false;
@@ -351,10 +351,9 @@ function welcome() {
         </div>
 
         <label>Language & Speech</label>
-        <div class="three" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
+        <div class="three" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px;">
           <button type="button" class="choice ${draft.lang === 'en' ? 'on' : ''}" data-lang-choice="en"><b>English</b></button>
           <button type="button" class="choice ${draft.lang === 'ta' ? 'on' : ''}" data-lang-choice="ta"><b>தமிழ்</b></button>
-          <button type="button" class="choice ${draft.lang === 'hi' ? 'on' : ''}" data-lang-choice="hi"><b>हिन्दी</b></button>
         </div>
 
         <label ${isOn('tamil') ? '' : 'hidden'}>What should Babi speak?</label>
