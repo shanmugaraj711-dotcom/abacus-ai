@@ -113,9 +113,13 @@ try {
     await page.goto(`${BASE_URL}/index.html#/home`);
     const langs=await page.locator('[data-lang-choice]').allTextContents();
     assert.deepEqual(langs.map(x=>x.trim()),['English','தமிழ்']);
-    const stored=await page.evaluate(()=>JSON.parse(localStorage.getItem('abacus-kids-v3')).profile);
-    assert.equal(stored.lang,'en');
-    assert.equal(stored.voiceLang,'en');
+    // The loaded in-memory profile is normalized even when an older save contains Hindi.
+    const normalized=await page.evaluate(async()=>{
+      const mod=await import('/js/store.js');
+      return {lang:mod.state.profile?.lang,voiceLang:mod.state.profile?.voiceLang};
+    });
+    assert.equal(normalized.lang,'en');
+    assert.equal(normalized.voiceLang,'en');
     await page.close();
   });
 
