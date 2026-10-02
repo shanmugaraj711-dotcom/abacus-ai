@@ -12,6 +12,9 @@
 const PRICE_RUPEES = 499;
 const PRICE = 49900;
 const PRODUCT = "abacus-buddy";
+const STARTER_PRICE_RUPEES = 99;
+const STARTER_PRICE_PAISE = 9900;
+const PRODUCT_STARTER = "abacus-buddy-starter";
 const COUPONS_ENABLED = true;
 
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","access-control-allow-origin":"*","access-control-allow-headers":"content-type,authorization","access-control-allow-methods":"GET,POST,OPTIONS"}})}
@@ -79,8 +82,7 @@ async function firestorePatch(env,collection,docId,fields){
 }
 
 function normalizeCouponCode(raw){return String(raw||"").trim().toUpperCase();}
-function couponFinalPrice(coupon){
-  const base=PRICE_RUPEES;
+function couponFinalPrice(coupon, base = PRICE_RUPEES){
   if(!coupon)return {basePrice:base,discountApplied:0,finalPrice:base};
   const type=String(coupon.discountType||"").toLowerCase(), value=Number(coupon.discountValue);
   if(!Number.isFinite(value)||value<0)throw Error("Invalid coupon discount");
@@ -310,13 +312,46 @@ async function getEntitlement(env,uid){
   const doc=await firestoreGet(env,"entitlements",uid);
   if(!doc)return null;
   const f=doc.fields||{};
-  return f?.paid?.booleanValue===true?{paid:true,orderId:fsVal(f.orderId),paidAt:fsVal(f.paidAt),paymentId:fsVal(f.paymentId)}:null;
+  if(f?.paid?.booleanValue!==true)return null;
+  const tier=fsVal(f.tier)||"lifetime";
+  const expiresAt=fsVal(f.expiresAt)||null;
+  if(tier==="starter"&&expiresAt){
+    const expTime=new Date(expiresAt).getTime();
+    if(!Number.isNaN(expTime)&&Date.now()>expTime){
+      return {paid:false,tier:"free",expired:true};
+    }
+  }
+  return {
+    paid:true,
+    tier,
+    product:fsVal(f.product)||PRODUCT,
+    expiresAt,
+    maxLevel:Number(fsVal(f.maxLevel))||(tier==="starter"?3:15),
+    games:f.games?.arrayValue?.values ? f.games.arrayValue.values.map(v=>fsVal(v)) : (tier==="starter"?["race","mystery","match"]:["race","mystery","match","flash","speedRead","friendDash","ladder"]),
+    orderId:fsVal(f.orderId),
+    paidAt:fsVal(f.paidAt),
+    paymentId:fsVal(f.paymentId)
+  };
 }
 async function putEntitlement(env,uid,data){
+  const tier=data.tier||(data.product===PRODUCT_STARTER?"starter":"lifetime");
+  const isStarter=tier==="starter";
+  const expiresAt=isStarter?(data.expiresAt||new Date(Date.now()+30*24*60*60*1000).toISOString()):null;
+  const games=isStarter?["race","mystery","match"]:["race","mystery","match","flash","speedRead","friendDash","ladder"];
+  const maxLevel=isStarter?3:15;
+  const product=isStarter?PRODUCT_STARTER:PRODUCT;
+
   const fields={
-    paid:fsField(true),product:fsField(PRODUCT),
-    orderId:fsField(data.orderId||""),paymentId:fsField(data.paymentId||""),
-    paidAt:fsField(new Date().toISOString()),uid:fsField(uid),
+    paid:fsField(true),
+    product:fsField(product),
+    tier:fsField(tier),
+    expiresAt:fsField(expiresAt),
+    maxLevel:fsField(maxLevel),
+    games:fsField(games),
+    orderId:fsField(data.orderId||""),
+    paymentId:fsField(data.paymentId||""),
+    paidAt:fsField(new Date().toISOString()),
+    uid:fsField(uid),
   };
   await firestorePatch(env,"entitlements",uid,fields);
   return true;
@@ -386,35 +421,57 @@ async function main(req,env){
     const user=await bearer(req,env); let b={}; try{b=await req.json();}catch{}
     const code=normalizeCouponCode(b?.couponCode);
     if(!code)return json({error:"Enter a coupon code."},400);
+    const reqTier=String(b?.tier||"").toLowerCase()==="starter"?"starter":"lifetime";
+    const basePrice=reqTier==="starter"?STARTER_PRICE_RUPEES:PRICE_RUPEES;
     try{
-      const coupon=validateCouponDoc(await getCoupon(env,code)), pricing=couponFinalPrice(coupon);
-      return json({valid:true,couponCode:coupon.code,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,finalPrice:pricing.finalPrice});
+      const coupon=validateCouponDoc(await getCoupon(env,code)), pricing=couponFinalPrice(coupon,basePrice);
+      return json({valid:true,couponCode:coupon.code,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,finalPrice:pricing.finalPrice,tier:reqTier});
     }catch(e){return json({valid:false,error:e.message||"Invalid coupon"},400);}
   }
 
   // ── /api/create-order ────────────────────────────────────────────────────────
   if(path==="/api/create-order"&&req.method==="POST"){
     const user=await bearer(req,env);
-    const existing=await getEntitlement(env,user.uid);
-    if(existing?.paid){
-      await writeAudit(env,{action:"create_order_skipped",target:`entitlement/${user.uid}`,after:{paid:true},uid:user.uid});
-      return json({paid:true});
-    }
     let body={}; try{body=await req.json();}catch{}
+    const reqTier=String(body?.tier||"").toLowerCase()==="starter"?"starter":"lifetime";
+    const existing=await getEntitlement(env,user.uid);
+
+    if(existing?.paid&&existing?.tier==="lifetime"){
+      await writeAudit(env,{action:"create_order_skipped",target:`entitlement/${user.uid}`,after:{paid:true,tier:"lifetime"},uid:user.uid});
+      return json({paid:true,tier:"lifetime"});
+    }
+    if(reqTier==="starter"&&existing?.paid&&existing?.tier==="starter"){
+      await writeAudit(env,{action:"create_order_skipped",target:`entitlement/${user.uid}`,after:{paid:true,tier:"starter"},uid:user.uid});
+      return json({paid:true,tier:"starter"});
+    }
+
+    const isStarter=reqTier==="starter";
+    const basePrice=isStarter?STARTER_PRICE_RUPEES:PRICE_RUPEES;
+    const prod=isStarter?PRODUCT_STARTER:PRODUCT;
+
     const couponCode=normalizeCouponCode(body?.couponCode);
-    let coupon=null, pricing=couponFinalPrice(null);
-    if(couponCode){try{coupon=validateCouponDoc(await getCoupon(env,couponCode));pricing=couponFinalPrice(coupon);}catch(e){return json({error:e.message||"Invalid coupon"},400);}}
-    const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:pricing.finalPrice*100,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:PRODUCT,couponCode:coupon?.code||""}})});
-    await firestorePatch(env,"orders",order.id,{amount:fsField(pricing.finalPrice*100),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
-    await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,couponCode:coupon?.code||null,uid:user.uid},uid:user.uid});
-    return json({orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,couponCode:coupon?.code||null,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
+    let coupon=null, pricing=couponFinalPrice(null,basePrice);
+    if(couponCode){
+      try{
+        coupon=validateCouponDoc(await getCoupon(env,couponCode));
+        pricing=couponFinalPrice(coupon,basePrice);
+      }catch(e){return json({error:e.message||"Invalid coupon"},400);}
+    }
+    const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:pricing.finalPrice*100,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:prod,tier:reqTier,couponCode:coupon?.code||""}})});
+    await firestorePatch(env,"orders",order.id,{amount:fsField(pricing.finalPrice*100),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),tier:fsField(reqTier),product:fsField(prod),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
+    await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,tier:reqTier,product:prod,couponCode:coupon?.code||null,uid:user.uid},uid:user.uid});
+    return json({orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,couponCode:coupon?.code||null,tier:reqTier,product:prod,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
   }
 
   // ── /api/verify-payment ──────────────────────────────────────────────────────
   if(path==="/api/verify-payment"&&req.method==="POST"){
     const user=await bearer(req,env), b=await req.json();
     const existing=await getEntitlement(env,user.uid);
-    if(existing?.paid){return json({paid:true});} // idempotent
+    const recorded=await firestoreGet(env,"orders",String(b.razorpay_order_id)), rf=recorded?.fields||{};
+    const orderTier=String(fsVal(rf.tier)||"lifetime").toLowerCase();
+    if(existing?.paid && !(existing?.tier === "starter" && orderTier === "lifetime")){
+      if(existing?.paid){return json({paid:true});} // idempotent
+    }
     const payload=String(b.razorpay_order_id)+"|"+String(b.razorpay_payment_id);
     const keySecret=String(env.RAZORPAY_KEY_SECRET||"").trim();
     const sig=(await hmac(keySecret,payload)).toLowerCase(), gotSig=String(b.razorpay_signature||"").trim().toLowerCase();
@@ -422,14 +479,14 @@ async function main(req,env){
       await writeAudit(env,{action:"payment_sig_invalid",target:`payment/${b.razorpay_payment_id}`,before:{orderId:b.razorpay_order_id},uid:user.uid});
       return json({error:"Invalid payment signature"},400);
     }
-    const recorded=await firestoreGet(env,"orders",String(b.razorpay_order_id)), rf=recorded?.fields||{};
     const expectedAmount=Number(fsVal(rf.amount)), expectedUid=String(fsVal(rf.uid)||""), recordedStatus=String(fsVal(rf.status)||"");
     if(!recorded||!Number.isFinite(expectedAmount)||expectedAmount<1||expectedUid!==user.uid||!["created","paid"].includes(recordedStatus))return json({error:"Order validation failed"},400);
     const order=await razor(env,"/orders/"+encodeURIComponent(b.razorpay_order_id));
-    if(Number(order.amount)!==expectedAmount||order.currency!=="INR"||order.notes?.uid!==user.uid||order.notes?.product!==PRODUCT)return json({error:"Order validation failed"},400);
+    const expectedProduct=fsVal(rf.product)||(orderTier==="starter"?PRODUCT_STARTER:PRODUCT);
+    if(Number(order.amount)!==expectedAmount||order.currency!=="INR"||order.notes?.uid!==user.uid||order.notes?.product!==expectedProduct)return json({error:"Order validation failed"},400);
     const payment=await razor(env,"/payments/"+encodeURIComponent(b.razorpay_payment_id));
     if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==expectedAmount||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
-    await putEntitlement(env,user.uid,{orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id});
+    await putEntitlement(env,user.uid,{orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,tier:orderTier,product:expectedProduct});
     const orderWasCreated=recordedStatus==="created";
     const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",String(b.razorpay_order_id),{status:fsField("paid")},recorded.updateTime) : true;
     if(orderWasCreated&&!orderMarkedPaid){
@@ -443,15 +500,23 @@ async function main(req,env){
         await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
       }
     }
-    await writeAudit(env,{action:"payment_verified",target:`entitlement/${user.uid}`,before:{paid:false},after:{paid:true,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,amount:expectedAmount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid:user.uid});
-    return json({paid:true});
+    await writeAudit(env,{action:"payment_verified",target:`entitlement/${user.uid}`,before:{paid:false},after:{paid:true,tier:orderTier,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,amount:expectedAmount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid:user.uid});
+    return json({paid:true,tier:orderTier});
   }
 
   // ── /api/user-status ─────────────────────────────────────────────────────────
   if(path==="/api/user-status"&&req.method==="GET"){
     const user=await bearer(req,env);
     const ent=await getEntitlement(env,user.uid);
-    return json({paid:!!ent,uid:user.uid,paidAt:ent?.paidAt||null});
+    return json({
+      paid:!!ent?.paid,
+      tier:ent?.tier||(ent?.paid?"lifetime":"free"),
+      expiresAt:ent?.expiresAt||null,
+      maxLevel:ent?.maxLevel||(ent?.paid?15:1),
+      games:ent?.games||(ent?.paid?["race","mystery","match","flash","speedRead","friendDash","ladder"]:["race"]),
+      uid:user.uid,
+      paidAt:ent?.paidAt||null
+    });
   }
 
   // ── /api/visit (anonymous visitor tracking; no IP, device, browser, or location tracking) ─
@@ -511,10 +576,12 @@ async function main(req,env){
       const orderId=String(pay?.order_id||ord?.id||""), recorded=orderId?await firestoreGet(env,"orders",orderId):null, rf=recorded?.fields||{};
       const expectedAmount=Number(fsVal(rf.amount)), amount=Number(pay?.amount??ord?.amount), currency=pay?.currency??ord?.currency;
       const uid=String(fsVal(rf.uid)||pay?.notes?.uid||ord?.notes?.uid||""), product=pay?.notes?.product??ord?.notes?.product;
-      if(recorded&&Number.isFinite(expectedAmount)&&amount===expectedAmount&&currency==="INR"&&uid&&product===PRODUCT){
+      const orderTier=String(fsVal(rf.tier)||pay?.notes?.tier||ord?.notes?.tier||(product===PRODUCT_STARTER?"starter":"lifetime")).toLowerCase();
+      const isSupportedProduct=product===PRODUCT||product===PRODUCT_STARTER||!product;
+      if(recorded&&Number.isFinite(expectedAmount)&&amount===expectedAmount&&currency==="INR"&&uid&&isSupportedProduct){
         const existing=await getEntitlement(env,uid);
-        if(!existing?.paid){
-          await putEntitlement(env,uid,{orderId,paymentId:pay?.id||""});
+        if(!existing?.paid||(existing?.tier==="starter"&&orderTier==="lifetime")){
+          await putEntitlement(env,uid,{orderId,paymentId:pay?.id||"",tier:orderTier});
           const orderWasCreated=String(fsVal(rf.status)||"")==="created";
           const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;
           if(orderWasCreated&&orderMarkedPaid){
@@ -524,7 +591,7 @@ async function main(req,env){
               await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
             }
           }
-          await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:false},after:{paid:true,orderId,paymentId:pay?.id||"",event:e.event,amount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid});
+          await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:existing?.paid||false},after:{paid:true,tier:orderTier,orderId,paymentId:pay?.id||"",event:e.event,amount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid});
         }
       }
     }

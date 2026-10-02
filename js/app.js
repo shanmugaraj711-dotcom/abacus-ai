@@ -6,12 +6,15 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
+import { refreshEntitlement, isPaid, buyUnlock, currentTier, buyStarter } from './payments.js';
+import { TIERS, TIER_CONFIG } from './tiers.js';
 import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
 import {
   isGuestUser,
   canAccessLevel,
+  canAccessLesson,
   canAccessGame,
+  canAccessFreePlay,
   canGuestAccessLevel,
   canGuestAccessGame,
   canGuestAccessFeature,
@@ -47,9 +50,99 @@ const STICKERS = [
   { id: 'exam', e: '📝', name: 'Test Passed', how: 'Pass any test or exam', ok: () => state.exams.some(r => r.passed) },
 ];
 const earned = () => STICKERS.filter(x => x.ok());
-const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 2));
-const playableMax = () => isPaid() ? MAX_LEVEL : freeMax();
+const freeMax = () => 1;
+const playableMax = () => TIER_CONFIG[currentTier()]?.maxLevel ?? 1;
 const levelAllowed = id => id >= 1 && canAccessLevel(id);
+
+function starter() {
+  const isTa = lang() === 'ta';
+  const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
+  shell({ title: isTa ? 'ஸ்டார்ட்டர் திட்டம் — ₹99' : 'Starter Tier — ₹99', back: '#/home', body: `
+    <section class="card intro">
+      ${babi('happy', 'big bob')}
+      <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி ஸ்டார்ட்டர்' : 'Abacus Buddy Starter Tier'}</p>
+      <h2 class="display">${isTa ? '30 நாட்களுக்கு ₹99 மட்டும்' : '₹99 for 30 Days'}</h2>
+      <p class="lead">${isTa ? 'லெவல்கள் 1–3, பாடங்கள் 1–7, மற்றும் 3 விளையாட்டுகள்.' : 'Levels 1–3, Lessons 1–7, 3 Games & Free Play.'}</p>
+      <div class="tier-comparison" style="margin:1rem 0;text-align:left;font-size:0.9rem;border:1px solid var(--border,#ddd);border-radius:8px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:var(--card-subtle,#f5f5f5);">
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:left;">Feature</th>
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:center;">Free</th>
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:center;background:#e8f4fd;">Starter (₹99)</th>
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:center;">Lifetime (₹499)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Practice Levels</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Level 1 only</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>Levels 1–3</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Levels 1–15</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Learn Lessons</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Lessons 1–6</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>Lessons 1–7</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Lessons 1–11</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Bead Games</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">1 (Race)</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>3 (Race, Mystery, Match)</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">All 7 Games</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Free Play</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">🔒 Locked</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>✓ Unlocked</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">✓ Unlocked</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;"><b>Access Period</b></td>
+              <td style="padding:8px;text-align:center;">Always Free</td>
+              <td style="padding:8px;text-align:center;background:#f9fcff;"><b>30 Days</b></td>
+              <td style="padding:8px;text-align:center;">Permanent</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      ${signedIn ? `
+        <div class="stack">
+          <button class="btn primary wide" id="buy-starter">Pay ₹99 for Starter (30 Days)</button>
+          <a class="btn wide" href="#/unlock">View Lifetime Plan (₹499)</a>
+        </div>` : `
+        <div class="stack">
+          <a class="btn primary wide" id="signin-starter-btn" href="./auth-ui/sign-in.html?return=../#starter">${isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to get Starter (₹99)'}</a>
+          <a class="btn wide" href="#/unlock">View Lifetime Plan (₹499)</a>
+        </div>`}
+      <p class="muted tiny center" id="starter-status"></p>
+      <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
+    </section>` });
+
+  const buyStarterBtn = $('#buy-starter');
+  if (buyStarterBtn) {
+    buyStarterBtn.onclick = async () => {
+      buyStarterBtn.disabled = true;
+      const msg = $('#starter-status');
+      try {
+        await buyStarter({
+          onSuccess: () => {
+            if (msg) msg.textContent = isTa ? 'கட்டணம் சரிபார்க்கப்பட்டது ✓ ஸ்டார்ட்டர் திறக்கப்பட்டது.' : 'Payment verified ✓ Starter tier is active.';
+            setTimeout(() => go('#/practice'), 700);
+          },
+          onError: err => {
+            if (msg) msg.textContent = err.message;
+            buyStarterBtn.disabled = false;
+          }
+        });
+      } catch (err) {
+        if (msg) msg.textContent = err.message;
+        buyStarterBtn.disabled = false;
+      }
+    };
+  }
+}
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
@@ -63,10 +156,15 @@ function unlock() {
       <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>மட்டும்.' : '<span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>'}</p>
       <p class="muted">${isTa ? 'சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
       <ul class="muted">
-        <li>${isTa ? 'லெவல்கள் 1–2 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Levels 1–2 and starter games stay free.'}</li>
-        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 3–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 3–15 and all games unlock permanently for this account.'}</li>
+        <li>${isTa ? 'லெவல் 1 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Level 1 and starter game stay free.'}</li>
+        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 1–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 1–15 and all games unlock permanently for this account.'}</li>
         <li>${isTa ? 'Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்.' : 'Payment is processed securely by Razorpay.'}</li>
       </ul>
+      <div style="margin: 1rem 0; padding: 12px; border: 1px solid var(--border,#e0e0e0); border-radius: 8px; background: var(--card-subtle,#fafafa); text-align: left;">
+        <p style="margin:0 0 4px; font-weight:bold;">${isTa ? 'குறைந்த விலையில் தொடங்க வேண்டுமா?' : 'Looking for a lighter option?'}</p>
+        <p class="muted small" style="margin:0 0 8px;">${isTa ? '₹99 செலுத்தி 30 நாட்களுக்கு லெவல்கள் 1–3, பாடங்கள் 1–7 & 3 விளையாட்டுகளைப் பெறுங்கள்.' : 'Get 30-day Starter access for ₹99 (Levels 1–3, Lessons 1–7, 3 games & Free Play).'}</p>
+        <a class="btn wide" href="#/starter" style="display:block;text-align:center;">${isTa ? '₹99 ஸ்டார்ட்டரைப் பார்' : 'View Starter Tier (₹99)'}</a>
+      </div>
       ${signedIn ? `
         <div class="stack">
           <label for="couponCode"><b>${isTa ? 'கூப்பன் குறியீடு' : 'Coupon code'}</b></label>
@@ -74,7 +172,7 @@ function unlock() {
             <input id="couponCode" maxlength="40" autocomplete="off" placeholder="EARLYBIRD" style="flex:1;">
             <button class="btn" id="applyCoupon" type="button">Apply</button>
           </div>
-          <button class="btn primary wide" id="buy">Pay ₹499 & Unlock</button>
+          <button class="btn primary wide" id="buy">Unlock for ₹499</button>
         </div>` : `
         <div class="stack"><a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a></div>`}
       <p class="muted tiny center" id="coupon-status"></p>
@@ -101,7 +199,7 @@ function unlock() {
     if(basePriceEl) basePriceEl.innerHTML = final < base ? `<s>₹${base}</s> ` : '';
     if(finalPriceEl) finalPriceEl.textContent = `₹${final}`;
     if(discountEl) discountEl.textContent = discount > 0 ? `(${isTa ? 'தள்ளுபடி' : 'Save'} ₹${discount})` : '';
-    if(buy) buy.textContent = isTa ? `₹${final} செலுத்தி திறக்கவும்` : `Pay ₹${final} & Unlock`;
+    if(buy) buy.textContent = isTa ? `₹${final} செலுத்தி திறக்கவும்` : (final === 499 ? 'Unlock for ₹499' : `Pay ₹${final} & Unlock`);
   };
   setPrice(499,499,0);
 
@@ -138,7 +236,7 @@ function unlock() {
       if(msg)msg.textContent=e.message;
       buy.disabled=false;
       const final=Number(finalPriceEl?.textContent?.replace(/[^0-9]/g,''))||499;
-      buy.textContent=isTa?`₹${final} செலுத்தி திறக்கவும்`:`Pay ₹${final} & Unlock`;
+      buy.textContent=isTa?`₹${final} செலுத்தி திறக்கவும்`:(final === 499 ? 'Unlock for ₹499' : `Pay ₹${final} & Unlock`);
     }
   };
 }
@@ -332,8 +430,9 @@ const testLine = () => {
 };
 
 function nextMission() {
-  if (state.unlocked > freeMax() && !isPaid()) {
-    const nextLv = freeMax() + 1;
+  const currentMax = playableMax();
+  if (state.unlocked > currentMax && !isPaid()) {
+    const nextLv = currentMax + 1;
     return {
       href: '#/unlock',
       emoji: '🔐',
@@ -343,10 +442,10 @@ function nextMission() {
       voiceTitle: lang() === 'ta' ? `லெவல் ${nextLv} திற` : `Unlock Level ${nextLv}`,
     };
   }
-  const lvl = Math.min(state.unlocked, playableMax());
+  const lvl = Math.min(state.unlocked, currentMax);
   const need = LESSON_FOR_LEVEL[lvl] || 11;
   const lesson = LESSONS.find(l => l.id <= need && !lessonDone(l.id));
-  if (lesson && state.profile.experience !== 'known') return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கற்றல்' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
+  if (lesson && state.profile.experience !== 'known' && canAccessLesson(lesson.id)) return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கற்றல்' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
   const L = LEVELS[lvl];
   return { href: `#/level/${lvl}`, emoji: L.emoji, label: `${lang() === 'ta' ? 'பயிற்சி' : 'Practise'} — ${lvl}: ${lvName(L)}`, say: T('missionPractise', lvName(L)), kind: 'level', voiceTitle: voiceLang() === 'ta' ? (L.nameTa || L.name) : L.name };
 }
@@ -381,7 +480,7 @@ function home() {
       ${isOn('practice') ? `<a class="tile practice" href="#/practice"><span>🎯</span><b>${isTa ? 'பயிற்சி' : 'Practise'}</b><small>${isTa ? `லெவல் ${Math.min(state.unlocked, MAX_LEVEL)} தயார்` : `Level ${Math.min(state.unlocked, MAX_LEVEL)} open`}</small></a>` : ''}
       ${isOn('play') ? `<a class="tile play" href="#/play"><span>🎮</span><b>${isTa ? 'விளையாட்டு' : 'Play'}</b><small>${isTa ? `${GAME_COUNT()} மணி விளையாட்டுகள்` : `${GAME_COUNT()} bead games`}</small></a>` : ''}
       ${examsOpen() ? `<a class="tile tests" href="#/tests"><span>📝</span><b>${isTa ? 'தேர்வுகள்' : 'Tests'}</b><small>${testLine()}</small></a>` : ''}
-      ${isOn('freePlay') ? `<a class="tile free" href="#/free"><span>✋</span><b>${isTa ? 'சுய பயிற்சி' : 'Free Play'}</b><small>${isTa ? 'மணிகளை நகர்த்தி பழகு' : 'Just move beads'}</small></a>` : ''}
+      ${isOn('freePlay') ? `<a class="tile free" href="${canAccessFreePlay() ? '#/free' : '#/unlock'}"><span>✋</span><b>${isTa ? 'சுய பயிற்சி' : 'Free Play'}</b><small>${canAccessFreePlay() ? (isTa ? 'மணிகளை நகர்த்தி பழகு' : 'Just move beads') : (isTa ? 'அன்லாக் தேவை' : 'Requires unlock')}</small></a>` : ''}
     </nav>
     ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>${isTa ? 'என் ஸ்டிக்கர்கள்' : 'My Stickers'}</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
     <a class="grownups" href="#/parents">👨‍👩‍👧 ${isTa ? 'பெற்றோருக்கான பகுதி' : 'Grown-ups corner'}</a>` });
@@ -395,6 +494,7 @@ function home() {
 }
 
 function free() {
+  if (!canAccessFreePlay()) return go('#/unlock');
   const isTa = lang() === 'ta';
   shell({ title: isTa ? 'சுய பயிற்சி' : 'Free Play', back: '#/home', body: `
     ${bubble(T('freePlay'), 'happy')}
@@ -423,10 +523,13 @@ function learnMap() {
   shell({ title: isTa ? 'கற்றல்' : 'Learn', back: '#/home', body: `
     ${bubble(T('pickLesson'), 'happy')}
     <ol class="path">${LESSONS.map((l, i) => {
-      const done = lessonDone(l.id), open = known || i === 0 || lessonDone(LESSONS[i - 1].id);
+      const done = lessonDone(l.id);
+      const tierAllowed = canAccessLesson(l.id);
+      const progressOpen = known || i === 0 || lessonDone(LESSONS[i - 1].id);
+      const open = tierAllowed && progressOpen;
       const next = open && !done;
       return `<li class="stone ${done ? 'done' : ''} ${next ? 'next' : ''} ${open ? '' : 'locked'}">
-        <a ${open ? `href="#/lesson/${l.id}"` : 'aria-disabled="true"'}>
+        <a ${open ? `href="#/lesson/${l.id}"` : (tierAllowed ? 'aria-disabled="true"' : 'href="#/unlock"')}>
           <span class="stone-emoji">${open ? l.emoji : '🔒'}</span>
           <span><small>${isTa ? `பாடம் ${l.id}` : `Lesson ${l.id}`}</small><b>${esc(lessonTitle(l))}</b></span>
           <span class="stone-end">${done ? '✅' : next ? '▶' : ''}</span>
@@ -436,6 +539,7 @@ function learnMap() {
 }
 
 function lesson(id) {
+  if (!canAccessLesson(id)) return go('#/unlock');
   const L = LESSONS.find(l => l.id === id); if (!L) return go('#/learn');
   let i = 0; const t = currentToken();
   shell({ title: lessonTitle(L), back: '#/learn', body: `<div class="progress"><i style="width:0"></i></div><div data-step></div>`, cls: 'lesson' });
@@ -766,11 +870,12 @@ function check() {
     if (ok && !failed) passedUntil = qs[idx].l; else failed = true;
     idx++;
     if (idx < qs.length && !failed) return show();
-    const lvl = Math.max(1, Math.min(MAX_LEVEL, passedUntil ? passedUntil + 1 : 1));
+    const maxAllowedLevel = playableMax();
+    const lvl = Math.max(1, Math.min(maxAllowedLevel, passedUntil ? passedUntil + 1 : 1));
     state.unlocked = Math.max(state.unlocked, lvl);
-    // lessons before that level count as known
-    LESSONS.forEach(l => { if (l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
-    if (lvl > 1) [1, 2, 3, 4, 5].forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
+    // lessons before that level count as known, clamped by tier
+    LESSONS.forEach(l => { if (canAccessLesson(l.id) && l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
+    if (lvl > 1) [1, 2, 3, 4, 5].filter(k => canAccessLesson(k)).forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
     markDay(); saveNow(); sfx.star(); confetti();
     const isTa = lang() === 'ta';
     $('.view').innerHTML = `<section class="done-card">${babi('cheer', 'big bob')}<h2 class="display">${isTa ? `அருமை, ${kidName()}!` : `Nice, ${kidName()}!`}</h2>
@@ -896,15 +1001,16 @@ function route() {
   if (!state.profile?.name) return welcome();
   const n = Number(arg);
   const pages = {
-    '': home, home, stickers, parents, check,
-    free: () => (isOn('freePlay') ? free() : home()),
+    '': home, home, stickers, parents, check, starter,
+    free: () => (isOn('freePlay') ? (canAccessFreePlay() ? free() : go('#/unlock')) : home()),
     learn: () => (isOn('learn') ? learnMap() : home()),
     practice: () => (isOn('practice') ? practiceMap() : home()),
+    starter,
     unlock,
     play: () => (isOn('play') ? playRoom() : home()),
-    lesson: () => lesson(n),
+    lesson: () => (canAccessLesson(n) ? lesson(n) : go('#/unlock')),
     level: () => levelIntro(n),
-    game: () => (isOn('play') ? openGame(arg) : home()),
+    game: () => (isOn('play') ? (canAccessGame(arg) ? openGame(arg) : go('#/unlock')) : home()),
     tests: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (examsOpen() ? testCentre() : home())),
     exam: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : runExam(arg)),
     certificates: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificates() : home())),
