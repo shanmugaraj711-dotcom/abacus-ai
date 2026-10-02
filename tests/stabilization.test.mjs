@@ -112,7 +112,7 @@ assert(!signInHtml.includes('href="../#starter"'),
 
 // ─── 3. TIER CONFIGURATION VALIDATION ───────────────────────────────────
 
-const { TIERS, ALL_GAMES, getTierConfig } = await import(resolve(ROOT, 'js/tiers.js'));
+const { TIERS, ALL_GAMES, getTierConfig, isLessonAllowedForTier, isFreePlayAllowedForTier } = await import(resolve(ROOT, 'js/tiers.js'));
 
 assert(TIERS.free.maxLevel === 1, 'Free tier maxLevel is 1');
 assert(JSON.stringify(TIERS.free.games) === '["race"]', 'Free tier games is exactly [race]');
@@ -209,7 +209,112 @@ assert(!appSrc.includes('getGameLimit'),
   'app.js does not import non-existent getGameLimit');
 
 
+// ─── 9. LESSON ACCESS MATRIX ───────────────────────────────────────────
+
+assert(TIERS.free.maxLesson === 6, 'Free tier maxLesson is 6');
+assert(isLessonAllowedForTier(1, TIERS.free) === true, 'Free: Lesson 1 allowed');
+assert(isLessonAllowedForTier(6, TIERS.free) === true, 'Free: Lesson 6 allowed');
+assert(isLessonAllowedForTier(7, TIERS.free) === false, 'Free: Lesson 7 blocked');
+assert(isLessonAllowedForTier(11, TIERS.free) === false, 'Free: Lesson 11 blocked');
+
+assert(TIERS.starter.maxLesson === 7, 'Starter tier maxLesson is 7');
+assert(isLessonAllowedForTier(1, TIERS.starter) === true, 'Starter: Lesson 1 allowed');
+assert(isLessonAllowedForTier(7, TIERS.starter) === true, 'Starter: Lesson 7 allowed');
+assert(isLessonAllowedForTier(8, TIERS.starter) === false, 'Starter: Lesson 8 blocked');
+assert(isLessonAllowedForTier(11, TIERS.starter) === false, 'Starter: Lesson 11 blocked');
+
+assert(TIERS.lifetime.maxLesson === 11, 'Lifetime tier maxLesson is 11');
+for (let l = 1; l <= 11; l++) {
+  assert(isLessonAllowedForTier(l, TIERS.lifetime) === true, `Lifetime: Lesson ${l} allowed`);
+}
+assert(isLessonAllowedForTier(12, TIERS.lifetime) === false, 'Lifetime: Lesson 12 blocked');
+
+
+// ─── 10. FREE PLAY ACCESS MATRIX ───────────────────────────────────────
+
+assert(isFreePlayAllowedForTier(TIERS.free) === false, 'Free: Free Play blocked');
+assert(isFreePlayAllowedForTier(TIERS.starter) === true, 'Starter: Free Play allowed');
+assert(isFreePlayAllowedForTier(TIERS.lifetime) === true, 'Lifetime: Free Play allowed');
+
+
+// ─── 11. ROUTE-LEVEL ACCESS CONTROL IN APP.JS ──────────────────────────
+
+// Verify route-level lesson protection exists in app.js
+assert(appSrc.includes('lessonAllowed(n)') || appSrc.includes('lessonAllowed(id)'),
+  'app.js enforces lessonAllowed on lesson routing and function');
+assert(appSrc.includes('canAccessFreePlay()'),
+  'app.js enforces canAccessFreePlay on free play routing and function');
+
+// Simulate direct route access to locked lesson
+function simulateLessonRoute(lessonId, tier) {
+  const cfg = getTierConfig(tier);
+  const allowed = isLessonAllowedForTier(lessonId, cfg);
+  if (!allowed) {
+    return lessonId <= 7 && tier === 'free' ? '#/starter' : '#/unlock';
+  }
+  return `#/lesson/${lessonId}`;
+}
+
+assert(simulateLessonRoute(1, 'free') === '#/lesson/1', 'Free user can navigate to Lesson 1');
+assert(simulateLessonRoute(6, 'free') === '#/lesson/6', 'Free user can navigate to Lesson 6');
+assert(simulateLessonRoute(7, 'free') === '#/starter', 'Direct route to Lesson 7 blocked for free -> redirects to #/starter');
+assert(simulateLessonRoute(8, 'free') === '#/unlock', 'Direct route to Lesson 8 blocked for free -> redirects to #/unlock');
+assert(simulateLessonRoute(7, 'starter') === '#/lesson/7', 'Starter user can navigate to Lesson 7');
+assert(simulateLessonRoute(8, 'starter') === '#/unlock', 'Direct route to Lesson 8 blocked for starter -> redirects to #/unlock');
+assert(simulateLessonRoute(11, 'lifetime') === '#/lesson/11', 'Lifetime user can navigate to Lesson 11');
+
+// Simulate direct route access to Free Play
+function simulateFreePlayRoute(tier) {
+  const cfg = getTierConfig(tier);
+  if (!isFreePlayAllowedForTier(cfg)) return '#/starter';
+  return '#/free';
+}
+
+assert(simulateFreePlayRoute('free') === '#/starter', 'Direct route to Free Play blocked for free user -> redirects to #/starter');
+assert(simulateFreePlayRoute('starter') === '#/free', 'Direct route to Free Play allowed for Starter');
+assert(simulateFreePlayRoute('lifetime') === '#/free', 'Direct route to Free Play allowed for Lifetime');
+
+
+// ─── 12. "I KNOW IT" CANNOT BYPASS COMMERCIAL ENTITLEMENT ─────────────
+
+// In learnMap, open must require allowed && (known || ...)
+assert(appSrc.includes('allowed && (known ||'),
+  'learnMap requires lessonAllowed even when experience is "known"');
+
+// In check(), lessons unlocked must be bounded by maxLessonAllowed
+assert(appSrc.includes('l.id <= maxLsn'),
+  'check() bounds auto-unlocked lessons by maxLessonAllowed');
+
+
+// ─── 13. LOCALSTORAGE SEEDED=1 BYPASS REMOVAL ──────────────────────────
+
+const paymentsSrc = readFileSync(resolve(ROOT, 'js/payments.js'), 'utf8');
+assert(!paymentsSrc.includes('isSeeded'),
+  'payments.js does not contain isSeeded helper');
+assert(!paymentsSrc.includes("localStorage.getItem('seeded')"),
+  'payments.js does not check localStorage seeded key for entitlement');
+assert(paymentsSrc.includes('export const isPaid = () => entitlement.paid === true;'),
+  'isPaid strictly checks entitlement.paid === true (no seeded bypass)');
+assert(paymentsSrc.includes('export const getTier = () => entitlement.tier;'),
+  'getTier strictly returns entitlement.tier (no seeded bypass)');
+assert(paymentsSrc.includes('export const getMaxLevel = () => entitlement.maxLevel;'),
+  'getMaxLevel strictly returns entitlement.maxLevel (no seeded bypass)');
+assert(paymentsSrc.includes('export const getMaxLesson = () => getTierConfig(entitlement.tier).maxLesson;'),
+  'getMaxLesson returns tier maxLesson');
+assert(paymentsSrc.includes('export const canAccessFreePlay = () => isFreePlayAllowedForTier(getTierConfig(entitlement.tier));'),
+  'canAccessFreePlay checks tier config');
+
+
+// ─── 14. PUBLIC DEMO BYPASS REMOVAL ────────────────────────────────────
+
+assert(!appSrc.includes('id="demo"'),
+  'app.js welcome screen does not contain #demo button');
+assert(!appSrc.includes("$('#demo').onclick"),
+  'app.js does not contain #demo click handler with sample progress bypass');
+
+
 // ─── SUMMARY ────────────────────────────────────────────────────────────
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
+

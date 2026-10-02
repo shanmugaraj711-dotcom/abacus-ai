@@ -21,7 +21,9 @@ export const TIERS = {
     pricePaise: 0,
     durationDays: null,
     maxLevel: 1,
+    maxLesson: 6,
     games: ["race"],
+    freePlay: false,
   },
   starter: {
     id: "starter",
@@ -32,7 +34,9 @@ export const TIERS = {
     pricePaise: 9900,
     durationDays: 30,
     maxLevel: 3,
+    maxLesson: 7,
     games: ["race", "mystery", "match"],
+    freePlay: true,
   },
   lifetime: {
     id: "lifetime",
@@ -43,7 +47,9 @@ export const TIERS = {
     pricePaise: 49900,
     durationDays: null,
     maxLevel: 15,
+    maxLesson: 11,
     games: ALL_GAMES,
+    freePlay: true,
   }
 };
 
@@ -57,4 +63,13 @@ export function getTierConfig(tierId) {
 export function isGameAllowedForTier(gameId, tierConfig) {
   if (!tierConfig || !tierConfig.games) return false;
   return tierConfig.games.includes(gameId);
+}
+
+export function isLessonAllowedForTier(lessonId, tierConfig) {
+  if (!tierConfig || typeof tierConfig.maxLesson !== 'number') return false;
+  return lessonId >= 1 && lessonId <= tierConfig.maxLesson;
+}
+
+export function isFreePlayAllowedForTier(tierConfig) {
+  return !!(tierConfig && tierConfig.freePlay);
 }

@@ -4,7 +4,7 @@ import {
   PRICE_LIFETIME, PRICE_STARTER, PRODUCT, hmac, eq
 } from '../worker.js';
 import {
-  TIERS, getTierConfig, isGameAllowedForTier, ALL_GAMES
+  TIERS, getTierConfig, isGameAllowedForTier, isLessonAllowedForTier, isFreePlayAllowedForTier, ALL_GAMES
 } from '../js/tiers.js';
 
 let passed = 0;
@@ -53,6 +53,16 @@ function clientGameAllowed(id, tier) {
   return isGameAllowedForTier(id, cfg);
 }
 
+function clientLessonAllowed(id, tier) {
+  const cfg = getTierConfig(tier);
+  return isLessonAllowedForTier(id, cfg);
+}
+
+function clientFreePlayAllowed(tier) {
+  const cfg = getTierConfig(tier);
+  return isFreePlayAllowedForTier(cfg);
+}
+
 test('1. Legacy paid:true resolves to Lifetime (maxLevel 15, expiresAt null)', () => {
   const legacyDoc = {
     fields: {
@@ -79,6 +89,8 @@ test('1. Legacy paid:true resolves to Lifetime (maxLevel 15, expiresAt null)', (
   assert.strictEqual(parsed.expiresAt, null);
   assert.strictEqual(clientLevelAllowed(15, parsed.tier), true);
   assert.strictEqual(clientGameAllowed('ladder', parsed.tier), true);
+  assert.strictEqual(clientLessonAllowed(11, parsed.tier), true);
+  assert.strictEqual(clientFreePlayAllowed(parsed.tier), true);
 });
 
 test('2. Explicit lifetime entitlement allows Level 15 and all games', () => {
@@ -91,6 +103,10 @@ test('2. Explicit lifetime entitlement allows Level 15 and all games', () => {
   for (const g of ALL_GAMES) {
     assert.strictEqual(clientGameAllowed(g, tier), true, `Game ${g} should be allowed`);
   }
+  assert.strictEqual(clientLessonAllowed(1, tier), true, 'Lesson 1 allowed');
+  assert.strictEqual(clientLessonAllowed(11, tier), true, 'Lesson 11 allowed');
+  assert.strictEqual(clientLessonAllowed(12, tier), false, 'Lesson 12 blocked');
+  assert.strictEqual(clientFreePlayAllowed(tier), true, 'Free Play allowed');
 });
 
 test('3. Starter entitlement allows Levels 1-3 and blocks Level 4', () => {
@@ -101,6 +117,11 @@ test('3. Starter entitlement allows Levels 1-3 and blocks Level 4', () => {
   assert.strictEqual(clientLevelAllowed(3, tier), true, 'Level 3 allowed');
   assert.strictEqual(clientLevelAllowed(4, tier), false, 'Level 4 blocked');
   assert.strictEqual(clientLevelAllowed(15, tier), false, 'Level 15 blocked');
+
+  assert.strictEqual(clientLessonAllowed(1, tier), true, 'Lesson 1 allowed');
+  assert.strictEqual(clientLessonAllowed(7, tier), true, 'Lesson 7 allowed');
+  assert.strictEqual(clientLessonAllowed(8, tier), false, 'Lesson 8 blocked');
+  assert.strictEqual(clientFreePlayAllowed(tier), true, 'Free Play allowed');
 });
 
 test('4. Starter game entitlement uses explicit game IDs [race, mystery, match] and blocks others', () => {
@@ -131,6 +152,11 @@ test('5. Free user allows Level 1 only and only 1 game (race)', () => {
   assert.strictEqual(clientGameAllowed('race', tier), true, 'Bead Race allowed');
   assert.strictEqual(clientGameAllowed('mystery', tier), false, 'Mystery Number blocked');
   assert.strictEqual(clientGameAllowed('match', tier), false, 'Bead Match blocked');
+
+  assert.strictEqual(clientLessonAllowed(1, tier), true, 'Lesson 1 allowed');
+  assert.strictEqual(clientLessonAllowed(6, tier), true, 'Lesson 6 allowed');
+  assert.strictEqual(clientLessonAllowed(7, tier), false, 'Lesson 7 blocked');
+  assert.strictEqual(clientFreePlayAllowed(tier), false, 'Free Play blocked');
 });
 
 test('6. Expired Starter falls back to Free (Level 1 allowed, Level 2 blocked, 1 game)', () => {

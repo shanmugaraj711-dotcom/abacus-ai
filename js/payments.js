@@ -2,27 +2,27 @@
 // Business model: free levels 1 (1 game), ₹99 30-day starter for levels 1-3 (3 games), one-time ₹499 lifetime for levels 1-15 (all games).
 
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
-import { TIERS, getTierConfig } from "./tiers.js";
+import { TIERS, getTierConfig, isFreePlayAllowedForTier } from "./tiers.js";
 
 let entitlement = {
   paid: false,
   tier: 'free',
   maxLevel: TIERS.free.maxLevel,
   games: TIERS.free.games,
+  maxLesson: TIERS.free.maxLesson,
+  freePlay: TIERS.free.freePlay,
   expiresAt: null,
   expired: false,
 };
 let checked = false;
 
-const isSeeded = () => {
-  try { return typeof localStorage !== 'undefined' && localStorage.getItem('seeded') === '1'; } catch { return false; }
-};
-
-export const isPaid = () => entitlement.paid === true || isSeeded();
-export const getEntitlement = () => (isSeeded() ? { paid: true, tier: 'lifetime', maxLevel: TIERS.lifetime.maxLevel, games: TIERS.lifetime.games, expiresAt: null, expired: false } : ({ ...entitlement }));
-export const getTier = () => (isSeeded() ? 'lifetime' : entitlement.tier);
-export const getMaxLevel = () => (isSeeded() ? TIERS.lifetime.maxLevel : entitlement.maxLevel);
-export const getGames = () => (isSeeded() ? TIERS.lifetime.games : (entitlement.games || getTierConfig(entitlement.tier).games));
+export const isPaid = () => entitlement.paid === true;
+export const getEntitlement = () => ({ ...entitlement });
+export const getTier = () => entitlement.tier;
+export const getMaxLevel = () => entitlement.maxLevel;
+export const getGames = () => (entitlement.games || getTierConfig(entitlement.tier).games);
+export const getMaxLesson = () => getTierConfig(entitlement.tier).maxLesson;
+export const canAccessFreePlay = () => isFreePlayAllowedForTier(getTierConfig(entitlement.tier));
 
 export async function refreshEntitlement() {
   try {
@@ -34,7 +34,7 @@ export async function refreshEntitlement() {
     });
     if (!user) {
       const freeCfg = TIERS.free;
-      entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: null, expired: false };
+      entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, maxLesson: freeCfg.maxLesson, freePlay: freeCfg.freePlay, expiresAt: null, expired: false };
       checked = true;
       return false;
     }
@@ -51,21 +51,21 @@ export async function refreshEntitlement() {
         const isExpired = data.expiresAt ? (Date.parse(data.expiresAt) <= Date.now()) : false;
         if (isExpired) {
           const freeCfg = TIERS.free;
-          entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: data.expiresAt, expired: true };
+          entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, maxLesson: freeCfg.maxLesson, freePlay: freeCfg.freePlay, expiresAt: data.expiresAt, expired: true };
         } else {
-          entitlement = { paid: true, tier: 'starter', maxLevel: data.maxLevel ?? cfg.maxLevel, games: data.games ?? cfg.games, expiresAt: data.expiresAt, expired: false };
+          entitlement = { paid: true, tier: 'starter', maxLevel: data.maxLevel ?? cfg.maxLevel, games: data.games ?? cfg.games, maxLesson: cfg.maxLesson, freePlay: cfg.freePlay, expiresAt: data.expiresAt, expired: false };
         }
       } else {
-        entitlement = { paid: true, tier: 'lifetime', maxLevel: data.maxLevel ?? cfg.maxLevel, games: data.games ?? cfg.games, expiresAt: null, expired: false };
+        entitlement = { paid: true, tier: 'lifetime', maxLevel: data.maxLevel ?? cfg.maxLevel, games: data.games ?? cfg.games, maxLesson: cfg.maxLesson, freePlay: cfg.freePlay, expiresAt: null, expired: false };
       }
     } else {
       const freeCfg = TIERS.free;
-      entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: data.expiresAt || null, expired: !!data.expired };
+      entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, maxLesson: freeCfg.maxLesson, freePlay: freeCfg.freePlay, expiresAt: data.expiresAt || null, expired: !!data.expired };
     }
   } catch (err) {
     console.warn("[Abacus payment] entitlement check skipped:", err);
     const freeCfg = TIERS.free;
-    entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: null, expired: false };
+    entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, maxLesson: freeCfg.maxLesson, freePlay: freeCfg.freePlay, expiresAt: null, expired: false };
   }
   checked = true;
   return isPaid();
@@ -105,6 +105,8 @@ export async function buyUnlock({ tier = 'lifetime', onSuccess, onError } = {}) 
         tier,
         maxLevel: cfg.maxLevel,
         games: cfg.games,
+        maxLesson: cfg.maxLesson,
+        freePlay: cfg.freePlay,
         expiresAt: cfg.durationDays ? new Date(Date.now() + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString() : null,
         expired: false
       };
@@ -142,6 +144,8 @@ export async function buyUnlock({ tier = 'lifetime', onSuccess, onError } = {}) 
               tier: verify.tier || tier,
               maxLevel: verify.maxLevel ?? cfg.maxLevel,
               games: verify.games ?? cfg.games,
+              maxLesson: cfg.maxLesson,
+              freePlay: cfg.freePlay,
               expiresAt: verify.expiresAt || (cfg.durationDays ? new Date(Date.now() + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString() : null),
               expired: false,
             };
