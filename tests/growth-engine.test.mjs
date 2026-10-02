@@ -267,27 +267,40 @@ try {
   });
 
   // ── 4. Existing Auth Route Compatibility ─────────────────────────────────
-  await test('4.1 Sign In CTA on landing page hands off to existing onboarding flow', async () => {
+  await test('4.1 Sign In CTA on landing page routes to existing auth-ui/sign-in.html', async () => {
     const page = await browser.newPage();
     await page.goto(`${BASE_URL}/index.html`);
     await page.waitForSelector('#heroSignInCta');
 
-    // Click Sign In on landing page
-    await page.click('#heroSignInCta');
-    await page.waitForSelector('#authGateGoogleBtn', { timeout: 6000 });
+    // Verify Sign In CTAs on landing page link to the ORIGINAL auth-ui/sign-in.html
+    // NOT to a Growth Engine-created #/signin hash route
+    const heroHref = await page.getAttribute('#heroSignInCta', 'href');
+    assert.ok(
+      heroHref && heroHref.includes('auth-ui/sign-in.html'),
+      `heroSignInCta must link to auth-ui/sign-in.html, got: ${heroHref}`
+    );
 
-    assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Google auth button is visible');
-    assert.ok(await page.isVisible('#authGateEmailBtn'), 'Email auth button is visible');
-    assert.ok(await page.isVisible('#kidName'), 'Child name input is visible in onboarding');
-    assert.ok(await page.isVisible('[data-age="6-8"]'), 'Age selection options are present');
-    assert.ok(await page.isVisible('[data-lang-choice="hi"]'), 'Hindi language option is present');
-    assert.ok(await page.isVisible('[data-lang-choice="ta"]'), 'Tamil language option is present');
-    assert.ok(await page.isVisible('[data-lang-choice="en"]'), 'English language option is present');
+    const navHref = await page.getAttribute('#navSignInBtn', 'href');
+    assert.ok(
+      navHref && navHref.includes('auth-ui/sign-in.html'),
+      `navSignInBtn must link to auth-ui/sign-in.html, got: ${navHref}`
+    );
 
-    // Sign in link preserve test on standalone auth-ui
-    await page.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#starter`);
+    const bottomHref = await page.getAttribute('#bottomSignInCta', 'href');
+    assert.ok(
+      bottomHref && bottomHref.includes('auth-ui/sign-in.html'),
+      `bottomSignInCta must link to auth-ui/sign-in.html, got: ${bottomHref}`
+    );
+
+    // Verify the existing auth-ui/sign-in.html is accessible and shows Google button
+    await page.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#home`);
     await page.waitForSelector('#phase1-google-btn');
     assert.ok(await page.isVisible('#phase1-google-btn'), 'Google button present in auth-ui');
+
+    // Return URL preservation: #/starter should be preserved
+    await page.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#starter`);
+    await page.waitForSelector('#phase1-google-btn');
+    assert.ok(await page.isVisible('#phase1-google-btn'), 'Google button present in auth-ui with return param');
 
     await page.close();
   });

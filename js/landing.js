@@ -40,7 +40,7 @@ export function renderPublicLandingHtml({ isTa = false } = {}) {
         <span>Abacus Buddy</span>
       </a>
       <nav style="display:flex;align-items:center;gap:12px;">
-        <a href="#/signin" class="btn ghost" id="navSignInBtn" style="font-weight:700;font-size:0.9rem;padding:8px 14px;border:1px solid #d1d5db;border-radius:10px;text-decoration:none;color:#374151;">
+        <a href="./auth-ui/sign-in.html?return=../#home" class="btn ghost" id="navSignInBtn" style="font-weight:700;font-size:0.9rem;padding:8px 14px;border:1px solid #d1d5db;border-radius:10px;text-decoration:none;color:#374151;">
           Sign In
         </a>
         <a href="#/challenge" class="btn primary" id="navChallengeBtn" style="font-weight:800;font-size:0.9rem;padding:8px 16px;background:#ffc53d;border:none;border-radius:10px;text-decoration:none;color:#1f2937;">
@@ -65,7 +65,7 @@ export function renderPublicLandingHtml({ isTa = false } = {}) {
         <a href="#/challenge" class="btn primary" id="heroChallengeCta" style="font-size:1.15rem;font-weight:800;padding:14px 28px;background:#ffc53d;color:#1f2937;border-radius:12px;text-decoration:none;box-shadow:0 4px 14px rgba(255,197,61,0.4);">
           🎯 Try the Free Challenge
         </a>
-        <a href="#/signin" class="btn" id="heroSignInCta" style="font-size:1.1rem;font-weight:700;padding:14px 24px;border:2px solid #e5e7eb;border-radius:12px;text-decoration:none;color:#374151;background:#fff;">
+        <a href="./auth-ui/sign-in.html?return=../#home" class="btn" id="heroSignInCta" style="font-size:1.1rem;font-weight:700;padding:14px 24px;border:2px solid #e5e7eb;border-radius:12px;text-decoration:none;color:#374151;background:#fff;">
           Sign In
         </a>
       </div>
@@ -284,7 +284,7 @@ export function renderPublicLandingHtml({ isTa = false } = {}) {
         <a href="#/challenge" class="btn primary" id="bottomChallengeCta" style="font-size:1.1rem;font-weight:800;padding:12px 24px;background:#ffc53d;color:#1f2937;border-radius:12px;text-decoration:none;box-shadow:0 4px 12px rgba(255,197,61,0.35);">
           🎯 Try the Free Challenge
         </a>
-        <a href="#/signin" class="btn" id="bottomSignInCta" style="font-size:1.05rem;font-weight:700;padding:12px 22px;border:2px solid #d1d5db;border-radius:12px;text-decoration:none;color:#374151;background:#fff;">
+        <a href="./auth-ui/sign-in.html?return=../#home" class="btn" id="bottomSignInCta" style="font-size:1.05rem;font-weight:700;padding:12px 22px;border:2px solid #d1d5db;border-radius:12px;text-decoration:none;color:#374151;background:#fff;">
           Parent Sign In
         </a>
       </div>

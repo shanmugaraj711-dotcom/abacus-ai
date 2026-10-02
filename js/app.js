@@ -1060,31 +1060,23 @@ function route() {
   const hash = location.hash.replace(/^#\/?/, '');
   const [page, arg] = hash.split('/');
 
-  // 1. Explicit public screens
+  // 1. Explicit public screens (no profile required)
   if (page === 'challenge') return challenge();
   if (page === 'landing') return landingPage();
 
-  // 2. Explicit sign-in / onboarding screens (hands off to existing auth flow)
-  if (page === 'signin' || page === 'auth' || page === 'onboarding' || page === 'welcome') {
-    return welcome();
-  }
-
-  // 3. User without profile
+  // 2. User without profile: show the parent landing page
+  //    (Sign In is handled by auth-ui/sign-in.html — not a hash route)
   if (!state.profile?.name) {
     if (page === 'starter') return starter();
     if (page === 'unlock') return unlock();
     return landingPage();
   }
 
-  // 4. Authenticated / profiled user routes
+  // 3. Authenticated / profiled user routes
   const n = Number(arg);
   const pages = {
     '': home, home, stickers, parents, check, starter,
     landing: landingPage,
-    signin: welcome,
-    auth: welcome,
-    onboarding: welcome,
-    welcome,
     challenge,
     free: () => (isOn('freePlay') ? (canAccessFreePlay() ? free() : go('#/unlock')) : home()),
     learn: () => (isOn('learn') ? learnMap() : home()),
