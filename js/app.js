@@ -8,7 +8,7 @@ import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
 import { refreshEntitlement, isPaid, buyUnlock, currentTier, buyStarter } from './payments.js';
 import { TIERS, TIER_CONFIG } from './tiers.js';
-import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
+import { getAuthInstance, signInWithGoogle, signOut, onAuthChange, getGoogleRedirectResult } from '../firebase/auth.js';
 import {
   isGuestUser,
   canAccessLevel,
@@ -22,6 +22,7 @@ import {
   setAuthMode,
   showConversionPrompt,
   renderEmailAuthView,
+  formatAuthError,
   GUEST_GAME_ID,
 } from './access.js';
 import {
@@ -276,10 +277,7 @@ function welcome() {
           <button type="button" class="btn wide auth-btn-email" id="authGateEmailBtn">
             ✉️ Login with Email & Password
           </button>
-          <div class="auth-divider">─── or ───</div>
-          <button type="button" class="btn wide auth-btn-guest" id="authGateGuestBtn">
-            🎮 Continue as Guest
-          </button>
+          <div id="authGateError" class="auth-error" style="display:none;margin-top:12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;font-size:13px;text-align:left;" role="alert"></div>
         </div>
       </section>
     </div>
@@ -310,7 +308,6 @@ function welcome() {
         <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will stay quiet until a Tamil voice is available.</p>
         <button class="btn primary wide" id="start" disabled>Let's go! →</button>
       </section>
-      <button class="linkish" id="demo">👀 Grown-up? Open a demo with sample progress</button>
     </div>
   </main>`;
 
@@ -319,7 +316,7 @@ function welcome() {
   const profileStep = $('#welcomeProfileStep');
   const authGoogleBtn = $('#authGateGoogleBtn');
   const authEmailBtn = $('#authGateEmailBtn');
-  const authGuestBtn = $('#authGateGuestBtn');
+  const authGateError = $('#authGateError');
 
   const proceedToProfile = () => {
     if (authGateStep) authGateStep.style.display = 'none';
@@ -329,18 +326,11 @@ function welcome() {
     if (nameEl) nameEl.focus();
   };
 
-  if (authGuestBtn) {
-    authGuestBtn.onclick = () => {
-      setAuthMode('guest');
-      pingVisit().catch(() => {});
-      proceedToProfile();
-    };
-  }
-
   if (authGoogleBtn) {
     authGoogleBtn.onclick = async () => {
       authGoogleBtn.disabled = true;
       authGoogleBtn.textContent = 'Connecting to Google…';
+      if (authGateError) authGateError.style.display = 'none';
       try {
         const cred = await signInWithGoogle();
         if (cred?.user) {
@@ -350,8 +340,12 @@ function welcome() {
         }
       } catch (err) {
         authGoogleBtn.disabled = false;
-        authGoogleBtn.innerHTML = 'Continue with Google';
-        alert(err.message || 'Google sign-in error');
+        authGoogleBtn.innerHTML = `<svg style="width:20px;height:20px;margin-right:6px;vertical-align:middle;" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>Continue with Google`;
+        const msg = formatAuthError(err);
+        if (authGateError) {
+          authGateError.textContent = msg;
+          authGateError.style.display = 'block';
+        }
       }
     };
   }
@@ -397,26 +391,13 @@ function welcome() {
   });
   $('#start').onclick = () => {
     if (!getAuthMode()) {
-      setAuthMode('guest');
-      pingVisit().catch(() => {});
+      if (authGateStep) authGateStep.style.display = 'block';
+      if (profileStep) profileStep.style.display = 'none';
+      return;
     }
     state.profile = { name: $('#kidName').value.trim().slice(0, 18), avatar: draft.avatar, experience: exp, lang: draft.lang, voiceLang: draft.voiceLang };
     saveNow(); sfx.good(); say(V('welcomeKid', state.profile.name));
     go(exp === 'known' ? '#/check' : '#/home');
-  };
-  $('#demo').onclick = () => {
-    setAuthMode('registered');
-    Object.assign(state, {
-      profile: { name: 'Aru', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
-      lessonsDone: [1, 2, 3, 4, 5, 6, 7, 8], unlocked: 5,
-      levels: { 1: { stars: 3, best: 8, plays: 3 }, 2: { stars: 3, best: 8, plays: 2 }, 3: { stars: 2, best: 6, plays: 2 }, 4: { stars: 1, best: 5, plays: 2 } },
-      games: { race: 11, mystery: 8, match: 16 },
-    });
-    const d = new Date(); state.stats.days = [];
-    [0, 1, 2, 4, 5].forEach(k => { const x = new Date(d); x.setDate(d.getDate() - k); state.stats.days.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`); });
-    Object.assign(state.stats, { answered: 74, firstTry: 58, seconds: 2460, byRule: { direct: [49, 56], small: [9, 18], big: [0, 0] },
-      mistakes: [{ q: '4 + 3', answer: 7, given: 11, rule: 'small' }, { q: '8 − 6', answer: 2, given: 3, rule: 'direct' }, { q: '3 + 4', answer: 7, given: 8, rule: 'small' }] });
-    saveNow(); go('#/home');
   };
 }
 
@@ -453,17 +434,7 @@ function nextMission() {
 function home() {
   const isTa = lang() === 'ta';
   const m = nextMission(), sk = streak();
-  const guest = isGuestUser();
   shell({ body: `
-    ${guest ? `
-      <section class="card guest-home-banner" style="background:#eef2ff;border:1px solid #c7d2fe;margin-bottom:12px;padding:12px 14px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <div>
-          <b style="color:#3730a3;font-size:14px;display:block;">🎮 ${isTa ? 'விருந்தினர் பயன்முறை' : 'Guest Mode'}</b>
-          <span style="font-size:12px;color:#4338ca;">${isTa ? 'லெவல் 1 மற்றும் புதிர் எண் திறக்கப்பட்டுள்ளது.' : 'Level 1 and Mystery Number unlocked. Save your progress!'}</span>
-        </div>
-        <button type="button" class="btn primary small" id="guestUpgradeBtn" style="white-space:nowrap;padding:6px 12px;font-size:13px;">${isTa ? 'கணக்கு உருவாக்கு' : 'Save Progress'}</button>
-      </section>
-    ` : ''}
     <section class="hello">
       <div class="kid-avatar">${esc(state.profile.avatar)}</div>
       <div><p class="eyebrow">${isTa ? 'மீண்டும் வருக' : 'Welcome back'}</p><h2 class="display">Hi, ${kidName()}!</h2></div>
@@ -484,10 +455,6 @@ function home() {
     </nav>
     ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>${isTa ? 'என் ஸ்டிக்கர்கள்' : 'My Stickers'}</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
     <a class="grownups" href="#/parents">👨‍👩‍👧 ${isTa ? 'பெற்றோருக்கான பகுதி' : 'Grown-ups corner'}</a>` });
-  const guestBtn = $('#guestUpgradeBtn');
-  if (guestBtn) {
-    guestBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => route() });
-  }
   setTimeout(() => say(voiceLang() === 'ta'
     ? (m.kind === 'lesson' ? V('missionLearn', m.voiceTitle) : V('missionPractise', m.voiceTitle))
     : V('hello', state.profile.name, m.say)), 250);
@@ -962,15 +929,11 @@ function dashboard() {
       <p class="muted tiny">Choose them independently. Example: Tamil audio + English content. ${hasVoice('ta') ? '' : 'This phone has no Tamil voice installed.'}</p>
       <label for="setName">Child's name</label><input id="setName" maxlength="18" value="${esc(state.profile.name)}">
       <div class="row"><button class="btn" id="unlockAll">Unlock all levels</button><button class="btn danger" id="reset">Reset all progress</button></div>
-    </section>
     <section class="card auth-status">
-      <h3>${isGuestUser() ? '🎮 Guest Mode' : '👤 Account Status'}</h3>
-      <p class="muted tiny">${isGuestUser() ? 'You are exploring Abacus as a guest. Create a free account or sign in to save your child’s progress across devices and unlock more levels & games.' : 'Logged in with linked progress.'}</p>
-      ${isGuestUser() ? `<button type="button" class="btn primary small" id="parentsAccountBtn">Create Account / Sign In</button>` : ''}
+      <h3>👤 Account Status</h3>
+      <p class="muted tiny">Signed in with active account.</p>
     </section>
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
-  const parentsBtn = $('#parentsAccountBtn');
-  if (parentsBtn) parentsBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => dashboard() });
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
   $$('[data-setvoice-lang]').forEach(b => b.onclick = () => {
@@ -1011,19 +974,42 @@ function route() {
     lesson: () => (canAccessLesson(n) ? lesson(n) : go('#/unlock')),
     level: () => levelIntro(n),
     game: () => (isOn('play') ? (canAccessGame(arg) ? openGame(arg) : go('#/unlock')) : home()),
-    tests: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (examsOpen() ? testCentre() : home())),
-    exam: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : runExam(arg)),
-    certificates: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificates() : home())),
-    certificate: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificate(n || 0) : home())),
+    tests: () => (examsOpen() ? testCentre() : home()),
+    exam: () => runExam(arg),
+    certificates: () => (isOn('certificates') ? certificates() : home()),
+    certificate: () => (isOn('certificates') ? certificate(n || 0) : home()),
   };
   (pages[page] || home)();
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', route);
-window.addEventListener('abacus:guest-locked', () => {
-  showConversionPrompt({ onSuccessAuth: () => route() });
-});
 setRouter(route);
+
+// Keep auth state in sync and advance from auth gate when authentication finishes
+onAuthChange((user) => {
+  if (user?.uid) {
+    setAuthMode('registered');
+    const authGateStep = document.getElementById('authGateStep');
+    const profileStep = document.getElementById('welcomeProfileStep');
+    if (authGateStep && authGateStep.style.display !== 'none') {
+      authGateStep.style.display = 'none';
+      if (profileStep) profileStep.style.display = 'block';
+      const nameEl = document.getElementById('kidName');
+      if (nameEl) nameEl.focus();
+    }
+  }
+});
+
+// Check for returning Google redirect authentication (mobile devices)
+getGoogleRedirectResult().then((cred) => {
+  if (cred?.user?.uid) {
+    setAuthMode('registered');
+    pingVisit(cred.user.uid).catch(() => {});
+  }
+}).catch((err) => {
+  console.warn('[Auth] Google redirect error:', err);
+});
+
 // Read config.json (feature switches) first, then show the first screen.
 pingVisit().catch(() => {});
 loadConfig().then(async () => { await refreshEntitlement(); route(); }, route);

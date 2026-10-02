@@ -170,7 +170,15 @@ export async function signInWithGoogle() {
   }
   const auth = getAuthInstance();
   const provider = getGoogleProvider();
-  return signInWithPopup(auth, provider);
+  try {
+    return await signInWithPopup(auth, provider);
+  } catch (err) {
+    if (err?.code === "auth/popup-blocked") {
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    throw err;
+  }
 }
 
 /**

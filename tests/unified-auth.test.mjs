@@ -174,6 +174,145 @@ try {
     await page.close();
   });
 
+  // ── First-Launch Welcome Screen & Regression Tests ─────────────────────────
+
+  await test('First-launch welcome screen contains NO Guest button and NO Demo link', async () => {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.goto(`${BASE_URL}/index.html`);
+
+    // Verify Google button exists
+    assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Google button must be visible on first launch');
+    const googleText = await page.textContent('#authGateGoogleBtn');
+    assert.match(googleText, /Continue with Google/i);
+
+    // Verify Email button exists
+    assert.ok(await page.isVisible('#authGateEmailBtn'), 'Email button must be visible on first launch');
+
+    // STRICT: Continue as Guest must NOT exist in the DOM
+    const guestBtn = await page.$('#authGateGuestBtn');
+    assert.equal(guestBtn, null, 'authGateGuestBtn must NOT exist on first launch');
+
+    // STRICT: Demo button must NOT exist in the DOM
+    const demoBtn = await page.$('#demo');
+    assert.equal(demoBtn, null, 'Demo button must NOT exist on first launch');
+
+    // STRICT: Phone/OTP elements must NOT exist
+    assert.equal(await page.$('#phase1-phone'), null, 'Phone input must NOT exist');
+    assert.equal(await page.$('#authGatePhoneBtn'), null, 'Phone auth button must NOT exist');
+
+    await page.close();
+  });
+
+  await test('Google auth failure surfaces user-facing error instead of silently returning', async () => {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.__mockSignInWithGoogle = () => {
+        const err = new Error('The current domain is not authorized for OAuth operations.');
+        err.code = 'auth/unauthorized-domain';
+        return Promise.reject(err);
+      };
+    });
+
+    await page.goto(`${BASE_URL}/index.html`);
+    assert.ok(await page.isVisible('#authGateGoogleBtn'));
+
+    // Error container should be hidden initially
+    assert.equal(await page.isVisible('#authGateError'), false, 'Error container hidden initially');
+
+    // Click Google sign-in
+    await page.click('#authGateGoogleBtn');
+
+    // Error MUST be surfaced in the DOM
+    assert.ok(await page.isVisible('#authGateError'), 'authGateError must be visible after failure');
+    const errText = await page.textContent('#authGateError');
+    assert.match(errText, /not authorized|Authorized domains/i, 'Error message must explain unauthorized domain');
+
+    // Google button must be re-enabled
+    assert.equal(await page.isEnabled('#authGateGoogleBtn'), true, 'Button must be re-enabled for retry');
+
+    await page.close();
+  });
+
+  await test('Successful Google auth invokes handler and advances past auth gate to profile setup', async () => {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.__mockSignInWithGoogle = () => {
+        return Promise.resolve({
+          user: {
+            uid: 'google_welcome_test_uid',
+            email: 'googleparent@example.com',
+            displayName: 'Parent User',
+          }
+        });
+      };
+    });
+
+    await page.goto(`${BASE_URL}/index.html`);
+    assert.ok(await page.isVisible('#authGateGoogleBtn'));
+
+    await page.click('#authGateGoogleBtn');
+
+    // After success, authGateStep must hide and profile setup must show
+    await page.waitForSelector('#welcomeProfileStep:not([style*="display: none"])', { timeout: 3000 });
+    assert.ok(await page.isVisible('#kidName'), 'Profile name input must be visible after auth');
+
+    await page.close();
+  });
+
+  await test('Email auth button opens email form with login/register toggle', async () => {
+    const page = await browser.newPage();
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.goto(`${BASE_URL}/index.html`);
+
+    await page.click('#authGateEmailBtn');
+
+    // Email step visible, gate hidden
+    assert.ok(await page.isVisible('#emailAuthStep'), 'Email auth step should be visible');
+    assert.ok(await page.isVisible('#emailAuthEmail'), 'Email input visible');
+    assert.ok(await page.isVisible('#emailAuthPassword'), 'Password input visible');
+    assert.ok(await page.isVisible('#emailAuthSubmitBtn'), 'Submit button visible');
+
+    // Test toggle between login and register
+    await page.click('#emailAuthToggleBtn');
+    assert.ok(await page.isVisible('#emailAuthConfirmPassword'), 'Confirm password visible in register mode');
+
+    // Back button returns to auth gate
+    await page.click('#emailAuthBackBtn');
+    assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Back returns to main auth gate');
+
+    await page.close();
+  });
+
+  await test('Unauthenticated user cannot bypass welcome gate via #start or guest mode', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${BASE_URL}/index.html`);
+
+    // In storage, simulate attempt to force guest mode
+    await page.evaluate(() => {
+      localStorage.setItem('abacus-auth-mode', 'guest');
+    });
+
+    // Check that accessMod.isGuestUser() is false
+    const isGuest = await page.evaluate(async () => {
+      const access = await import('/js/access.js');
+      return access.isGuestUser();
+    });
+    assert.equal(isGuest, false, 'isGuestUser must strictly return false');
+
+    await page.close();
+  });
+
   console.log('All Unified Authentication tests PASSED!\n');
 } finally {
   await browser.close();
