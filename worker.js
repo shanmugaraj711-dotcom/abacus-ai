@@ -33,9 +33,12 @@ function clampMaxResults(value,fallback=1000){
 }
 
 async function firebaseUser(env,token){
-  const r=await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="+encodeURIComponent(env.FIREBASE_API_KEY),{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken:token})});
+  const apiKey = env?.FIREBASE_API_KEY || "AIzaSyC7geYRyuQ-KP5oHjlPW6GAZGBHumJdh8g";
+  const r=await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="+encodeURIComponent(apiKey),{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken:token})});
   if(!r.ok)throw Error("invalid Firebase ID token");
-  const d=await r.json(), u=d.users?.[0]; if(!u?.localId)throw Error("invalid Firebase user");
+  let d={};
+  try { d=await r.json(); } catch { throw Error("invalid Firebase ID token"); }
+  const u=d.users?.[0]; if(!u?.localId)throw Error("invalid Firebase user");
   return {uid:u.localId,phone:u.phoneNumber||"",email:u.email||""};
 }
 async function bearer(req,env){const h=req.headers.get("authorization")||"";if(!h.startsWith("Bearer "))throw Error("missing authorization");return firebaseUser(env,h.slice(7))}
@@ -47,7 +50,17 @@ async function ownerBearer(req,env){
   return user;
 }
 
-async function sa(env){return JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON)}
+async function sa(env){
+  const raw = env?.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!raw || typeof raw !== "string" || !raw.trim()) {
+    throw Error("Firebase service account credentials are not configured on server");
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw Error("Firebase service account credentials are malformed on server");
+  }
+}
 async function googleToken(env){
   if(env._googleToken)return env._googleToken;
   const s=await sa(env), now=Math.floor(Date.now()/1000);
@@ -66,13 +79,13 @@ async function firestoreGet(env,collection,docId){
   const tok=await googleToken(env);
   const r=await fetch(`${FSBase(env)}/${collection}/${encodeURIComponent(docId)}`,{headers:{authorization:"Bearer "+tok}});
   if(r.status===404)return null;if(!r.ok)throw Error(`Firestore read failed: ${r.status}`);
-  return await r.json();
+  try { return await r.json(); } catch { throw Error(`Firestore read returned malformed data: ${r.status}`); }
 }
 async function firestorePatch(env,collection,docId,fields){
   const tok=await googleToken(env);
   const r=await fetch(`${FSBase(env)}/${collection}/${encodeURIComponent(docId)}`,{method:"PATCH",headers:{authorization:"Bearer "+tok,"content-type":"application/json"},body:JSON.stringify({fields})});
   if(!r.ok)throw Error(`Firestore write failed: ${r.status}`);
-  return await r.json();
+  try { return await r.json(); } catch { return {}; }
 }async function firestorePatchIfCurrent(env,collection,docId,fields,updateTime){
   const tok=await googleToken(env);
   const url=FSBase(env)+"/"+collection+"/"+encodeURIComponent(docId);
@@ -395,10 +408,16 @@ async function putRemoteConfig(env,cfg,uid){
 
 // ── Razorpay helpers ─────────────────────────────────────────────────────────
 async function razor(env,path,opts={}){
-  const keyId=String(env.RAZORPAY_KEY_ID||"").trim(), keySecret=String(env.RAZORPAY_KEY_SECRET||"").trim();
+  const keyId=String(env?.RAZORPAY_KEY_ID||"").trim(), keySecret=String(env?.RAZORPAY_KEY_SECRET||"").trim();
+  if(!keyId || !keySecret){
+    throw Error("Payment gateway is temporarily unavailable. Please try again later.");
+  }
   const auth=btoa(keyId+":"+keySecret);
   const r=await fetch("https://api.razorpay.com/v1"+path,{...opts,headers:{authorization:"Basic "+auth,"content-type":"application/json",...(opts.headers||{})}});
-  const d=await r.json();if(!r.ok)throw Error(d.error?.description||"Razorpay request failed");return d;
+  let d={};
+  try { d=await r.json(); } catch { throw Error(`Payment gateway error (${r.status}). Please try again.`); }
+  if(!r.ok)throw Error(d.error?.description||"Razorpay request failed");
+  return d;
 }
 
 // ── Main request handler ─────────────────────────────────────────────────────
@@ -863,6 +882,9 @@ async function main(req,env){
 
 export {
   main,
+  sa,
+  PRODUCT_STARTER,
+  STARTER_PRICE_RUPEES,
   normalizePhone,
   normalizeEmail,
   detectDuplicates,
@@ -877,4 +899,14 @@ export {
   couponFinalPrice,
   validateCouponDoc,
 };
-export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};
+export default {
+  fetch(req, env) {
+    return main(req, env).catch(e => {
+      let msg = e?.message || "Server error";
+      if (typeof msg === "string" && (msg.includes("is not valid JSON") || msg.includes("Unexpected token"))) {
+        msg = "Internal server communication error";
+      }
+      return json({ error: msg }, 500);
+    });
+  }
+};

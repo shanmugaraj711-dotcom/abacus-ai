@@ -107,6 +107,57 @@ try {
   });
 } catch {}
 
+/**
+ * Safely parses a response into a JSON object.
+ * Checks HTTP status, validates Content-Type / text, and guards against
+ * empty bodies and syntax errors.
+ * Never throws raw `"undefined" is not valid JSON` or SyntaxError.
+ */
+export async function parseJsonResponse(res, fallbackErrMsg) {
+  let text = "";
+  try {
+    text = await res.text();
+  } catch {
+    throw new Error(fallbackErrMsg || "Network error. Please check your connection and try again.");
+  }
+
+  let data = null;
+  if (typeof text === "string" && text.trim().length > 0) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!res.ok) {
+    let msg = "";
+    if (data && typeof data === "object" && typeof data.error === "string") {
+      msg = data.error.trim();
+    }
+    // Filter out internal/syntax error strings
+    if (msg.includes("is not valid JSON") || msg.includes("Unexpected token") || msg === "undefined" || msg === '"undefined"') {
+      msg = "";
+    }
+    if (!msg) {
+      if (res.status === 401 || res.status === 403) {
+        msg = "Authentication required. Please sign in first.";
+      } else if (res.status >= 500) {
+        msg = "Payment service is temporarily unavailable. Please try again shortly.";
+      } else {
+        msg = fallbackErrMsg || "Unable to complete request. Please try again.";
+      }
+    }
+    throw new Error(msg);
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new Error(fallbackErrMsg || "Invalid response from server. Please try again.");
+  }
+
+  return data;
+}
+
 export async function refreshEntitlement() {
   try {
     initFirebase();
@@ -175,8 +226,7 @@ export async function refreshEntitlement() {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`Unable to check purchase status (${res.status})`);
-    const data = await res.json();
+    const data = await parseJsonResponse(res, `Unable to check purchase status (${res.status})`);
     const resolved = resolveTier(data);
     paid = resolved.id !== TIERS.FREE;
     currentEntitlementObj = { ...data, uid: user.uid };
@@ -223,9 +273,7 @@ export async function validateCoupon(couponCode, tier = 'lifetime') {
       tier: String(tier || 'lifetime').toLowerCase(),
     }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Invalid coupon.");
-  return data;
+  return await parseJsonResponse(res, "Invalid coupon.");
 }
 
 export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess, onError } = {}) {
@@ -244,14 +292,20 @@ export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess,
         couponCode: String(couponCode || "").trim().toUpperCase(),
       }),
     });
-    const order = await orderRes.json();
-    if (!orderRes.ok) throw new Error(order.error || "Could not create payment order.");
+    const order = await parseJsonResponse(orderRes, "Could not create payment order. Please try again.");
     if (order.paid) {
       paid = true;
       currentUid = user.uid;
       writeCache(user.uid, { paid: true, tier: normalizedTier });
       onSuccess?.();
       return true;
+    }
+
+    if (!order.keyId || typeof order.keyId !== "string" ||
+        !order.orderId || typeof order.orderId !== "string" ||
+        !Number.isFinite(order.amount) || order.amount <= 0 ||
+        order.currency !== "INR") {
+      throw new Error("Unable to start payment checkout: invalid order details received. Please try again.");
     }
 
     await loadRazorpay();
@@ -273,6 +327,9 @@ export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess,
         theme: { color: "#FFC53D" },
         handler: async (response) => {
           try {
+            if (!response || !response.razorpay_order_id || !response.razorpay_payment_id || !response.razorpay_signature) {
+              throw new Error("Payment response is incomplete. Please contact support if your account was charged.");
+            }
             const verifyRes = await fetch("/api/verify-payment", {
               method: "POST",
               headers: {
@@ -281,8 +338,8 @@ export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess,
               },
               body: JSON.stringify(response),
             });
-            const verify = await verifyRes.json();
-            if (!verifyRes.ok || verify.paid !== true) throw new Error(verify.error || "Payment verification failed.");
+            const verify = await parseJsonResponse(verifyRes, "Payment verification failed. Please contact support if your account was charged.");
+            if (verify.paid !== true) throw new Error(verify.error || "Payment verification failed.");
             paid = true;
             currentUid = user.uid;
             writeCache(user.uid, {
@@ -303,8 +360,9 @@ export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess,
       });
       checkout.on("payment.failed", (response) => {
         const msg = response?.error?.description || "Payment failed. No unlock was applied.";
-        onError?.(new Error(msg));
-        reject(new Error(msg));
+        const failureErr = new Error(msg);
+        onError?.(failureErr);
+        reject(failureErr);
       });
       checkout.open();
     });

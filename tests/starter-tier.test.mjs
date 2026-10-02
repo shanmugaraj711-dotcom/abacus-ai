@@ -23,6 +23,7 @@ import {
   canAccessFreePlay,
   getGameLimit,
 } from '../js/tiers.js';
+import { sa, PRODUCT_STARTER, STARTER_PRICE_RUPEES } from '../worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +42,8 @@ function createTestServer() {
   };
 
   let mockEntitlement = null;
+  let customCreateOrderHandler = null;
+  let customVerifyPaymentHandler = null;
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
@@ -59,6 +62,9 @@ function createTestServer() {
     }
 
     if (reqPath === '/api/create-order' && req.method === 'POST') {
+      if (customCreateOrderHandler) {
+        return customCreateOrderHandler(req, res);
+      }
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => {
@@ -86,6 +92,9 @@ function createTestServer() {
     }
 
     if (reqPath === '/api/verify-payment' && req.method === 'POST') {
+      if (customVerifyPaymentHandler) {
+        return customVerifyPaymentHandler(req, res);
+      }
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => {
@@ -124,6 +133,12 @@ function createTestServer() {
   });
 
   server.setMockEntitlement = ent => { mockEntitlement = ent; };
+  server.setCreateOrderHandler = fn => { customCreateOrderHandler = fn; };
+  server.setVerifyPaymentHandler = fn => { customVerifyPaymentHandler = fn; };
+  server.resetHandlers = () => {
+    customCreateOrderHandler = null;
+    customVerifyPaymentHandler = null;
+  };
   return server;
 }
 
@@ -477,6 +492,241 @@ try {
     assert.ok(scrollWidth <= clientWidth + 2, `No mobile auth horizontal overflow: ${scrollWidth} <= ${clientWidth}`);
 
     await mobilePage.close();
+  });
+
+  // ── GROUP 5: Safe Payment Flow, Error Handling, and Regression Tests ────────
+  console.log('\n--- GROUP 5: Safe Payment Flow & Regression Tests ---');
+
+  await test('5.1 sa(env) safely handles missing/undefined FIREBASE_SERVICE_ACCOUNT_JSON without throwing "undefined" is not valid JSON', async () => {
+    await assert.rejects(
+      async () => await sa({}),
+      { message: 'Firebase service account credentials are not configured on server' }
+    );
+    await assert.rejects(
+      async () => await sa({ FIREBASE_SERVICE_ACCOUNT_JSON: undefined }),
+      { message: 'Firebase service account credentials are not configured on server' }
+    );
+    await assert.rejects(
+      async () => await sa({ FIREBASE_SERVICE_ACCOUNT_JSON: '' }),
+      { message: 'Firebase service account credentials are not configured on server' }
+    );
+  });
+
+  await test('5.2 sa(env) safely throws on malformed JSON without raw syntax error', async () => {
+    await assert.rejects(
+      async () => await sa({ FIREBASE_SERVICE_ACCOUNT_JSON: '{invalid-json' }),
+      { message: 'Firebase service account credentials are malformed on server' }
+    );
+  });
+
+  await test('5.3 sa(env) successfully parses valid JSON service account', async () => {
+    const parsed = await sa({
+      FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify({ client_email: 'test@abacus.iam.gserviceaccount.com' })
+    });
+    assert.equal(parsed.client_email, 'test@abacus.iam.gserviceaccount.com');
+  });
+
+  await test('5.4 parseJsonResponse handles 200 JSON, 500 error, 502 HTML, and sanitizes "undefined" is not valid JSON', async () => {
+    const page = await setupPage(browser, { isAuth: true });
+    await page.goto(`${BASE_URL}/#/starter`);
+    const results = await page.evaluate(async () => {
+      const { parseJsonResponse } = await import('/js/payments.js');
+      const out = {};
+
+      // 200 valid JSON
+      const res200 = new Response(JSON.stringify({ orderId: 'ord_123', amount: 9900 }));
+      const d200 = await parseJsonResponse(res200);
+      out.ok200 = d200.orderId === 'ord_123';
+
+      // 500 with undefined JSON error
+      try {
+        const res500 = new Response(JSON.stringify({ error: '"undefined" is not valid JSON' }), { status: 500 });
+        await parseJsonResponse(res500);
+        out.err500 = null;
+      } catch (e) {
+        out.err500 = e.message;
+      }
+
+      // 502 with HTML
+      try {
+        const res502 = new Response('<html>502 Bad Gateway</html>', { status: 502, headers: { 'Content-Type': 'text/html' } });
+        await parseJsonResponse(res502);
+        out.err502 = null;
+      } catch (e) {
+        out.err502 = e.message;
+      }
+
+      // 500 empty body
+      try {
+        const resEmpty = new Response('', { status: 500 });
+        await parseJsonResponse(resEmpty);
+        out.errEmpty = null;
+      } catch (e) {
+        out.errEmpty = e.message;
+      }
+
+      return out;
+    });
+
+    assert.equal(results.ok200, true);
+    assert.ok(!results.err500.includes('not valid JSON'), 'err500 must not contain syntax error');
+    assert.ok(results.err500.includes('Payment service is temporarily unavailable'), 'err500 must show friendly message');
+    assert.ok(!results.err502.includes('not valid JSON'), 'err502 must not contain syntax error');
+    assert.ok(results.err502.includes('Payment service is temporarily unavailable'), 'err502 must show friendly message');
+    assert.ok(!results.errEmpty.includes('not valid JSON'), 'errEmpty must not contain syntax error');
+    assert.ok(results.errEmpty.includes('Payment service is temporarily unavailable'), 'errEmpty must show friendly message');
+
+    await page.close();
+  });
+
+  await test('5.5 Real Android QA Scenario: /api/create-order returns 500 error ("\"undefined\" is not valid JSON") -> UI displays friendly error, never raw SyntaxError, and button re-enables', async () => {
+    server.resetHandlers();
+    server.setCreateOrderHandler((req, res) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '"undefined" is not valid JSON' }));
+    });
+
+    const page = await setupPage(browser, { viewport: { width: 390, height: 844 }, isAuth: true });
+    await page.goto(`${BASE_URL}/#/starter`);
+    await page.waitForSelector('#buy-starter');
+
+    const buyBtn = page.locator('#buy-starter');
+    await buyBtn.click();
+
+    await page.waitForFunction(() => {
+      const el = document.getElementById('starter-status');
+      const btn = document.getElementById('buy-starter');
+      return el && el.textContent.length > 0 && btn && !btn.disabled;
+    });
+
+    const statusText = await page.textContent('#starter-status');
+    assert.ok(!statusText.includes('"undefined" is not valid JSON'), 'UI must NOT display raw undefined is not valid JSON');
+    assert.ok(!statusText.includes('SyntaxError'), 'UI must NOT display raw SyntaxError');
+    assert.ok(statusText.includes('Payment service is temporarily unavailable'), 'UI must display user-friendly error');
+
+    // Confirm button is re-enabled so user is not stuck
+    const isDisabled = await buyBtn.isDisabled();
+    assert.equal(isDisabled, false, 'Button must be re-enabled after error');
+
+    server.resetHandlers();
+    await page.close();
+  });
+
+  await test('5.6 /api/create-order returns 502 HTML error -> UI displays friendly error without crashing', async () => {
+    server.resetHandlers();
+    server.setCreateOrderHandler((req, res) => {
+      res.writeHead(502, { 'Content-Type': 'text/html' });
+      res.end('<html><body>502 Bad Gateway: Cloudflare Worker Error</body></html>');
+    });
+
+    const page = await setupPage(browser, { viewport: { width: 390, height: 844 }, isAuth: true });
+    await page.goto(`${BASE_URL}/#/starter`);
+    await page.waitForSelector('#buy-starter');
+
+    const buyBtn = page.locator('#buy-starter');
+    await buyBtn.click();
+
+    await page.waitForFunction(() => {
+      const el = document.getElementById('starter-status');
+      const btn = document.getElementById('buy-starter');
+      return el && el.textContent.length > 0 && btn && !btn.disabled;
+    });
+
+    const statusText = await page.textContent('#starter-status');
+    assert.ok(!statusText.includes('not valid JSON'));
+    assert.ok(!statusText.includes('<html>'));
+    assert.ok(statusText.includes('Payment service is temporarily unavailable'));
+
+    server.resetHandlers();
+    await page.close();
+  });
+
+  await test('5.7 Incomplete or invalid order payload from server prevents Razorpay checkout and displays clean error', async () => {
+    server.resetHandlers();
+    server.setCreateOrderHandler((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      // Missing keyId and orderId
+      res.end(JSON.stringify({ amount: 9900, currency: 'INR' }));
+    });
+
+    const page = await setupPage(browser, { viewport: { width: 390, height: 844 }, isAuth: true });
+    await page.addInitScript(() => {
+      window.__razorpayOpened = false;
+      window.Razorpay = function() {
+        return {
+          open: () => { window.__razorpayOpened = true; },
+          on: () => {},
+        };
+      };
+    });
+
+    await page.goto(`${BASE_URL}/#/starter`);
+    await page.waitForSelector('#buy-starter');
+
+    await page.locator('#buy-starter').click();
+
+    await page.waitForFunction(() => {
+      const el = document.getElementById('starter-status');
+      const btn = document.getElementById('buy-starter');
+      return el && el.textContent.length > 0 && btn && !btn.disabled;
+    });
+
+    const razorpayOpened = await page.evaluate(() => window.__razorpayOpened);
+    assert.equal(razorpayOpened, false, 'Razorpay must not open with invalid order payload');
+
+    const statusText = await page.textContent('#starter-status');
+    assert.ok(statusText.includes('invalid order details'));
+
+    server.resetHandlers();
+    await page.close();
+  });
+
+  await test('5.8 Successful Starter payment: opens Razorpay for 9900 paise, verifies, and activates Starter tier', async () => {
+    server.resetHandlers();
+
+    const page = await setupPage(browser, { viewport: { width: 390, height: 844 }, isAuth: true });
+    await page.addInitScript(() => {
+      window.Razorpay = function(options) {
+        window.__capturedRazorpayOptions = options;
+        return {
+          open: () => {
+            // Simulate Razorpay payment completion callback
+            setTimeout(() => {
+              options.handler({
+                razorpay_order_id: options.order_id,
+                razorpay_payment_id: 'pay_starter_mock_999',
+                razorpay_signature: 'valid_mock_sig',
+              });
+            }, 50);
+          },
+          on: () => {},
+        };
+      };
+    });
+
+    await page.goto(`${BASE_URL}/#/starter`);
+    await page.waitForSelector('#buy-starter');
+
+    await page.locator('#buy-starter').click();
+
+    await page.waitForFunction(() => {
+      const el = document.getElementById('starter-status');
+      return el && el.textContent.includes('Payment verified');
+    });
+
+    const options = await page.evaluate(() => window.__capturedRazorpayOptions);
+    assert.equal(options.amount, 9900, 'Razorpay must be opened for ₹99 (9900 paise)');
+    assert.equal(options.currency, 'INR');
+    assert.equal(options.order_id, 'order_starter_123');
+    assert.ok(options.description.includes('Starter Tier'));
+
+    // Check localStorage cached entitlement
+    const cachedEnt = await page.evaluate(() => JSON.parse(localStorage.getItem('abacus-entitlement-v1')));
+    assert.equal(cachedEnt.paid, true);
+    assert.equal(cachedEnt.tier, 'starter');
+
+    server.resetHandlers();
+    await page.close();
   });
 
   console.log('\n========================================');

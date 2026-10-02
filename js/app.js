@@ -55,6 +55,17 @@ const freeMax = () => 1;
 const playableMax = () => TIER_CONFIG[currentTier()]?.maxLevel ?? 1;
 const levelAllowed = id => id >= 1 && canAccessLevel(id);
 
+function formatPaymentError(msg) {
+  if (!msg || typeof msg !== 'string') {
+    return 'Unable to process payment. Please try again.';
+  }
+  const clean = msg.trim();
+  if (clean.includes('is not valid JSON') || clean.includes('Unexpected token') || clean === 'undefined' || clean === '"undefined"') {
+    return 'Payment service is temporarily unavailable. Please try again.';
+  }
+  return clean;
+}
+
 function starter() {
   const isTa = lang() === 'ta';
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
@@ -126,6 +137,7 @@ function starter() {
     buyStarterBtn.onclick = async () => {
       buyStarterBtn.disabled = true;
       const msg = $('#starter-status');
+      if (msg) msg.textContent = isTa ? 'கட்டணம் தொடங்குகிறது...' : 'Starting payment...';
       try {
         await buyStarter({
           onSuccess: () => {
@@ -133,12 +145,12 @@ function starter() {
             setTimeout(() => go('#/practice'), 700);
           },
           onError: err => {
-            if (msg) msg.textContent = err.message;
+            if (msg) msg.textContent = formatPaymentError(err?.message);
             buyStarterBtn.disabled = false;
           }
         });
       } catch (err) {
-        if (msg) msg.textContent = err.message;
+        if (msg) msg.textContent = formatPaymentError(err?.message);
         buyStarterBtn.disabled = false;
       }
     };
@@ -218,7 +230,7 @@ function unlock() {
     }catch(e){
       appliedCoupon='';
       setPrice(499,499,0);
-      if(msg)msg.textContent=e.message;
+      if(msg)msg.textContent=formatPaymentError(e?.message);
     }
     apply.disabled=false; apply.textContent='Apply';
   };
@@ -226,15 +238,16 @@ function unlock() {
   if (buy) buy.onclick = async () => {
     buy.disabled=true;
     const msg=$('#pay-status');
+    if (msg) msg.textContent = isTa ? 'கட்டணம் தொடங்குகிறது...' : 'Starting payment...';
     try{
       await buyUnlock({
         couponCode: appliedCoupon,
         onSuccess: () => { if(msg)msg.textContent=isTa?'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 3–15 திறக்கப்பட்டன.':'Payment verified ✓ Levels 3–15 are unlocked.'; },
-        onError: e => { if(msg)msg.textContent=e.message; },
+        onError: e => { if(msg)msg.textContent=formatPaymentError(e?.message); },
       });
       if(isPaid()) setTimeout(()=>go('#/practice'),700);
     }catch(e){
-      if(msg)msg.textContent=e.message;
+      if(msg)msg.textContent=formatPaymentError(e?.message);
       buy.disabled=false;
       const final=Number(finalPriceEl?.textContent?.replace(/[^0-9]/g,''))||499;
       buy.textContent=isTa?`₹${final} செலுத்தி திறக்கவும்`:(final === 499 ? 'Unlock for ₹499' : `Pay ₹${final} & Unlock`);

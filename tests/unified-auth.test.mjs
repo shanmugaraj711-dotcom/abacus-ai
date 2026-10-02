@@ -183,6 +183,7 @@ try {
       sessionStorage.clear();
     });
     await page.goto(`${BASE_URL}/index.html`);
+    await page.waitForSelector('#authGateGoogleBtn');
 
     // Verify Google button exists
     assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Google button must be visible on first launch');
@@ -220,6 +221,7 @@ try {
     });
 
     await page.goto(`${BASE_URL}/index.html`);
+    await page.waitForSelector('#authGateGoogleBtn');
     assert.ok(await page.isVisible('#authGateGoogleBtn'));
 
     // Error container should be hidden initially
@@ -256,6 +258,7 @@ try {
     });
 
     await page.goto(`${BASE_URL}/index.html`);
+    await page.waitForSelector('#authGateGoogleBtn');
     assert.ok(await page.isVisible('#authGateGoogleBtn'));
 
     await page.click('#authGateGoogleBtn');
@@ -274,6 +277,7 @@ try {
       sessionStorage.clear();
     });
     await page.goto(`${BASE_URL}/index.html`);
+    await page.waitForSelector('#authGateEmailBtn');
 
     await page.click('#authGateEmailBtn');
 
