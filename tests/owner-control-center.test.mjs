@@ -984,7 +984,7 @@ for (const vp of VIEWPORTS) {
     const ctx = await browser.newContext({ viewport: vp, hasTouch: true, serviceWorkers: 'block' });
     const p = await ctx.newPage();
     try {
-      await p.goto(`${BASE}/`);
+      await p.goto(`${BASE}/#/signin`);
       await p.waitForSelector('#kidName', { timeout: 8000 });
       const scrollW = await p.evaluate(() => document.documentElement.scrollWidth);
       const innerW = await p.evaluate(() => window.innerWidth);

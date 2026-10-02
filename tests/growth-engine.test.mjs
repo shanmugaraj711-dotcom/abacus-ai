@@ -118,10 +118,19 @@ try {
   console.log('\n=== GROWTH ENGINE PHASE 1 & GROWTH LOOP V1 TESTS ===\n');
 
   // ── 1. Homepage & Public Access ──────────────────────────────────────────
-  await test('1.1 Parent-facing public home renders core messaging and CTAs', async () => {
+  await test('1.1 Parent-facing public home renders core messaging, SEO metadata, and CTAs', async () => {
     const page = await browser.newPage();
     await page.goto(`${BASE_URL}/index.html`);
     await page.waitForSelector('.landing-page');
+
+    // Document title and meta description check
+    const docTitle = await page.title();
+    assert.match(docTitle, /Abacus Buddy/i);
+    assert.match(docTitle, /Mental Math/i);
+
+    const metaDesc = await page.$eval('meta[name="description"]', el => el.getAttribute('content'));
+    assert.match(metaDesc, /mental-math/i);
+    assert.match(metaDesc, /10-minute abacus practice/i);
 
     // Hero title check
     const heroTitle = await page.textContent('h1');
@@ -149,6 +158,14 @@ try {
     assert.ok(bodyText.includes('Starter (₹99)'), 'Includes Starter ₹99 pricing');
     assert.ok(bodyText.includes('Lifetime (₹499)'), 'Includes Lifetime ₹499 pricing');
     assert.ok(bodyText.includes('Frequently Asked Questions'), 'Includes FAQ section');
+
+    // Natural parent search intent keywords coverage
+    assert.ok(bodyText.includes('abacus practice for kids'), 'Covers abacus practice for kids');
+    assert.ok(bodyText.includes('mental math for kids'), 'Covers mental math for kids');
+    assert.ok(bodyText.includes('abacus classes for kids'), 'Covers abacus classes for kids');
+    assert.ok(bodyText.includes('abacus learning for beginners'), 'Covers abacus learning for beginners');
+    assert.ok(bodyText.includes('abacus worksheets'), 'Covers abacus worksheets');
+    assert.ok(bodyText.includes('calculation practice for children'), 'Covers calculation practice for children');
 
     // Verify absence of unsupported academic claims
     assert.doesNotMatch(bodyText, /guaranteed top marks/i);
@@ -250,13 +267,22 @@ try {
   });
 
   // ── 4. Existing Auth Route Compatibility ─────────────────────────────────
-  await test('4.1 Canonical auth buttons exist and return parameter is preserved', async () => {
+  await test('4.1 Sign In CTA on landing page hands off to existing onboarding flow', async () => {
     const page = await browser.newPage();
     await page.goto(`${BASE_URL}/index.html`);
-    await page.waitForSelector('#authGateGoogleBtn');
+    await page.waitForSelector('#heroSignInCta');
+
+    // Click Sign In on landing page
+    await page.click('#heroSignInCta');
+    await page.waitForSelector('#authGateGoogleBtn', { timeout: 6000 });
 
     assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Google auth button is visible');
     assert.ok(await page.isVisible('#authGateEmailBtn'), 'Email auth button is visible');
+    assert.ok(await page.isVisible('#kidName'), 'Child name input is visible in onboarding');
+    assert.ok(await page.isVisible('[data-age="6-8"]'), 'Age selection options are present');
+    assert.ok(await page.isVisible('[data-lang-choice="hi"]'), 'Hindi language option is present');
+    assert.ok(await page.isVisible('[data-lang-choice="ta"]'), 'Tamil language option is present');
+    assert.ok(await page.isVisible('[data-lang-choice="en"]'), 'English language option is present');
 
     // Sign in link preserve test on standalone auth-ui
     await page.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#starter`);

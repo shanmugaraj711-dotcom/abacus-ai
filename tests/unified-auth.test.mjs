@@ -182,7 +182,7 @@ try {
       localStorage.clear();
       sessionStorage.clear();
     });
-    await page.goto(`${BASE_URL}/index.html`);
+    await page.goto(`${BASE_URL}/index.html#/signin`);
     await page.waitForSelector('#authGateGoogleBtn');
 
     // Verify Google button exists
@@ -220,7 +220,7 @@ try {
       };
     });
 
-    await page.goto(`${BASE_URL}/index.html`);
+    await page.goto(`${BASE_URL}/index.html#/signin`);
     await page.waitForSelector('#authGateGoogleBtn');
     assert.ok(await page.isVisible('#authGateGoogleBtn'));
 
@@ -257,7 +257,7 @@ try {
       };
     });
 
-    await page.goto(`${BASE_URL}/index.html`);
+    await page.goto(`${BASE_URL}/index.html#/signin`);
     await page.waitForSelector('#authGateGoogleBtn');
     assert.ok(await page.isVisible('#authGateGoogleBtn'));
 
@@ -276,7 +276,7 @@ try {
       localStorage.clear();
       sessionStorage.clear();
     });
-    await page.goto(`${BASE_URL}/index.html`);
+    await page.goto(`${BASE_URL}/index.html#/signin`);
     await page.waitForSelector('#authGateEmailBtn');
 
     await page.click('#authGateEmailBtn');
