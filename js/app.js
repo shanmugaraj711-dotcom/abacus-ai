@@ -1064,9 +1064,12 @@ function route() {
   if (page === 'challenge') return challenge();
   if (page === 'landing') return landingPage();
 
-  // 2. User without profile: show the parent landing page
-  //    (Sign In is handled by auth-ui/sign-in.html — not a hash route)
+  // 2. User without profile
+  //    - #/home (Sign In from landing) → existing auth gate + onboarding (welcome())
+  //    - #/starter or #/unlock → those screens directly
+  //    - anything else → parent SEO landing page
   if (!state.profile?.name) {
+    if (page === 'home') return welcome();
     if (page === 'starter') return starter();
     if (page === 'unlock') return unlock();
     return landingPage();

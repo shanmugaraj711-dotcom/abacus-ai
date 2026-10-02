@@ -267,40 +267,49 @@ try {
   });
 
   // ── 4. Existing Auth Route Compatibility ─────────────────────────────────
-  await test('4.1 Sign In CTA on landing page routes to existing auth-ui/sign-in.html', async () => {
+  await test('4.1 Sign In CTA on landing page navigates directly to existing auth gate (welcome)', async () => {
     const page = await browser.newPage();
     await page.goto(`${BASE_URL}/index.html`);
     await page.waitForSelector('#heroSignInCta');
 
-    // Verify Sign In CTAs on landing page link to the ORIGINAL auth-ui/sign-in.html
-    // NOT to a Growth Engine-created #/signin hash route
+    // Verify Sign In CTAs link to #/home — the existing in-app auth gate
+    // NOT to auth-ui/sign-in.html (intermediate page) or #/signin (Growth Engine duplicate)
     const heroHref = await page.getAttribute('#heroSignInCta', 'href');
     assert.ok(
-      heroHref && heroHref.includes('auth-ui/sign-in.html'),
-      `heroSignInCta must link to auth-ui/sign-in.html, got: ${heroHref}`
+      heroHref && heroHref.includes('#/home'),
+      `heroSignInCta must link to #/home, got: ${heroHref}`
     );
 
     const navHref = await page.getAttribute('#navSignInBtn', 'href');
     assert.ok(
-      navHref && navHref.includes('auth-ui/sign-in.html'),
-      `navSignInBtn must link to auth-ui/sign-in.html, got: ${navHref}`
+      navHref && navHref.includes('#/home'),
+      `navSignInBtn must link to #/home, got: ${navHref}`
     );
 
     const bottomHref = await page.getAttribute('#bottomSignInCta', 'href');
     assert.ok(
-      bottomHref && bottomHref.includes('auth-ui/sign-in.html'),
-      `bottomSignInCta must link to auth-ui/sign-in.html, got: ${bottomHref}`
+      bottomHref && bottomHref.includes('#/home'),
+      `bottomSignInCta must link to #/home, got: ${bottomHref}`
     );
 
-    // Verify the existing auth-ui/sign-in.html is accessible and shows Google button
-    await page.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#home`);
-    await page.waitForSelector('#phase1-google-btn');
-    assert.ok(await page.isVisible('#phase1-google-btn'), 'Google button present in auth-ui');
+    // Click Sign In — must navigate DIRECTLY to the existing auth gate (welcome())
+    // with NO intermediate page
+    await page.click('#heroSignInCta');
+    await page.waitForSelector('#authGateGoogleBtn', { timeout: 6000 });
 
-    // Return URL preservation: #/starter should be preserved
+    assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Existing Google auth button visible after one click');
+    assert.ok(await page.isVisible('#authGateEmailBtn'), 'Existing Email auth button visible');
+    assert.ok(await page.isVisible('#kidName'), 'Child name input visible (existing onboarding)');
+
+    // Confirm NO intermediate Growth Engine page was shown
+    const currentUrl = page.url();
+    assert.ok(!currentUrl.includes('auth-ui/sign-in.html'), 'Must NOT route through auth-ui/sign-in.html');
+    assert.ok(!currentUrl.includes('#/signin'), 'Must NOT route through #/signin');
+
+    // Confirm auth-ui/sign-in.html is still a valid standalone page (for direct #/unlock flows)
     await page.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#starter`);
     await page.waitForSelector('#phase1-google-btn');
-    assert.ok(await page.isVisible('#phase1-google-btn'), 'Google button present in auth-ui with return param');
+    assert.ok(await page.isVisible('#phase1-google-btn'), 'Standalone auth-ui/sign-in.html still works for payment flows');
 
     await page.close();
   });

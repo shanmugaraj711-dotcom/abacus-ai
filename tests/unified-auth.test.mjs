@@ -178,25 +178,29 @@ try {
 
   await test('First-launch welcome screen contains NO Guest button and NO Demo link', async () => {
     const page = await browser.newPage();
-    // The original Abacus Buddy sign-in entry point is auth-ui/sign-in.html
-    await page.goto(`${BASE_URL}/auth-ui/sign-in.html`);
-    await page.waitForSelector('#phase1-google-btn');
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    // #/home with no profile → welcome() (the existing in-app auth gate)
+    await page.goto(`${BASE_URL}/index.html#/home`);
+    await page.waitForSelector('#authGateGoogleBtn');
 
     // Verify Google button exists
-    assert.ok(await page.isVisible('#phase1-google-btn'), 'Google button must be visible on first launch');
-    const googleText = await page.textContent('#phase1-google-btn');
-    assert.match(googleText, /Sign in with Google/i);
+    assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Google button must be visible on first launch');
+    const googleText = await page.textContent('#authGateGoogleBtn');
+    assert.match(googleText, /Continue with Google/i);
 
-    // Verify Email button / form exists
-    assert.ok(await page.isVisible('#phase1-email'), 'Email input must be visible on first launch');
+    // Verify Email button exists
+    assert.ok(await page.isVisible('#authGateEmailBtn'), 'Email button must be visible on first launch');
 
     // STRICT: Continue as Guest must NOT exist in the DOM
     const guestBtn = await page.$('#authGateGuestBtn');
-    assert.equal(guestBtn, null, 'authGateGuestBtn must NOT exist');
+    assert.equal(guestBtn, null, 'authGateGuestBtn must NOT exist on first launch');
 
     // STRICT: Demo button must NOT exist in the DOM
     const demoBtn = await page.$('#demo');
-    assert.equal(demoBtn, null, 'Demo button must NOT exist');
+    assert.equal(demoBtn, null, 'Demo button must NOT exist on first launch');
 
     // STRICT: Phone/OTP elements must NOT exist
     assert.equal(await page.$('#phase1-phone'), null, 'Phone input must NOT exist');
@@ -208,6 +212,8 @@ try {
   await test('Google auth failure surfaces user-facing error instead of silently returning', async () => {
     const page = await browser.newPage();
     await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
       window.__mockSignInWithGoogle = () => {
         const err = new Error('The current domain is not authorized for OAuth operations.');
         err.code = 'auth/unauthorized-domain';
@@ -215,20 +221,23 @@ try {
       };
     });
 
-    // Test the in-app welcome screen's auth gate directly (reachable via no-profile state)
-    // by navigating to index.html and injecting a mock Google function
-    await page.goto(`${BASE_URL}/index.html`);
-    await page.waitForSelector('.landing-page');
+    await page.goto(`${BASE_URL}/index.html#/home`);
+    await page.waitForSelector('#authGateGoogleBtn');
+    assert.ok(await page.isVisible('#authGateGoogleBtn'));
 
-    // The landing page shows for no-profile users — confirm the Google auth error
-    // surfacing behavior is tested on the actual auth-ui page
-    await page.goto(`${BASE_URL}/auth-ui/sign-in.html`);
-    await page.waitForSelector('#phase1-google-btn');
-    assert.ok(await page.isVisible('#phase1-google-btn'));
+    // Error container should be hidden initially
+    assert.equal(await page.isVisible('#authGateError'), false, 'Error container hidden initially');
 
-    // Verify error container is accessible
-    const errEl = await page.$('#phase1-auth-error');
-    assert.ok(errEl, 'auth error container must exist in auth-ui');
+    // Click Google sign-in
+    await page.click('#authGateGoogleBtn');
+
+    // Error MUST be surfaced in the DOM
+    assert.ok(await page.isVisible('#authGateError'), 'authGateError must be visible after failure');
+    const errText = await page.textContent('#authGateError');
+    assert.match(errText, /not authorized|Authorized domains/i, 'Error message must explain unauthorized domain');
+
+    // Google button must be re-enabled
+    assert.equal(await page.isEnabled('#authGateGoogleBtn'), true, 'Button must be re-enabled for retry');
 
     await page.close();
   });
@@ -249,36 +258,43 @@ try {
       };
     });
 
-    // Navigate to auth-ui/sign-in.html - the original sign-in page
-    await page.goto(`${BASE_URL}/auth-ui/sign-in.html`);
-    await page.waitForSelector('#phase1-google-btn');
-    assert.ok(await page.isVisible('#phase1-google-btn'));
+    await page.goto(`${BASE_URL}/index.html#/home`);
+    await page.waitForSelector('#authGateGoogleBtn');
+    assert.ok(await page.isVisible('#authGateGoogleBtn'));
 
-    // The auth-ui/sign-in.html uses auth-state.js which handles the full flow
-    // Verify the page is loaded and the Google button is interactive
-    const isEnabled = await page.isEnabled('#phase1-google-btn');
-    assert.ok(isEnabled, 'Google button must be enabled for interaction');
+    await page.click('#authGateGoogleBtn');
+
+    // After success, authGateStep must hide and profile setup must show
+    await page.waitForSelector('#welcomeProfileStep:not([style*="display: none"])', { timeout: 3000 });
+    assert.ok(await page.isVisible('#kidName'), 'Profile name input must be visible after auth');
 
     await page.close();
   });
 
   await test('Email auth button opens email form with login/register toggle', async () => {
     const page = await browser.newPage();
-    await page.goto(`${BASE_URL}/auth-ui/sign-in.html`);
-    await page.waitForSelector('#phase1-submit-btn');
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.goto(`${BASE_URL}/index.html#/home`);
+    await page.waitForSelector('#authGateEmailBtn');
 
-    // Email/password form is always visible in auth-ui/sign-in.html
-    assert.ok(await page.isVisible('#phase1-email'), 'Email input visible');
-    assert.ok(await page.isVisible('#phase1-password'), 'Password input visible');
-    assert.ok(await page.isVisible('#phase1-submit-btn'), 'Submit button visible');
+    await page.click('#authGateEmailBtn');
+
+    // Email step visible, gate hidden
+    assert.ok(await page.isVisible('#emailAuthStep'), 'Email auth step should be visible');
+    assert.ok(await page.isVisible('#emailAuthEmail'), 'Email input visible');
+    assert.ok(await page.isVisible('#emailAuthPassword'), 'Password input visible');
+    assert.ok(await page.isVisible('#emailAuthSubmitBtn'), 'Submit button visible');
 
     // Test toggle between login and register
-    await page.click('#phase1-toggle-btn');
-    assert.ok(await page.isVisible('#phase1-confirm-field'), 'Confirm password visible in register mode');
+    await page.click('#emailAuthToggleBtn');
+    assert.ok(await page.isVisible('#emailAuthConfirmPassword'), 'Confirm password visible in register mode');
 
-    // Toggle back
-    await page.click('#phase1-toggle-btn');
-    assert.equal(await page.isVisible('#phase1-confirm-field'), false, 'Confirm password hidden again');
+    // Back button returns to auth gate
+    await page.click('#emailAuthBackBtn');
+    assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Back returns to main auth gate');
 
     await page.close();
   });
