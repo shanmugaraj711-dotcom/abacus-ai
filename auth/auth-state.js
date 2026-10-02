@@ -55,6 +55,10 @@ export function initAuthUI() {
   onAuthChange((user) => {
     if (user) {
       showSignedInPanel(user);
+      const ret = getSafeReturnUrl();
+      if (ret) {
+        window.location.assign(ret);
+      }
     } else {
       showSignInForm();
     }
@@ -79,9 +83,27 @@ export function initAuthUI() {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+export function getSafeReturnUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const ret = params.get("return");
+    if (!ret) return null;
+    if (ret.startsWith("../") || ret.startsWith("./") || ret.startsWith("/") || ret.startsWith("#")) {
+      if (!ret.startsWith("//") && !ret.includes("://")) {
+        return ret;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 /** Called by otp-verification when Firebase confirms the credential. */
 function handleSignedIn(credential) {
   showSignedInPanel(credential.user);
+  const ret = getSafeReturnUrl();
+  if (ret) {
+    window.location.assign(ret);
+  }
 }
 
 function showSignedInPanel(user) {
@@ -92,6 +114,13 @@ function showSignedInPanel(user) {
   const nameEl   = document.getElementById("phase1-user-phone");
   const uidEl    = document.getElementById("phase1-user-uid");
   const tokenEl  = document.getElementById("phase1-token-status");
+  const retBtn   = document.getElementById("phase1-return-btn");
+  const ret      = getSafeReturnUrl();
+
+  if (retBtn && ret) {
+    retBtn.href = ret;
+    retBtn.hidden = false;
+  }
 
   if (nameEl)  nameEl.textContent  = user.phoneNumber ?? "(no phone)";
   if (uidEl)   uidEl.textContent   = user.uid;

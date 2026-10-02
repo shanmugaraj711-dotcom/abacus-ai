@@ -6,7 +6,7 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
+import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getGameLimit, getEntitlement } from './payments.js';
 import { getAuthInstance } from '../firebase/auth.js';
 import {
   app, esc, $, $$, wait, newToken, currentToken, alive, every, clearTimers, setRouter, go,
@@ -34,9 +34,54 @@ const STICKERS = [
   { id: 'exam', e: '📝', name: 'Test Passed', how: 'Pass any test or exam', ok: () => state.exams.some(r => r.passed) },
 ];
 const earned = () => STICKERS.filter(x => x.ok());
-const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 3));
-const playableMax = () => isPaid() ? MAX_LEVEL : freeMax();
-const levelAllowed = id => id >= 1 && id <= playableMax();
+export const freeMax = () => 1;
+export const playableMax = () => {
+  const t = getTier();
+  if (t === 'lifetime') return MAX_LEVEL;
+  if (t === 'starter') return 3;
+  return freeMax();
+};
+export const levelAllowed = id => id >= 1 && id <= playableMax();
+
+function starterScreen() {
+  const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
+  shell({ title: 'Abacus Buddy Starter', back: '#/home', body: `
+    <section class="card intro">
+      ${babi('happy', 'big bob')}
+      <p class="eyebrow">Abacus Buddy Starter</p>
+      <h2 class="display">Levels 1–3</h2>
+      <p class="lead">30 days for <b>₹99</b>. No subscription.</p>
+      <ul class="muted">
+        <li>Levels 1–3 included.</li>
+        <li>3 games included.</li>
+        <li>30 days from purchase.</li>
+        <li>No subscription, no auto-debit.</li>
+        <li>Payment is processed securely by Razorpay.</li>
+      </ul>
+      <div class="stack">
+        ${signedIn ? `<button class="btn primary wide" id="buy-starter">Get Starter for ₹99</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../#starter">Sign in to get Starter</a>`}
+        <a class="btn wide" href="#/unlock">View Lifetime (₹499) instead</a>
+        <a class="btn ghost wide" href="#/home">Not now</a>
+      </div>
+      <p class="muted tiny center" id="starter-pay-status"></p>
+    </section>` });
+  const buy = $('#buy-starter');
+  if (buy) buy.onclick = async () => {
+    buy.disabled = true; buy.textContent = 'Opening secure checkout…';
+    const msg = $('#starter-pay-status');
+    try {
+      await buyUnlock({
+        tier: 'starter',
+        onSuccess: () => { if (msg) msg.textContent = 'Payment verified ✓ Starter unlocked for 30 days.'; },
+        onError: e => { if (msg) msg.textContent = e.message; },
+      });
+      if (isPaid()) setTimeout(() => go('#/practice'), 700);
+    } catch (e) {
+      if (msg) msg.textContent = e.message;
+      buy.disabled = false; buy.textContent = 'Get Starter for ₹99';
+    }
+  };
+}
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
@@ -49,6 +94,7 @@ function unlock() {
       <ul class="muted"><li>Levels 1–3 stay free.</li><li>Levels 4–15 unlock permanently for this account.</li><li>Payment is processed securely by Razorpay.</li></ul>
       <div class="stack">
         ${signedIn ? `<button class="btn primary wide" id="buy">Unlock for ₹499</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../#unlock">Sign in to unlock</a>`}
+        <a class="btn wide" href="#/starter">Or try 30-Day Starter for ₹99</a>
         <a class="btn ghost wide" href="#/home">Not now</a>
       </div>
       <p class="muted tiny center" id="pay-status"></p>
@@ -59,6 +105,7 @@ function unlock() {
     const msg = $('#pay-status');
     try {
       await buyUnlock({
+        tier: 'lifetime',
         onSuccess: () => { if (msg) msg.textContent = 'Payment verified ✓ Levels 4–15 are unlocked.'; },
         onError: e => { if (msg) msg.textContent = e.message; },
       });
@@ -377,11 +424,15 @@ function practiceMap() {
   shell({ title: 'Practise', back: '#/home', body: `
     ${bubble(T('pickLevel'), 'happy')}
     <div class="levels">${LEVELS.slice(1).map(L => {
-      const open = levelAllowed(L.id), paywall = !open && L.id > freeMax(), rec = state.levels[L.id];
-      return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${open ? `href="#/level/${L.id}"` : paywall ? 'href="#/unlock"' : 'aria-disabled="true"'}>
-        <span class="lv-emoji">${open ? L.emoji : paywall ? '🔐' : '🔒'}</span>
+      const open = levelAllowed(L.id);
+      const isStarterTier = !open && L.id <= 3 && getTier() === 'free';
+      const rec = state.levels[L.id];
+      const targetHref = open ? `#/level/${L.id}` : isStarterTier ? '#/starter' : '#/unlock';
+      const badge = open ? stars(rec?.stars || 0) : isStarterTier ? '<strong>₹99 Starter</strong>' : '<strong>₹499 unlock</strong>';
+      return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" href="${targetHref}">
+        <span class="lv-emoji">${open ? L.emoji : '🔐'}</span>
         <span class="lv-body"><small>Level ${L.id}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
-        ${paywall ? '<strong>₹499 unlock</strong>' : stars(rec?.stars || 0)}
+        ${badge}
       </a>`;
     }).join('')}</div>` });
 
@@ -389,7 +440,10 @@ function practiceMap() {
 
 function levelIntro(id) {
   const L = LEVELS[id]; if (!L) return go('#/practice');
-  if (!levelAllowed(id)) return go('#/unlock');
+  if (!levelAllowed(id)) {
+    if (id <= 3 && getTier() === 'free') return go('#/starter');
+    return go('#/unlock');
+  }
   const needLesson = LESSON_FOR_LEVEL[id], lessonNeeded = needLesson && !lessonDone(needLesson);
   const LL = LESSONS.find(l => l.id === needLesson);
   shell({ title: `Level ${id}`, back: '#/practice', body: `
@@ -649,13 +703,14 @@ function route() {
   newToken(); clearTimers(); stopTalking(); document.querySelectorAll('.confetti').forEach(c => c.remove());
   const hash = location.hash.replace(/^#\/?/, '');
   const [page, arg] = hash.split('/');
-  if (!state.profile?.name) return welcome();
+  if (!state.profile?.name && page !== 'starter' && page !== 'unlock') return welcome();
   const n = Number(arg);
   const pages = {
     '': home, home, stickers, parents, check,
     free: () => (isOn('freePlay') ? free() : home()),
     learn: () => (isOn('learn') ? learnMap() : home()),
     practice: () => (isOn('practice') ? practiceMap() : home()),
+    starter: starterScreen,
     unlock,
     play: () => (isOn('play') ? playRoom() : home()),
     lesson: () => lesson(n),
