@@ -9,7 +9,8 @@
     "test:coupons": "node tests/coupons.test.mjs",
     "test:auth": "node tests/google-auth.test.mjs && node tests/unified-auth.test.mjs",
     "test:starter": "node tests/starter-tier.test.mjs",
-    "test:all": "node tests/engine.test.mjs && node tests/owner-control-center.test.mjs && node tests/sound.test.mjs && node tests/coupons.test.mjs && node tests/google-auth.test.mjs && node tests/unified-auth.test.mjs && node tests/starter-tier.test.mjs",
+    "test:isolation": "node tests/preview-isolation.test.mjs",
+    "test:all": "node tests/engine.test.mjs && node tests/owner-control-center.test.mjs && node tests/sound.test.mjs && node tests/coupons.test.mjs && node tests/google-auth.test.mjs && node tests/unified-auth.test.mjs && node tests/starter-tier.test.mjs && node tests/preview-isolation.test.mjs",
     "syntax": "node --check js/app.js js/admin.js js/config.js js/payments.js js/engine.js js/store.js worker.js js/tiers.js"
   },
   "devDependencies": {

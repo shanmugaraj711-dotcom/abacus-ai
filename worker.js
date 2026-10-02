@@ -75,20 +75,59 @@ async function googleToken(env){
 
 const FSBase=(env)=>`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID||"abacus-buddy"}/databases/(default)/documents`;
 
-async function firestoreGet(env,collection,docId){
+function isEnvPreview(env) {
+  const environment = String(env?.ENVIRONMENT || "").trim().toLowerCase();
+  return environment === "preview";
+}
+
+function col(env, name) {
+  const rawEnv = env?.ENVIRONMENT;
+  // Fail closed if deployed to a Cloudflare Pages non-main preview branch without explicit ENVIRONMENT=preview
+  if (env?.CF_PAGES_BRANCH && env.CF_PAGES_BRANCH !== "main") {
+    const environment = String(rawEnv || "").trim().toLowerCase();
+    if (environment !== "preview") {
+      throw new Error("Preview environment must explicitly set ENVIRONMENT=preview");
+    }
+  }
+
+  const environment = String(rawEnv || "").trim().toLowerCase();
+  if (environment === "preview") {
+    if (name.startsWith("preview_")) return name;
+    return `preview_${name}`;
+  }
+  if (environment === "production" || environment === "") {
+    return name;
+  }
+  throw new Error(`Unsupported server environment: ${environment}`);
+}
+
+function assertPreviewRazorpaySafe(env) {
+  if (isEnvPreview(env)) {
+    const keyId = String(env?.RAZORPAY_KEY_ID || "").trim();
+    if (keyId.startsWith("rzp_live_") || (!keyId.startsWith("rzp_test_") && keyId !== "rzp_test")) {
+      throw new Error("Live Razorpay credentials cannot be used in Preview environment");
+    }
+  }
+}
+
+async function firestoreGet(env,collection,docId,rawCollection=false){
+  const targetCollection = rawCollection ? collection : col(env, collection);
   const tok=await googleToken(env);
-  const r=await fetch(`${FSBase(env)}/${collection}/${encodeURIComponent(docId)}`,{headers:{authorization:"Bearer "+tok}});
+  const r=await fetch(`${FSBase(env)}/${targetCollection}/${encodeURIComponent(docId)}`,{headers:{authorization:"Bearer "+tok}});
   if(r.status===404)return null;if(!r.ok)throw Error(`Firestore read failed: ${r.status}`);
   try { return await r.json(); } catch { throw Error(`Firestore read returned malformed data: ${r.status}`); }
 }
 async function firestorePatch(env,collection,docId,fields){
+  const targetCollection = col(env, collection);
   const tok=await googleToken(env);
-  const r=await fetch(`${FSBase(env)}/${collection}/${encodeURIComponent(docId)}`,{method:"PATCH",headers:{authorization:"Bearer "+tok,"content-type":"application/json"},body:JSON.stringify({fields})});
+  const r=await fetch(`${FSBase(env)}/${targetCollection}/${encodeURIComponent(docId)}`,{method:"PATCH",headers:{authorization:"Bearer "+tok,"content-type":"application/json"},body:JSON.stringify({fields})});
   if(!r.ok)throw Error(`Firestore write failed: ${r.status}`);
   try { return await r.json(); } catch { return {}; }
-}async function firestorePatchIfCurrent(env,collection,docId,fields,updateTime){
+}
+async function firestorePatchIfCurrent(env,collection,docId,fields,updateTime){
+  const targetCollection = col(env, collection);
   const tok=await googleToken(env);
-  const url=FSBase(env)+"/"+collection+"/"+encodeURIComponent(docId);
+  const url=FSBase(env)+"/"+targetCollection+"/"+encodeURIComponent(docId);
   const r=await fetch(url,{method:"PATCH",headers:{authorization:"Bearer "+tok,"content-type":"application/json"},body:JSON.stringify({fields,currentDocument:{updateTime}})});
   if(!r.ok)return false;
   return true;
@@ -107,7 +146,11 @@ async function getCoupon(env,code){
   if(!COUPONS_ENABLED)return null;
   const normalized=normalizeCouponCode(code);
   if(!normalized)return null;
-  return firestoreGet(env,"coupons",normalized);
+  let doc=await firestoreGet(env,col(env,"coupons"),normalized);
+  if(!doc&&isEnvPreview(env)){
+    try{doc=await firestoreGet(env,"coupons",normalized,true);}catch{}
+  }
+  return doc;
 }
 function validateCouponDoc(doc){
   if(!doc?.fields)throw Error("Invalid coupon");
@@ -148,8 +191,9 @@ async function firestoreListAllPages(tok,baseUrl,pageSize=50,allPages=false){
   return all;
 }
 async function firestoreList(env,collection,pageSize=50,allPages=false){
+  const targetCollection = col(env, collection);
   const tok=await googleToken(env);
-  return firestoreListAllPages(tok,`${FSBase(env)}/${collection}`,pageSize,allPages);
+  return firestoreListAllPages(tok,`${FSBase(env)}/${targetCollection}`,pageSize,allPages);
 }
 
 // ── Firebase Auth account listing (owner console population) ────────────────
@@ -322,7 +366,7 @@ function fsVal(f){
 
 // ── Entitlements ─────────────────────────────────────────────────────────────
 async function getEntitlement(env,uid){
-  const doc=await firestoreGet(env,"entitlements",uid);
+  const doc=await firestoreGet(env,col(env,"entitlements"),uid);
   if(!doc)return null;
   const f=doc.fields||{};
   if(f?.paid?.booleanValue!==true)return null;
@@ -366,7 +410,7 @@ async function putEntitlement(env,uid,data){
     paidAt:fsField(new Date().toISOString()),
     uid:fsField(uid),
   };
-  await firestorePatch(env,"entitlements",uid,fields);
+  await firestorePatch(env,col(env,"entitlements"),uid,fields);
   return true;
 }
 
@@ -383,7 +427,7 @@ async function writeAudit(env,{action,target,before=null,after=null,uid="system"
       timestamp:fsField(new Date().toISOString()),
       ...Object.fromEntries(Object.entries(extra).map(([k,v])=>[k,fsField(String(v))])),
     };
-    await firestorePatch(env,"audit_log",id,fields);
+    await firestorePatch(env,col(env,"audit_log"),id,fields);
   }catch(e){console.error("[audit] write failed:",e.message);}
 }
 
@@ -391,7 +435,10 @@ async function writeAudit(env,{action,target,before=null,after=null,uid="system"
 // FIX: store as JSON string in `configJson` field; parse it back on read.
 // This avoids Firestore nested-map depth limitations and round-trip issues.
 async function getRemoteConfig(env){
-  const doc=await firestoreGet(env,"_config","remote");
+  let doc=await firestoreGet(env,col(env,"_config"),"remote");
+  if(!doc?.fields&&isEnvPreview(env)){
+    try{doc=await firestoreGet(env,"_config","remote",true);}catch{}
+  }
   if(!doc||!doc.fields)return null;
   const raw=fsVal(doc.fields.configJson);
   if(!raw)return null;
@@ -403,7 +450,7 @@ async function putRemoteConfig(env,cfg,uid){
     updatedAt:fsField(new Date().toISOString()),
     updatedBy:fsField(uid),
   };
-  await firestorePatch(env,"_config","remote",fields);
+  await firestorePatch(env,col(env,"_config"),"remote",fields);
 }
 
 // ── Razorpay helpers ─────────────────────────────────────────────────────────
@@ -412,6 +459,7 @@ async function razor(env,path,opts={}){
   if(!keyId || !keySecret){
     throw Error("Payment gateway is temporarily unavailable. Please try again later.");
   }
+  assertPreviewRazorpaySafe(env);
   const auth=btoa(keyId+":"+keySecret);
   const r=await fetch("https://api.razorpay.com/v1"+path,{...opts,headers:{authorization:"Basic "+auth,"content-type":"application/json",...(opts.headers||{})}});
   let d={};
@@ -450,6 +498,7 @@ async function main(req,env){
 
   // ── /api/create-order ────────────────────────────────────────────────────────
   if(path==="/api/create-order"&&req.method==="POST"){
+    try{assertPreviewRazorpaySafe(env);}catch(e){return json({error:e.message},500);}
     const user=await bearer(req,env);
     let body={}; try{body=await req.json();}catch{}
     const reqTier=String(body?.tier||"").toLowerCase()==="starter"?"starter":"lifetime";
@@ -477,16 +526,17 @@ async function main(req,env){
       }catch(e){return json({error:e.message||"Invalid coupon"},400);}
     }
     const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount:pricing.finalPrice*100,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:prod,tier:reqTier,couponCode:coupon?.code||""}})});
-    await firestorePatch(env,"orders",order.id,{amount:fsField(pricing.finalPrice*100),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),tier:fsField(reqTier),product:fsField(prod),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
+    await firestorePatch(env,col(env,"orders"),order.id,{amount:fsField(pricing.finalPrice*100),basePrice:fsField(pricing.basePrice),couponCode:fsField(coupon?.code||null),discountApplied:fsField(pricing.discountApplied),status:fsField("created"),razorpayOrderId:fsField(order.id),tier:fsField(reqTier),product:fsField(prod),createdAt:fsField(new Date().toISOString()),uid:fsField(user.uid)});
     await writeAudit(env,{action:"order_created",target:`razorpay/order/${order.id}`,after:{orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,tier:reqTier,product:prod,couponCode:coupon?.code||null,uid:user.uid},uid:user.uid});
     return json({orderId:order.id,amount:pricing.finalPrice*100,displayAmount:pricing.finalPrice,basePrice:pricing.basePrice,discountApplied:pricing.discountApplied,couponCode:coupon?.code||null,tier:reqTier,product:prod,currency:"INR",keyId:env.RAZORPAY_KEY_ID});
   }
 
   // ── /api/verify-payment ──────────────────────────────────────────────────────
   if(path==="/api/verify-payment"&&req.method==="POST"){
+    try{assertPreviewRazorpaySafe(env);}catch(e){return json({error:e.message},500);}
     const user=await bearer(req,env), b=await req.json();
     const existing=await getEntitlement(env,user.uid);
-    const recorded=await firestoreGet(env,"orders",String(b.razorpay_order_id)), rf=recorded?.fields||{};
+    const recorded=await firestoreGet(env,col(env,"orders"),String(b.razorpay_order_id)), rf=recorded?.fields||{};
     const orderTier=String(fsVal(rf.tier)||"lifetime").toLowerCase();
     if(existing?.paid && !(existing?.tier === "starter" && orderTier === "lifetime")){
       if(existing?.paid){return json({paid:true});} // idempotent
@@ -507,16 +557,16 @@ async function main(req,env){
     if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==expectedAmount||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
     await putEntitlement(env,user.uid,{orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,tier:orderTier,product:expectedProduct});
     const orderWasCreated=recordedStatus==="created";
-    const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",String(b.razorpay_order_id),{status:fsField("paid")},recorded.updateTime) : true;
+    const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,col(env,"orders"),String(b.razorpay_order_id),{status:fsField("paid")},recorded.updateTime) : true;
     if(orderWasCreated&&!orderMarkedPaid){
-      const latest=await firestoreGet(env,"orders",String(b.razorpay_order_id));
+      const latest=await firestoreGet(env,col(env,"orders"),String(b.razorpay_order_id));
       if(String(fsVal(latest?.fields?.status)||"")!=="paid")return json({error:"Order could not be finalized safely"},409);
     }
     if(orderWasCreated&&orderMarkedPaid){
       const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
       if(couponCode){
         const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
-        await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
+        await firestorePatch(env,col(env,"coupons"),couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
       }
     }
     await writeAudit(env,{action:"payment_verified",target:`entitlement/${user.uid}`,before:{paid:false},after:{paid:true,tier:orderTier,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id,amount:expectedAmount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid:user.uid});
@@ -549,7 +599,7 @@ async function main(req,env){
     const uid=b.uid?String(b.uid).trim():null;
     const now=new Date().toISOString();
     let existing=null;
-    try{existing=await firestoreGet(env,"visitors",visitorId);}catch{}
+    try{existing=await firestoreGet(env,col(env,"visitors"),visitorId);}catch{}
 
     let firstSeen=now;
     let visitCount=1;
@@ -577,7 +627,7 @@ async function main(req,env){
       ...(linkedUid?{uid:fsField(linkedUid)}:{}),
     };
     try{
-      await firestorePatch(env,"visitors",visitorId,fields);
+      await firestorePatch(env,col(env,"visitors"),visitorId,fields);
     }catch(err){
       console.warn("[visit] firestore write failed:",err?.message||err);
     }
@@ -592,7 +642,7 @@ async function main(req,env){
     if(!sec||!eq(got,want)){return json({error:"Invalid webhook signature"},400);}
     const e=JSON.parse(raw), p=e.payload?.payment?.entity, o=e.payload?.order?.entity, pay=p||null, ord=o||null;
     if(e.event==="payment.captured"||e.event==="order.paid"){
-      const orderId=String(pay?.order_id||ord?.id||""), recorded=orderId?await firestoreGet(env,"orders",orderId):null, rf=recorded?.fields||{};
+      const orderId=String(pay?.order_id||ord?.id||""), recorded=orderId?await firestoreGet(env,col(env,"orders"),orderId):null, rf=recorded?.fields||{};
       const expectedAmount=Number(fsVal(rf.amount)), amount=Number(pay?.amount??ord?.amount), currency=pay?.currency??ord?.currency;
       const uid=String(fsVal(rf.uid)||pay?.notes?.uid||ord?.notes?.uid||""), product=pay?.notes?.product??ord?.notes?.product;
       const orderTier=String(fsVal(rf.tier)||pay?.notes?.tier||ord?.notes?.tier||(product===PRODUCT_STARTER?"starter":"lifetime")).toLowerCase();
@@ -602,12 +652,12 @@ async function main(req,env){
         if(!existing?.paid||(existing?.tier==="starter"&&orderTier==="lifetime")){
           await putEntitlement(env,uid,{orderId,paymentId:pay?.id||"",tier:orderTier});
           const orderWasCreated=String(fsVal(rf.status)||"")==="created";
-          const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;
+          const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,col(env,"orders"),orderId,{status:fsField("paid")},recorded.updateTime) : true;
           if(orderWasCreated&&orderMarkedPaid){
             const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
             if(couponCode){
               const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
-              await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
+              await firestorePatch(env,col(env,"coupons"),couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
             }
           }
           await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:existing?.paid||false},after:{paid:true,tier:orderTier,orderId,paymentId:pay?.id||"",event:e.event,amount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid});
@@ -645,7 +695,7 @@ async function main(req,env){
       }
 
       let docs=[];
-      try{docs=await firestoreList(env,"entitlements",50,true);}catch(e){}
+      try{docs=await firestoreList(env,col(env,"entitlements"),50,true);}catch(e){}
       const entMap={};
       for(const d of docs){
         const f=d.fields||{};
@@ -688,7 +738,7 @@ async function main(req,env){
 
       // Fetch anonymous visitors from Firestore
       let visitorDocs=[];
-      try{visitorDocs=await firestoreList(env,"visitors",50,true);}catch(e){}
+      try{visitorDocs=await firestoreList(env,col(env,"visitors"),50,true);}catch(e){}
 
       const visitorByUid={};
       const anonymousVisitors=[];
@@ -774,7 +824,7 @@ async function main(req,env){
 
     // GET /api/admin/payments
     if(path==="/api/admin/payments"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements",50,true);
+      const docs=await firestoreList(env,col(env,"entitlements"),50,true);
       const payments=docs.filter(d=>d.fields?.paid?.booleanValue===true).map(d=>{
         const f=d.fields||{};
         return{uid:fsVal(f.uid)||d.name.split("/").pop(),paid:true,orderId:fsVal(f.orderId)||null,paymentId:fsVal(f.paymentId)||null,paidAt:fsVal(f.paidAt)||null,product:fsVal(f.product)||null};
@@ -784,7 +834,7 @@ async function main(req,env){
 
     // GET /api/admin/entitlements
     if(path==="/api/admin/entitlements"&&req.method==="GET"){
-      const docs=await firestoreList(env,"entitlements",50,true);
+      const docs=await firestoreList(env,col(env,"entitlements"),50,true);
       const ents=docs.map(d=>{
         const f=d.fields||{};
         return{uid:fsVal(f.uid)||d.name.split("/").pop(),paid:f.paid?.booleanValue===true,paidAt:fsVal(f.paidAt)||null,product:fsVal(f.product)||null};
@@ -794,7 +844,7 @@ async function main(req,env){
 
     // GET /api/admin/audit-log
     if(path==="/api/admin/audit-log"&&req.method==="GET"){
-      const docs=await firestoreList(env,"audit_log",100);
+      const docs=await firestoreList(env,col(env,"audit_log"),100);
       const entries=docs.map(d=>{
         const f=d.fields||{};
         return Object.fromEntries(Object.entries(f).map(([k,v])=>[k,fsVal(v)]));
@@ -804,7 +854,7 @@ async function main(req,env){
 
     // GET /api/admin/coupons
     if(path==="/api/admin/coupons"&&req.method==="GET"){
-      const docs=await firestoreList(env,"coupons",100,true);
+      const docs=await firestoreList(env,col(env,"coupons"),100,true);
       const coupons=docs.map(d=>{const f=d.fields||{};return {code:normalizeCouponCode(fsVal(f.code)||d.name.split("/").pop()),discountType:fsVal(f.discountType)||"flat",discountValue:Number(fsVal(f.discountValue)||0),basePrice: Number(fsVal(f.basePrice)||PRICE_RUPEES),finalPrice:Number(fsVal(f.finalPrice)||PRICE_RUPEES),active:fsVal(f.active)===true,maxRedemptions:fsVal(f.maxRedemptions),redemptionCount:Number(fsVal(f.redemptionCount)||0),validFrom:fsVal(f.validFrom),validUntil:fsVal(f.validUntil),createdAt:fsVal(f.createdAt)};});
       return json({coupons,total:coupons.length});
     }
@@ -815,8 +865,8 @@ async function main(req,env){
       const discountType=String(b?.discountType||"flat").toLowerCase(), discountValue=Number(b?.discountValue);
       if(!["flat","percent"].includes(discountType)||!Number.isFinite(discountValue)||discountValue<0)return json({error:"Invalid discount"},400);
       if(discountType==="percent"&&discountValue>100)return json({error:"Percent discount cannot exceed 100"},400);
-      const pricing=couponFinalPrice({discountType,discountValue}), existing=await firestoreGet(env,"coupons",code);
-      await firestorePatch(env,"coupons",code,{code:fsField(code),discountType:fsField(discountType),discountValue:fsField(discountValue),basePrice:fsField(PRICE_RUPEES),finalPrice:fsField(pricing.finalPrice),active:fsField(b?.active!==false),maxRedemptions:fsField(b?.maxRedemptions==null?null:Number(b.maxRedemptions)),redemptionCount:existing?.fields?.redemptionCount||fsField(0),validFrom:fsField(b?.validFrom??null),validUntil:fsField(b?.validUntil??null),createdAt:existing?.fields?.createdAt||fsField(new Date().toISOString())});
+      const pricing=couponFinalPrice({discountType,discountValue}), existing=await firestoreGet(env,col(env,"coupons"),code);
+      await firestorePatch(env,col(env,"coupons"),code,{code:fsField(code),discountType:fsField(discountType),discountValue:fsField(discountValue),basePrice:fsField(PRICE_RUPEES),finalPrice:fsField(pricing.finalPrice),active:fsField(b?.active!==false),maxRedemptions:fsField(b?.maxRedemptions==null?null:Number(b.maxRedemptions)),redemptionCount:existing?.fields?.redemptionCount||fsField(0),validFrom:fsField(b?.validFrom??null),validUntil:fsField(b?.validUntil??null),createdAt:existing?.fields?.createdAt||fsField(new Date().toISOString())});
       return json({ok:true,coupon:{code,discountType,discountValue,basePrice:PRICE_RUPEES,finalPrice:pricing.finalPrice,active:b?.active!==false}});
     }
 
@@ -846,7 +896,8 @@ async function main(req,env){
     // GET /api/admin/rewards-config
     if(path==="/api/admin/rewards-config"&&req.method==="GET"){
       try{
-        const doc=await firestoreGet(env,"_config","rewards");
+        let doc=await firestoreGet(env,col(env,"_config"),"rewards");
+        if(!doc?.fields&&isEnvPreview(env)){try{doc=await firestoreGet(env,"_config","rewards",true);}catch{}}
         if(!doc||!doc.fields)return json({rewards:{}});
         const raw=fsVal(doc.fields.configJson);
         return json({rewards:raw?JSON.parse(raw):{}});
@@ -860,11 +911,12 @@ async function main(req,env){
       const newRewards=await req.json();
       let oldRewards=null;
       try{
-        const doc=await firestoreGet(env,"_config","rewards");
+        let doc=await firestoreGet(env,col(env,"_config"),"rewards");
+        if(!doc?.fields&&isEnvPreview(env)){try{doc=await firestoreGet(env,"_config","rewards",true);}catch{}}
         if(doc?.fields?.configJson)oldRewards=JSON.parse(fsVal(doc.fields.configJson));
       }catch{}
       const fields={configJson:fsField(JSON.stringify(newRewards)),updatedAt:fsField(new Date().toISOString()),updatedBy:fsField(user.uid)};
-      await firestorePatch(env,"_config","rewards",fields);
+      await firestorePatch(env,col(env,"_config"),"rewards",fields);
       // Merge stickersEnabled into the remote config so the child app picks it up
       const currentRemote=await getRemoteConfig(env)||{};
       const mergedRemote={...currentRemote,features:{...(currentRemote.features||{}),stickers:newRewards.stickersEnabled!==false}};
@@ -883,6 +935,9 @@ async function main(req,env){
 export {
   main,
   sa,
+  col,
+  isEnvPreview,
+  assertPreviewRazorpaySafe,
   PRODUCT_STARTER,
   STARTER_PRICE_RUPEES,
   normalizePhone,
