@@ -13,6 +13,7 @@
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
 import { pingVisit } from "./store.js";
 import { resolveTier, TIERS, TIER_CONFIG, getGameLimit as tierGameLimit } from "./tiers.js";
+import { trackFunnelEvent, FUNNEL_EVENTS } from "./events.js";
 
 const CACHE_KEY = 'abacus-entitlement-v1';
 
@@ -284,6 +285,8 @@ export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess,
     const token = await user.getIdToken(true);
     const normalizedTier = String(tier || 'lifetime').toLowerCase() === 'starter' ? 'starter' : 'lifetime';
 
+    trackFunnelEvent(FUNNEL_EVENTS.CHECKOUT_START, { tier: normalizedTier });
+
     const orderRes = await fetch("/api/create-order", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -349,6 +352,7 @@ export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess,
               maxLevel: verify.maxLevel || (normalizedTier === 'starter' ? 3 : 15),
               games: verify.games || (normalizedTier === 'starter' ? ['race', 'mystery', 'match'] : null),
             });
+            trackFunnelEvent(FUNNEL_EVENTS.PAYMENT_SUCCESS, { tier: verify.tier || normalizedTier });
             onSuccess?.();
             resolve(true);
           } catch (err) {

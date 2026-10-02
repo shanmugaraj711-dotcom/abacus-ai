@@ -12,6 +12,7 @@ import {
 } from "../firebase/auth.js";
 import { isConfigured } from "../firebase/config.js";
 import { initSignIn } from "./sign-in.js";
+import { trackFunnelEvent, FUNNEL_EVENTS } from "../js/events.js";
 
 export function getSafeReturnUrl() {
   const params = new URLSearchParams(window.location.search);
@@ -142,6 +143,7 @@ export function initAuthUI() {
 function handleSignedIn(credential) {
   try {
     localStorage.setItem("abacus-auth-mode", "registered");
+    trackFunnelEvent(FUNNEL_EVENTS.SIGNUP, { method: credential?.user?.providerData?.[0]?.providerId || 'firebase' });
     const visitorId = localStorage.getItem("abacus-visitor-id");
     if (visitorId && credential?.user?.uid) {
       fetch("/api/visit", {
