@@ -6,7 +6,7 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getGameLimit, getEntitlement } from './payments.js';
+import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getEntitlement } from './payments.js';
 import { TIERS, getTierConfig } from './tiers.js';
 import { getAuthInstance } from '../firebase/auth.js';
 import {
@@ -59,7 +59,7 @@ function starterScreen() {
         <li>Payment is processed securely by Razorpay.</li>
       </ul>
       <div class="stack">
-        ${signedIn ? `<button class="btn primary wide" id="buy-starter">Get Starter for ₹99</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../#starter">Sign in to get Starter</a>`}
+        ${signedIn ? `<button class="btn primary wide" id="buy-starter">Get Starter for ₹99</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../%23starter">Sign in to get Starter</a>`}
         <a class="btn wide" href="#/unlock">View Lifetime (₹499) instead</a>
         <a class="btn ghost wide" href="#/home">Not now</a>
       </div>
@@ -93,7 +93,7 @@ function unlock() {
       <p class="lead">One-time payment of <b>₹499</b>. No subscription.</p>
       <ul class="muted"><li>Levels 1–3 stay free.</li><li>Levels 4–15 unlock permanently for this account.</li><li>Payment is processed securely by Razorpay.</li></ul>
       <div class="stack">
-        ${signedIn ? `<button class="btn primary wide" id="buy">Unlock for ₹499</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../#unlock">Sign in to unlock</a>`}
+        ${signedIn ? `<button class="btn primary wide" id="buy">Unlock for ₹499</button>` : `<a class="btn primary wide" href="./auth-ui/sign-in.html?return=../%23unlock">Sign in to unlock</a>`}
         <a class="btn wide" href="#/starter">Or try 30-Day Starter for ₹99</a>
         <a class="btn ghost wide" href="#/home">Not now</a>
       </div>

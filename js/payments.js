@@ -2,7 +2,7 @@
 // Business model: free levels 1 (1 game), ₹99 30-day starter for levels 1-3 (3 games), one-time ₹499 lifetime for levels 1-15 (all games).
 
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
-import { TIERS, getTierConfig, isGameAllowedForTier } from "./tiers.js";
+import { TIERS, getTierConfig } from "./tiers.js";
 
 let entitlement = {
   paid: false,
