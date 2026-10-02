@@ -6,7 +6,8 @@ import { sfx } from './sound.js';
 import { createAbacus, miniAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { isOn } from './config.js';
-import { getTier, getGameLimit } from './payments.js';
+import { getTier, getGames } from './payments.js';
+import { isGameAllowedForTier, getTierConfig } from './tiers.js';
 import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, voiceLang, go } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
@@ -29,11 +30,9 @@ export const GAMES = [
 ];
 
 export function gameAllowed(id) {
-  const index = GAMES.findIndex(g => g.id === id);
-  if (index === -1) return false;
-  const limit = getGameLimit();
-  if (limit === null || limit === undefined) return true;
-  return index < limit;
+  const allowedGames = getGames();
+  if (!allowedGames) return false;
+  return allowedGames.includes(id);
 }
 
 const bestOf = (id, mode) => state.games[`${id}_${mode}`] ?? (mode === 'star' ? state.games[id] : undefined) ?? 0;

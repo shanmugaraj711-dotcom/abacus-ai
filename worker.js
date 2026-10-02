@@ -1,11 +1,13 @@
 // Abacus Buddy payment/licensing Worker.
 // Required secrets: RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET, FIREBASE_SERVICE_ACCOUNT_JSON
-// Public vars: RAZORPAY_KEY_ID, FIREBASE_PROJECT_ID, FIREBASE_API_KEY, PRODUCT_PRICE_PAISE=49900
+// Public vars: RAZORPAY_KEY_ID, FIREBASE_PROJECT_ID, FIREBASE_API_KEY
 
-const PRICE_LIFETIME = 49900;
-const PRICE_STARTER = 9900;
+import { TIERS, getTierConfig, isGameAllowedForTier } from './js/tiers.js';
+
+const PRODUCT = TIERS.lifetime.productId;
+const PRICE_LIFETIME = TIERS.lifetime.pricePaise;
+const PRICE_STARTER = TIERS.starter.pricePaise;
 const PRICE = PRICE_LIFETIME;
-const PRODUCT = "abacus-buddy";
 
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","access-control-allow-origin":"*","access-control-allow-headers":"content-type,authorization","access-control-allow-methods":"GET,POST,OPTIONS"}})}
 function b64u(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
@@ -41,6 +43,7 @@ async function firestoreGet(env,uid){
   const rawTier = d.fields.tier?.stringValue;
   const rawMaxLevel = d.fields.maxLevel?.integerValue ? Number(d.fields.maxLevel.integerValue) : null;
   const rawExpiresAt = d.fields.expiresAt?.stringValue || null;
+  const rawGames = d.fields.games?.arrayValue?.values?.map(v => v.stringValue) || null;
   const rawGameLimit = d.fields.gameLimit?.integerValue ? Number(d.fields.gameLimit.integerValue) : null;
   const orderId = d.fields.orderId?.stringValue || null;
   const paymentId = d.fields.paymentId?.stringValue || null;
@@ -48,12 +51,14 @@ async function firestoreGet(env,uid){
 
   // Legacy record (paid: true without explicit tier or tier: "lifetime")
   if(!rawTier || rawTier === "lifetime") {
+    const cfg = TIERS.lifetime;
     return {
       paid: true,
       tier: "lifetime",
-      maxLevel: 15,
-      expiresAt: null,
+      maxLevel: cfg.maxLevel,
+      games: cfg.games,
       gameLimit: null,
+      expiresAt: null,
       orderId,
       paymentId,
       paidAt
@@ -64,24 +69,29 @@ async function firestoreGet(env,uid){
   if(rawTier === "starter") {
     const isExpired = rawExpiresAt ? (Date.parse(rawExpiresAt) <= Date.now()) : false;
     if(isExpired) {
+      const freeCfg = TIERS.free;
       return {
         paid: false,
         tier: "free",
-        maxLevel: 1,
+        maxLevel: freeCfg.maxLevel,
+        games: freeCfg.games,
+        gameLimit: freeCfg.games.length,
         expiresAt: rawExpiresAt,
-        gameLimit: 1,
         expired: true,
         orderId,
         paymentId,
         paidAt
       };
     }
+    const starterCfg = TIERS.starter;
+    const resolvedGames = rawGames || starterCfg.games;
     return {
       paid: true,
       tier: "starter",
-      maxLevel: rawMaxLevel || 3,
+      maxLevel: rawMaxLevel ?? starterCfg.maxLevel,
+      games: resolvedGames,
+      gameLimit: rawGameLimit ?? resolvedGames.length,
       expiresAt: rawExpiresAt,
-      gameLimit: rawGameLimit || 3,
       expired: false,
       orderId,
       paymentId,
@@ -89,22 +99,28 @@ async function firestoreGet(env,uid){
     };
   }
 
+  const freeCfg = TIERS.free;
   return {
     paid: false,
     tier: "free",
-    maxLevel: 1,
-    expiresAt: null,
-    gameLimit: 1
+    maxLevel: freeCfg.maxLevel,
+    games: freeCfg.games,
+    gameLimit: freeCfg.games.length,
+    expiresAt: null
   };
 }
 async function firestorePut(env,uid,data){
   const tok=await googleToken(env), p=env.FIREBASE_PROJECT_ID||"abacus-buddy";
   const tier = data.tier || "lifetime";
+  const tierConfig = getTierConfig(tier);
+  const maxLevel = data.maxLevel ?? tierConfig.maxLevel;
+  const games = data.games ?? tierConfig.games;
+
   const fields={
     paid:{booleanValue:true},
     product:{stringValue:PRODUCT},
     tier:{stringValue:tier},
-    maxLevel:{integerValue:String(data.maxLevel ?? (tier === "starter" ? 3 : 15))},
+    maxLevel:{integerValue:String(maxLevel)},
     orderId:{stringValue:String(data.orderId||"")},
     paymentId:{stringValue:String(data.paymentId||"")},
     paidAt:{stringValue:data.paidAt || new Date().toISOString()}
@@ -112,8 +128,13 @@ async function firestorePut(env,uid,data){
   if(data.expiresAt) fields.expiresAt={stringValue:String(data.expiresAt)};
   else fields.expiresAt={nullValue:null};
 
-  if(data.gameLimit!=null) fields.gameLimit={integerValue:String(data.gameLimit)};
-  else fields.gameLimit={nullValue:null};
+  if(Array.isArray(games)) {
+    fields.games = { arrayValue: { values: games.map(g => ({ stringValue: String(g) })) } };
+    fields.gameLimit = { integerValue: String(games.length) };
+  } else {
+    fields.games = { nullValue: null };
+    fields.gameLimit = { nullValue: null };
+  }
 
   const r=await fetch(`https://firestore.googleapis.com/v1/projects/${p}/databases/(default)/documents/entitlements/${encodeURIComponent(uid)}`,{method:"PATCH",headers:{authorization:"Bearer "+tok,"content-type":"application/json"},body:JSON.stringify({fields})});
   if(!r.ok)throw Error("Firestore write failed");
@@ -133,14 +154,15 @@ async function main(req,env){
     let body = {};
     try { body = await req.json(); } catch {}
     const requestedTier = body.tier || "lifetime";
-    if(requestedTier !== "starter" && requestedTier !== "lifetime") {
+    const tierConfig = TIERS[requestedTier];
+    if(!tierConfig || requestedTier === "free") {
       return json({error:"Invalid tier"},400);
     }
     if(existing?.paid) {
       if(existing.tier === "lifetime") return json({paid:true,tier:"lifetime"});
       if(existing.tier === "starter" && requestedTier === "starter") return json({paid:true,tier:"starter"});
     }
-    const amount = requestedTier === "starter" ? PRICE_STARTER : PRICE_LIFETIME;
+    const amount = tierConfig.pricePaise;
     const order=await razor(env,"/orders",{method:"POST",body:JSON.stringify({amount,currency:"INR",receipt:"abacus_"+user.uid+"_"+Date.now(),notes:{uid:user.uid,product:PRODUCT,tier:requestedTier}})});
     return json({orderId:order.id,amount,currency:"INR",keyId:env.RAZORPAY_KEY_ID,tier:requestedTier});
   }
@@ -151,33 +173,28 @@ async function main(req,env){
     const order=await razor(env,"/orders/"+encodeURIComponent(b.razorpay_order_id));
     if(order.currency!=="INR"||order.notes?.uid!==user.uid||order.notes?.product!==PRODUCT)return json({error:"Order validation failed"},400);
 
-    const orderTier = order.notes?.tier || (Number(order.amount) === PRICE_STARTER ? "starter" : "lifetime");
-    if(orderTier === "starter") {
-      if(Number(order.amount) !== PRICE_STARTER) return json({error:"Order validation failed"},400);
-    } else if(orderTier === "lifetime") {
-      if(Number(order.amount) !== PRICE_LIFETIME) return json({error:"Order validation failed"},400);
-    } else {
+    const orderTier = order.notes?.tier || (Number(order.amount) === TIERS.starter.pricePaise ? "starter" : "lifetime");
+    const tierConfig = TIERS[orderTier];
+    if(!tierConfig || Number(order.amount) !== tierConfig.pricePaise) {
       return json({error:"Order validation failed"},400);
     }
 
     const payment=await razor(env,"/payments/"+encodeURIComponent(b.razorpay_payment_id));
     if(payment.order_id!==b.razorpay_order_id||payment.status!=="captured"||Number(payment.amount)!==Number(order.amount)||payment.currency!=="INR")return json({error:"Payment is not captured or does not match the order"},400);
 
-    let maxLevel = 15, gameLimit = null, expiresAt = null;
-    if(orderTier === "starter") {
-      maxLevel = 3;
-      gameLimit = 3;
-      expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    }
+    const maxLevel = tierConfig.maxLevel;
+    const games = tierConfig.games;
+    const expiresAt = tierConfig.durationDays ? new Date(Date.now() + tierConfig.durationDays * 24 * 60 * 60 * 1000).toISOString() : null;
 
-    await firestorePut(env,user.uid,{tier:orderTier,maxLevel,expiresAt,gameLimit,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id});
-    return json({paid:true,tier:orderTier,maxLevel,expiresAt,gameLimit});
+    await firestorePut(env,user.uid,{tier:orderTier,maxLevel,games,expiresAt,orderId:b.razorpay_order_id,paymentId:b.razorpay_payment_id});
+    return json({paid:true,tier:orderTier,maxLevel,games,expiresAt});
   }
   if(path==="/api/user-status"&&req.method==="GET"){
     const user=await bearer(req,env);
     const ent=await firestoreGet(env,user.uid);
     if(ent) return json(ent);
-    return json({paid:false,tier:"free",maxLevel:1,expiresAt:null,gameLimit:1});
+    const freeCfg = TIERS.free;
+    return json({paid:false,tier:"free",maxLevel:freeCfg.maxLevel,games:freeCfg.games,expiresAt:null});
   }
   if(path==="/api/razorpay-webhook"&&req.method==="POST"){
     const raw=await req.text(), got=String(req.headers.get("x-razorpay-signature")||"").trim().toLowerCase();
@@ -188,11 +205,13 @@ async function main(req,env){
     if(e.event==="payment.captured"||e.event==="order.paid"){
       const amount=Number(pay?.amount??ord?.amount),currency=pay?.currency??ord?.currency,uid=pay?.notes?.uid??ord?.notes?.uid,product=pay?.notes?.product??ord?.notes?.product,tier=pay?.notes?.tier??ord?.notes?.tier;
       if(currency==="INR"&&uid&&product===PRODUCT){
-        if(amount===PRICE_STARTER && (!tier || tier === "starter")) {
-          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-          await firestorePut(env,uid,{tier:"starter",maxLevel:3,gameLimit:3,expiresAt,orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});
-        } else if(amount===PRICE_LIFETIME && (!tier || tier === "lifetime")) {
-          await firestorePut(env,uid,{tier:"lifetime",maxLevel:15,gameLimit:null,expiresAt:null,orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});
+        if(tier==="starter" && amount===TIERS.starter.pricePaise) {
+          const cfg = TIERS.starter;
+          const expiresAt = new Date(Date.now() + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString();
+          await firestorePut(env,uid,{tier:"starter",maxLevel:cfg.maxLevel,games:cfg.games,expiresAt,orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});
+        } else if((tier==="lifetime" || !tier) && amount===TIERS.lifetime.pricePaise) {
+          const cfg = TIERS.lifetime;
+          await firestorePut(env,uid,{tier:"lifetime",maxLevel:cfg.maxLevel,games:cfg.games,expiresAt:null,orderId:pay?.order_id||ord?.id,paymentId:pay?.id||""});
         }
       }
     }

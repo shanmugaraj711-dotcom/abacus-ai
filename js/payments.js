@@ -2,13 +2,14 @@
 // Business model: free levels 1 (1 game), ₹99 30-day starter for levels 1-3 (3 games), one-time ₹499 lifetime for levels 1-15 (all games).
 
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
+import { TIERS, getTierConfig, isGameAllowedForTier } from "./tiers.js";
 
 let entitlement = {
   paid: false,
   tier: 'free',
-  maxLevel: 1,
+  maxLevel: TIERS.free.maxLevel,
+  games: TIERS.free.games,
   expiresAt: null,
-  gameLimit: 1,
   expired: false,
 };
 let checked = false;
@@ -18,10 +19,10 @@ const isSeeded = () => {
 };
 
 export const isPaid = () => entitlement.paid === true || isSeeded();
-export const getEntitlement = () => (isSeeded() ? { paid: true, tier: 'lifetime', maxLevel: 15, expiresAt: null, gameLimit: null, expired: false } : ({ ...entitlement }));
+export const getEntitlement = () => (isSeeded() ? { paid: true, tier: 'lifetime', maxLevel: TIERS.lifetime.maxLevel, games: TIERS.lifetime.games, expiresAt: null, expired: false } : ({ ...entitlement }));
 export const getTier = () => (isSeeded() ? 'lifetime' : entitlement.tier);
-export const getMaxLevel = () => (isSeeded() ? 15 : entitlement.maxLevel);
-export const getGameLimit = () => (isSeeded() ? null : entitlement.gameLimit);
+export const getMaxLevel = () => (isSeeded() ? TIERS.lifetime.maxLevel : entitlement.maxLevel);
+export const getGames = () => (isSeeded() ? TIERS.lifetime.games : (entitlement.games || getTierConfig(entitlement.tier).games));
 
 export async function refreshEntitlement() {
   try {
@@ -32,7 +33,8 @@ export async function refreshEntitlement() {
       unsubscribe = onAuthChange(u => { if (!settled) { settled = true; unsubscribe(); resolve(u); } });
     });
     if (!user) {
-      entitlement = { paid: false, tier: 'free', maxLevel: 1, expiresAt: null, gameLimit: 1, expired: false };
+      const freeCfg = TIERS.free;
+      entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: null, expired: false };
       checked = true;
       return false;
     }
@@ -44,22 +46,26 @@ export async function refreshEntitlement() {
     if (!res.ok) throw new Error("Unable to check purchase status");
     const data = await res.json();
     if (data.paid === true) {
+      const cfg = getTierConfig(data.tier);
       if (data.tier === 'starter') {
         const isExpired = data.expiresAt ? (Date.parse(data.expiresAt) <= Date.now()) : false;
         if (isExpired) {
-          entitlement = { paid: false, tier: 'free', maxLevel: 1, expiresAt: data.expiresAt, gameLimit: 1, expired: true };
+          const freeCfg = TIERS.free;
+          entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: data.expiresAt, expired: true };
         } else {
-          entitlement = { paid: true, tier: 'starter', maxLevel: data.maxLevel || 3, expiresAt: data.expiresAt, gameLimit: data.gameLimit || 3, expired: false };
+          entitlement = { paid: true, tier: 'starter', maxLevel: data.maxLevel ?? cfg.maxLevel, games: data.games ?? cfg.games, expiresAt: data.expiresAt, expired: false };
         }
       } else {
-        entitlement = { paid: true, tier: 'lifetime', maxLevel: 15, expiresAt: null, gameLimit: null, expired: false };
+        entitlement = { paid: true, tier: 'lifetime', maxLevel: data.maxLevel ?? cfg.maxLevel, games: data.games ?? cfg.games, expiresAt: null, expired: false };
       }
     } else {
-      entitlement = { paid: false, tier: 'free', maxLevel: 1, expiresAt: data.expiresAt || null, gameLimit: 1, expired: !!data.expired };
+      const freeCfg = TIERS.free;
+      entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: data.expiresAt || null, expired: !!data.expired };
     }
   } catch (err) {
     console.warn("[Abacus payment] entitlement check skipped:", err);
-    entitlement = { paid: false, tier: 'free', maxLevel: 1, expiresAt: null, gameLimit: 1, expired: false };
+    const freeCfg = TIERS.free;
+    entitlement = { paid: false, tier: 'free', maxLevel: freeCfg.maxLevel, games: freeCfg.games, expiresAt: null, expired: false };
   }
   checked = true;
   return isPaid();
@@ -92,21 +98,23 @@ export async function buyUnlock({ tier = 'lifetime', onSuccess, onError } = {}) 
     });
     const order = await orderRes.json();
     if (!orderRes.ok) throw new Error(order.error || "Could not create payment order.");
+    const cfg = getTierConfig(tier);
     if (order.paid) {
-      if (tier === 'starter') {
-        entitlement = { paid: true, tier: 'starter', maxLevel: 3, expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), gameLimit: 3, expired: false };
-      } else {
-        entitlement = { paid: true, tier: 'lifetime', maxLevel: 15, expiresAt: null, gameLimit: null, expired: false };
-      }
+      entitlement = {
+        paid: true,
+        tier,
+        maxLevel: cfg.maxLevel,
+        games: cfg.games,
+        expiresAt: cfg.durationDays ? new Date(Date.now() + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString() : null,
+        expired: false
+      };
       onSuccess?.();
       return true;
     }
 
     await loadRazorpay();
     return await new Promise((resolve, reject) => {
-      const description = tier === 'starter'
-        ? "Abacus Buddy Starter — Levels 1–3 (30 days)"
-        : "Lifetime unlock — Levels 4–15";
+      const description = cfg.offerTitle || (tier === 'starter' ? "Abacus Buddy Starter — Levels 1–3 (30 days)" : "Lifetime unlock — Levels 4–15");
 
       const checkout = new window.Razorpay({
         key: order.keyId,
@@ -132,9 +140,9 @@ export async function buyUnlock({ tier = 'lifetime', onSuccess, onError } = {}) 
             entitlement = {
               paid: true,
               tier: verify.tier || tier,
-              maxLevel: verify.maxLevel || (tier === 'starter' ? 3 : 15),
-              expiresAt: verify.expiresAt || (tier === 'starter' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : null),
-              gameLimit: verify.gameLimit ?? (tier === 'starter' ? 3 : null),
+              maxLevel: verify.maxLevel ?? cfg.maxLevel,
+              games: verify.games ?? cfg.games,
+              expiresAt: verify.expiresAt || (cfg.durationDays ? new Date(Date.now() + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString() : null),
               expired: false,
             };
             onSuccess?.();

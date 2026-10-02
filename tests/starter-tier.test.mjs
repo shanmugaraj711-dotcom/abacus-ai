@@ -3,17 +3,9 @@ import {
   main, firestoreGet, firestorePut,
   PRICE_LIFETIME, PRICE_STARTER, PRODUCT, hmac, eq
 } from '../worker.js';
-
-// The 7 games in Abacus Buddy playroom
-const GAMES = [
-  { id: 'race', flag: 'gameRace', name: 'Bead Race' },
-  { id: 'mystery', flag: 'gameMystery', name: 'Mystery Number' },
-  { id: 'match', flag: 'gameMatch', name: 'Bead Match' },
-  { id: 'flash', flag: 'gameFlash', name: 'Flash Maths' },
-  { id: 'speed', flag: 'gameSpeedRead', name: 'Blink Beads' },
-  { id: 'friend', flag: 'gameFriendDash', name: 'Friend Dash' },
-  { id: 'ladder', flag: 'gameLadder', name: 'Bead Ladder' },
-];
+import {
+  TIERS, getTierConfig, isGameAllowedForTier, ALL_GAMES
+} from '../js/tiers.js';
 
 let passed = 0;
 let failed = 0;
@@ -46,44 +38,38 @@ console.log('=== Starter Tier & Lifetime Entitlement Test Suite ===\n');
 // 1. Client Level & Game Access Logic Tests
 // ----------------------------------------------------
 
-// Mock entitlement helpers to simulate various client states
-function mockPlayableMax(tier) {
-  if (tier === 'lifetime') return 15;
-  if (tier === 'starter') return 3;
-  return 1; // free / expired
+function clientPlayableMax(tier) {
+  const cfg = getTierConfig(tier);
+  return cfg.maxLevel;
 }
 
-function mockLevelAllowed(id, tier) {
-  const max = mockPlayableMax(tier);
+function clientLevelAllowed(id, tier) {
+  const max = clientPlayableMax(tier);
   return id >= 1 && id <= max;
 }
 
-function mockGameAllowed(id, gameLimit) {
-  const index = GAMES.findIndex(g => g.id === id);
-  if (index === -1) return false;
-  if (gameLimit === null || gameLimit === undefined) return true;
-  return index < gameLimit;
+function clientGameAllowed(id, tier) {
+  const cfg = getTierConfig(tier);
+  return isGameAllowedForTier(id, cfg);
 }
 
 test('1. Legacy paid:true resolves to Lifetime (maxLevel 15, expiresAt null)', () => {
-  // Legacy document from Firestore
   const legacyDoc = {
     fields: {
       paid: { booleanValue: true },
       orderId: { stringValue: 'order_legacy_123' },
       paidAt: { stringValue: '2026-01-01T00:00:00.000Z' }
-      // Notice: NO tier, NO maxLevel, NO expiresAt
     }
   };
-  // Simulate firestoreGet parsing logic
   const rawTier = legacyDoc.fields.tier?.stringValue;
   assert.strictEqual(rawTier, undefined);
+  const cfg = TIERS.lifetime;
   const parsed = (!rawTier || rawTier === 'lifetime') ? {
     paid: true,
     tier: 'lifetime',
-    maxLevel: 15,
+    maxLevel: cfg.maxLevel,
+    games: cfg.games,
     expiresAt: null,
-    gameLimit: null,
     orderId: legacyDoc.fields.orderId.stringValue
   } : null;
 
@@ -91,57 +77,60 @@ test('1. Legacy paid:true resolves to Lifetime (maxLevel 15, expiresAt null)', (
   assert.strictEqual(parsed.tier, 'lifetime');
   assert.strictEqual(parsed.maxLevel, 15);
   assert.strictEqual(parsed.expiresAt, null);
-  assert.strictEqual(parsed.gameLimit, null);
-  assert.strictEqual(mockLevelAllowed(15, parsed.tier), true);
-  assert.strictEqual(mockGameAllowed('ladder', parsed.gameLimit), true);
+  assert.strictEqual(clientLevelAllowed(15, parsed.tier), true);
+  assert.strictEqual(clientGameAllowed('ladder', parsed.tier), true);
 });
 
 test('2. Explicit lifetime entitlement allows Level 15 and all games', () => {
   const tier = 'lifetime';
-  const gameLimit = null;
-  assert.strictEqual(mockPlayableMax(tier), 15);
+  assert.strictEqual(clientPlayableMax(tier), 15);
   for (let i = 1; i <= 15; i++) {
-    assert.strictEqual(mockLevelAllowed(i, tier), true, `Level ${i} should be allowed`);
+    assert.strictEqual(clientLevelAllowed(i, tier), true, `Level ${i} should be allowed`);
   }
-  assert.strictEqual(mockLevelAllowed(16, tier), false, 'Level 16 should be blocked');
-  for (const g of GAMES) {
-    assert.strictEqual(mockGameAllowed(g.id, gameLimit), true, `Game ${g.id} should be allowed`);
+  assert.strictEqual(clientLevelAllowed(16, tier), false, 'Level 16 should be blocked');
+  for (const g of ALL_GAMES) {
+    assert.strictEqual(clientGameAllowed(g, tier), true, `Game ${g} should be allowed`);
   }
 });
 
 test('3. Starter entitlement allows Levels 1-3 and blocks Level 4', () => {
   const tier = 'starter';
-  assert.strictEqual(mockPlayableMax(tier), 3);
-  assert.strictEqual(mockLevelAllowed(1, tier), true, 'Level 1 allowed');
-  assert.strictEqual(mockLevelAllowed(2, tier), true, 'Level 2 allowed');
-  assert.strictEqual(mockLevelAllowed(3, tier), true, 'Level 3 allowed');
-  assert.strictEqual(mockLevelAllowed(4, tier), false, 'Level 4 blocked');
-  assert.strictEqual(mockLevelAllowed(15, tier), false, 'Level 15 blocked');
+  assert.strictEqual(clientPlayableMax(tier), 3);
+  assert.strictEqual(clientLevelAllowed(1, tier), true, 'Level 1 allowed');
+  assert.strictEqual(clientLevelAllowed(2, tier), true, 'Level 2 allowed');
+  assert.strictEqual(clientLevelAllowed(3, tier), true, 'Level 3 allowed');
+  assert.strictEqual(clientLevelAllowed(4, tier), false, 'Level 4 blocked');
+  assert.strictEqual(clientLevelAllowed(15, tier), false, 'Level 15 blocked');
 });
 
-test('4. Starter game entitlement allows first 3 games and blocks 4th+ games', () => {
-  const gameLimit = 3;
-  assert.strictEqual(mockGameAllowed(GAMES[0].id, gameLimit), true, `Game 1 (${GAMES[0].id}) allowed`);
-  assert.strictEqual(mockGameAllowed(GAMES[1].id, gameLimit), true, `Game 2 (${GAMES[1].id}) allowed`);
-  assert.strictEqual(mockGameAllowed(GAMES[2].id, gameLimit), true, `Game 3 (${GAMES[2].id}) allowed`);
-  assert.strictEqual(mockGameAllowed(GAMES[3].id, gameLimit), false, `Game 4 (${GAMES[3].id}) blocked`);
-  assert.strictEqual(mockGameAllowed(GAMES[4].id, gameLimit), false, `Game 5 (${GAMES[4].id}) blocked`);
-  assert.strictEqual(mockGameAllowed(GAMES[5].id, gameLimit), false, `Game 6 (${GAMES[5].id}) blocked`);
-  assert.strictEqual(mockGameAllowed(GAMES[6].id, gameLimit), false, `Game 7 (${GAMES[6].id}) blocked`);
+test('4. Starter game entitlement uses explicit game IDs [race, mystery, match] and blocks others', () => {
+  const tier = 'starter';
+  const cfg = getTierConfig(tier);
+  assert.deepStrictEqual(cfg.games, ['race', 'mystery', 'match']);
+
+  // Explicit ID check, independent of array ordering
+  assert.strictEqual(clientGameAllowed('race', tier), true, 'Bead Race allowed');
+  assert.strictEqual(clientGameAllowed('mystery', tier), true, 'Mystery Number allowed');
+  assert.strictEqual(clientGameAllowed('match', tier), true, 'Bead Match allowed');
+  assert.strictEqual(clientGameAllowed('flash', tier), false, 'Flash Maths blocked');
+  assert.strictEqual(clientGameAllowed('speed', tier), false, 'Blink Beads blocked');
+  assert.strictEqual(clientGameAllowed('friend', tier), false, 'Friend Dash blocked');
+  assert.strictEqual(clientGameAllowed('ladder', tier), false, 'Bead Ladder blocked');
 });
 
-test('5. Free user allows Level 1 only and only 1 game', () => {
+test('5. Free user allows Level 1 only and only 1 game (race)', () => {
   const tier = 'free';
-  const gameLimit = 1;
-  assert.strictEqual(mockPlayableMax(tier), 1);
-  assert.strictEqual(mockLevelAllowed(1, tier), true, 'Level 1 allowed');
-  assert.strictEqual(mockLevelAllowed(2, tier), false, 'Level 2 blocked');
-  assert.strictEqual(mockLevelAllowed(3, tier), false, 'Level 3 blocked');
-  assert.strictEqual(mockLevelAllowed(4, tier), false, 'Level 4 blocked');
+  const cfg = getTierConfig(tier);
+  assert.strictEqual(clientPlayableMax(tier), 1);
+  assert.strictEqual(clientLevelAllowed(1, tier), true, 'Level 1 allowed');
+  assert.strictEqual(clientLevelAllowed(2, tier), false, 'Level 2 blocked');
+  assert.strictEqual(clientLevelAllowed(3, tier), false, 'Level 3 blocked');
+  assert.strictEqual(clientLevelAllowed(4, tier), false, 'Level 4 blocked');
 
-  assert.strictEqual(mockGameAllowed(GAMES[0].id, gameLimit), true, `Game 1 (${GAMES[0].id}) allowed`);
-  assert.strictEqual(mockGameAllowed(GAMES[1].id, gameLimit), false, `Game 2 (${GAMES[1].id}) blocked`);
-  assert.strictEqual(mockGameAllowed(GAMES[2].id, gameLimit), false, `Game 3 (${GAMES[2].id}) blocked`);
+  assert.deepStrictEqual(cfg.games, ['race']);
+  assert.strictEqual(clientGameAllowed('race', tier), true, 'Bead Race allowed');
+  assert.strictEqual(clientGameAllowed('mystery', tier), false, 'Mystery Number blocked');
+  assert.strictEqual(clientGameAllowed('match', tier), false, 'Bead Match blocked');
 });
 
 test('6. Expired Starter falls back to Free (Level 1 allowed, Level 2 blocked, 1 game)', () => {
@@ -152,32 +141,34 @@ test('6. Expired Starter falls back to Free (Level 1 allowed, Level 2 blocked, 1
   const fallback = isExpired ? {
     paid: false,
     tier: 'free',
-    maxLevel: 1,
-    gameLimit: 1,
+    maxLevel: TIERS.free.maxLevel,
+    games: TIERS.free.games,
     expired: true
   } : null;
 
   assert.strictEqual(fallback.paid, false);
   assert.strictEqual(fallback.tier, 'free');
-  assert.strictEqual(mockLevelAllowed(1, fallback.tier), true);
-  assert.strictEqual(mockLevelAllowed(2, fallback.tier), false);
-  assert.strictEqual(mockGameAllowed(GAMES[0].id, fallback.gameLimit), true);
-  assert.strictEqual(mockGameAllowed(GAMES[1].id, fallback.gameLimit), false);
+  assert.strictEqual(clientLevelAllowed(1, fallback.tier), true);
+  assert.strictEqual(clientLevelAllowed(2, fallback.tier), false);
+  assert.strictEqual(clientGameAllowed('race', fallback.tier), true);
+  assert.strictEqual(clientGameAllowed('mystery', fallback.tier), false);
 });
 
 test('7. Lifetime games allows all 7 existing games', () => {
-  assert.strictEqual(GAMES.length, 7);
-  for (const g of GAMES) {
-    assert.strictEqual(mockGameAllowed(g.id, null), true, `${g.name} allowed`);
+  assert.strictEqual(ALL_GAMES.length, 7);
+  for (const g of ALL_GAMES) {
+    assert.strictEqual(clientGameAllowed(g, 'lifetime'), true, `${g} allowed`);
   }
 });
 
-test('8. ₹99 server pricing is exactly 9900 paise', () => {
-  assert.strictEqual(PRICE_STARTER, 9900);
+test('8. ₹99 server pricing is driven by configuration (9900 paise)', () => {
+  assert.strictEqual(TIERS.starter.pricePaise, 9900);
+  assert.strictEqual(PRICE_STARTER, TIERS.starter.pricePaise);
 });
 
-test('9. ₹499 server pricing is exactly 49900 paise', () => {
-  assert.strictEqual(PRICE_LIFETIME, 49900);
+test('9. ₹499 server pricing is driven by configuration (49900 paise)', () => {
+  assert.strictEqual(TIERS.lifetime.pricePaise, 49900);
+  assert.strictEqual(PRICE_LIFETIME, TIERS.lifetime.pricePaise);
 });
 
 // ----------------------------------------------------
@@ -224,30 +215,25 @@ vLZgoFhpcqb6RVvBCjRFIBgPIopj5AW/t52jtkAPVPUS0xtKzPGnxDcuSQsYwMUl
 };
 
 function createMockToken(uid) {
-  // Bearer token helper (in real worker it calls identitytoolkit accounts:lookup)
   return 'mock_token_' + uid;
 }
 
-// Intercept global fetch for test mock server
 const originalFetch = globalThis.fetch;
 
 function setupMockFetch(options = {}) {
   globalThis.fetch = async (url, init = {}) => {
     const urlStr = String(url);
 
-    // Firebase Auth lookup
     if (urlStr.includes('identitytoolkit.googleapis.com')) {
       const body = JSON.parse(init.body || '{}');
       const uid = body.idToken?.replace('mock_token_', '') || 'user_123';
       return new Response(JSON.stringify({ users: [{ localId: uid, phoneNumber: '+919999999999' }] }), { status: 200 });
     }
 
-    // Google Token (Firestore SA)
     if (urlStr.includes('oauth2.googleapis.com/token')) {
       return new Response(JSON.stringify({ access_token: 'mock_sa_token' }), { status: 200 });
     }
 
-    // Firestore GET / PATCH
     if (urlStr.includes('firestore.googleapis.com')) {
       if (init.method === 'PATCH') {
         options.lastFirestoreWrite = JSON.parse(init.body || '{}');
@@ -259,7 +245,6 @@ function setupMockFetch(options = {}) {
       return new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
     }
 
-    // Razorpay API
     if (urlStr.includes('api.razorpay.com')) {
       if (urlStr.includes('/orders') && init.method === 'POST') {
         const body = JSON.parse(init.body || '{}');
@@ -301,29 +286,26 @@ function restoreFetch() {
   globalThis.fetch = originalFetch;
 }
 
-await testAsync('10 & 11. Cross-price rejection and amount-tier enforcement', async () => {
-  setupMockFetch();
+await testAsync('10. Cross-price rejection — ₹99 payment cannot create lifetime entitlement', async () => {
+  const orderId = 'order_cross_10';
+  const paymentId = 'pay_cross_10';
+  const payload = `${orderId}|${paymentId}`;
+  const sig = await hmac(mockEnv.RAZORPAY_KEY_SECRET, payload);
+
+  setupMockFetch({
+    orderAmount: 9900,
+    orderCurrency: 'INR',
+    orderNotes: { uid: 'user_cross_10', product: PRODUCT, tier: 'lifetime' },
+    paymentOrderId: orderId,
+    paymentAmount: 9900,
+    paymentCurrency: 'INR',
+    paymentStatus: 'captured'
+  });
   try {
-    const orderId = 'order_starter_cross';
-    const paymentId = 'pay_starter_cross';
-    const payload = `${orderId}|${paymentId}`;
-    const sig = await hmac(mockEnv.RAZORPAY_KEY_SECRET, payload);
-
-    // Case 1: Order says starter (notes.tier = starter) but amount is 49900 (Lifetime price) -> REJECT
-    setupMockFetch({
-      orderAmount: 49900,
-      orderCurrency: 'INR',
-      orderNotes: { uid: 'user_cross', product: PRODUCT, tier: 'starter' },
-      paymentOrderId: orderId,
-      paymentAmount: 49900,
-      paymentCurrency: 'INR',
-      paymentStatus: 'captured'
-    });
-
-    const req1 = new Request('https://abacus-buddy.com/api/verify-payment', {
+    const req = new Request('https://abacus-buddy.com/api/verify-payment', {
       method: 'POST',
       headers: {
-        authorization: 'Bearer ' + createMockToken('user_cross'),
+        authorization: 'Bearer ' + createMockToken('user_cross_10'),
         'content-type': 'application/json'
       },
       body: JSON.stringify({
@@ -332,23 +314,33 @@ await testAsync('10 & 11. Cross-price rejection and amount-tier enforcement', as
         razorpay_signature: sig
       })
     });
-    const res1 = await main(req1, mockEnv);
-    assert.strictEqual(res1.status, 400, 'Cross-price order amount must be rejected');
+    const res = await main(req, mockEnv);
+    assert.strictEqual(res.status, 400, 'Cross-price 9900 for lifetime must be rejected');
+  } finally {
+    restoreFetch();
+  }
+});
 
-    // Case 2: Order says lifetime (notes.tier = lifetime) but amount is 9900 (Starter price) -> REJECT
-    setupMockFetch({
-      orderAmount: 9900,
-      orderCurrency: 'INR',
-      orderNotes: { uid: 'user_cross', product: PRODUCT, tier: 'lifetime' },
-      paymentOrderId: orderId,
-      paymentAmount: 9900,
-      paymentCurrency: 'INR',
-      paymentStatus: 'captured'
-    });
-    const req2 = new Request('https://abacus-buddy.com/api/verify-payment', {
+await testAsync('11. Cross-price rejection — ₹499 payment cannot be treated as Starter', async () => {
+  const orderId = 'order_cross_11';
+  const paymentId = 'pay_cross_11';
+  const payload = `${orderId}|${paymentId}`;
+  const sig = await hmac(mockEnv.RAZORPAY_KEY_SECRET, payload);
+
+  setupMockFetch({
+    orderAmount: 49900,
+    orderCurrency: 'INR',
+    orderNotes: { uid: 'user_cross_11', product: PRODUCT, tier: 'starter' },
+    paymentOrderId: orderId,
+    paymentAmount: 49900,
+    paymentCurrency: 'INR',
+    paymentStatus: 'captured'
+  });
+  try {
+    const req = new Request('https://abacus-buddy.com/api/verify-payment', {
       method: 'POST',
       headers: {
-        authorization: 'Bearer ' + createMockToken('user_cross'),
+        authorization: 'Bearer ' + createMockToken('user_cross_11'),
         'content-type': 'application/json'
       },
       body: JSON.stringify({
@@ -357,8 +349,8 @@ await testAsync('10 & 11. Cross-price rejection and amount-tier enforcement', as
         razorpay_signature: sig
       })
     });
-    const res2 = await main(req2, mockEnv);
-    assert.strictEqual(res2.status, 400, 'Cross-price order amount must be rejected');
+    const res = await main(req, mockEnv);
+    assert.strictEqual(res.status, 400, 'Cross-price 49900 for starter must be rejected');
   } finally {
     restoreFetch();
   }
@@ -367,7 +359,6 @@ await testAsync('10 & 11. Cross-price rejection and amount-tier enforcement', as
 await testAsync('12. Browser amount override is ignored / rejected on server', async () => {
   setupMockFetch();
   try {
-    // Malicious client tries to buy starter or lifetime for 100 paise
     const req = new Request('https://abacus-buddy.com/api/create-order', {
       method: 'POST',
       headers: {
@@ -382,7 +373,7 @@ await testAsync('12. Browser amount override is ignored / rejected on server', a
     const res = await main(req, mockEnv);
     assert.strictEqual(res.status, 200);
     const data = await res.json();
-    assert.strictEqual(data.amount, 9900, 'Server must enforce 9900 paise regardless of client input');
+    assert.strictEqual(data.amount, TIERS.starter.pricePaise, 'Server must enforce configured price regardless of client input');
   } finally {
     restoreFetch();
   }
@@ -477,7 +468,7 @@ await testAsync('16. Wrong UID in order notes is rejected with 400', async () =>
       orderAmount: 9900,
       paymentAmount: 9900,
       paymentOrderId: orderId,
-      orderNotes: { uid: 'victim_user_456', product: PRODUCT, tier: 'starter' }, // mismatch with user_attacker
+      orderNotes: { uid: 'victim_user_456', product: PRODUCT, tier: 'starter' },
       paymentStatus: 'captured'
     });
 
@@ -512,7 +503,7 @@ await testAsync('17. Non-captured payment status is rejected with 400', async ()
       paymentAmount: 9900,
       paymentOrderId: orderId,
       orderNotes: { uid: 'user_uncap', product: PRODUCT, tier: 'starter' },
-      paymentStatus: 'authorized' // Not captured!
+      paymentStatus: 'authorized'
     });
 
     const req = new Request('https://abacus-buddy.com/api/verify-payment', {
@@ -567,9 +558,8 @@ await testAsync('18. Existing ₹499 flow verification regression succeeds clean
     assert.strictEqual(data.tier, 'lifetime');
     assert.strictEqual(data.maxLevel, 15);
     assert.strictEqual(data.expiresAt, null);
-    assert.strictEqual(data.gameLimit, null);
+    assert.deepStrictEqual(data.games, ALL_GAMES);
 
-    // Verify Firestore fields written
     const written = options.lastFirestoreWrite?.fields;
     assert.ok(written);
     assert.strictEqual(written.paid?.booleanValue, true);
@@ -581,11 +571,11 @@ await testAsync('18. Existing ₹499 flow verification regression succeeds clean
   }
 });
 
-await testAsync('19. Webhook handler provisions Starter on 9900 and Lifetime on 49900', async () => {
+await testAsync('19. Webhook handler provisions Starter on 9900 and Lifetime on 49900 with strict metadata validation', async () => {
   const options = {};
   setupMockFetch(options);
   try {
-    // 19a. Starter webhook
+    // 19a. Starter webhook with valid metadata
     const starterPayload = JSON.stringify({
       event: 'payment.captured',
       payload: {
@@ -614,10 +604,11 @@ await testAsync('19. Webhook handler provisions Starter on 9900 and Lifetime on 
     const writtenS = options.lastFirestoreWrite?.fields;
     assert.strictEqual(writtenS.tier?.stringValue, 'starter');
     assert.strictEqual(writtenS.maxLevel?.integerValue, '3');
-    assert.strictEqual(writtenS.gameLimit?.integerValue, '3');
+    const writtenGamesS = writtenS.games?.arrayValue?.values?.map(v => v.stringValue);
+    assert.deepStrictEqual(writtenGamesS, ['race', 'mystery', 'match']);
     assert.ok(writtenS.expiresAt?.stringValue);
 
-    // 19b. Lifetime webhook
+    // 19b. Lifetime webhook with valid metadata
     const lifetimePayload = JSON.stringify({
       event: 'payment.captured',
       payload: {
@@ -647,12 +638,40 @@ await testAsync('19. Webhook handler provisions Starter on 9900 and Lifetime on 
     assert.strictEqual(writtenL.tier?.stringValue, 'lifetime');
     assert.strictEqual(writtenL.maxLevel?.integerValue, '15');
     assert.strictEqual(writtenL.expiresAt?.nullValue, null);
+
+    // 19c. Webhook does NOT provision solely from amount without valid tier/product/uid
+    const badTierPayload = JSON.stringify({
+      event: 'payment.captured',
+      payload: {
+        payment: {
+          entity: {
+            id: 'pay_wh_bad',
+            order_id: 'ord_wh_bad',
+            amount: 9900,
+            currency: 'INR',
+            notes: { uid: 'user_wh_bad', product: PRODUCT, tier: 'lifetime' } // amount 9900 but tier lifetime -> mismatch
+          }
+        }
+      }
+    });
+    options.lastFirestoreWrite = null;
+    const sigBad = await hmac(mockEnv.RAZORPAY_WEBHOOK_SECRET, badTierPayload);
+    const reqBad = new Request('https://abacus-buddy.com/api/razorpay-webhook', {
+      method: 'POST',
+      headers: {
+        'x-razorpay-signature': sigBad,
+        'content-type': 'application/json'
+      },
+      body: badTierPayload
+    });
+    await main(reqBad, mockEnv);
+    assert.strictEqual(options.lastFirestoreWrite, null, 'Webhook must NOT write entitlement when amount and tier mismatch');
   } finally {
     restoreFetch();
   }
 });
 
-await testAsync('20. Successful Starter payment verification writes 30-day entitlement', async () => {
+await testAsync('20. Successful Starter payment verification writes 30-day entitlement with explicit game IDs', async () => {
   const options = {
     orderAmount: 9900,
     paymentAmount: 9900,
@@ -685,10 +704,9 @@ await testAsync('20. Successful Starter payment verification writes 30-day entit
     assert.strictEqual(data.paid, true);
     assert.strictEqual(data.tier, 'starter');
     assert.strictEqual(data.maxLevel, 3);
-    assert.strictEqual(data.gameLimit, 3);
+    assert.deepStrictEqual(data.games, ['race', 'mystery', 'match']);
     assert.ok(data.expiresAt);
 
-    // Verify ~30 days in future
     const exp = Date.parse(data.expiresAt);
     const days30 = 30 * 24 * 60 * 60 * 1000;
     assert.ok(exp >= before + days30 - 5000);
@@ -697,14 +715,15 @@ await testAsync('20. Successful Starter payment verification writes 30-day entit
     const written = options.lastFirestoreWrite?.fields;
     assert.strictEqual(written.tier?.stringValue, 'starter');
     assert.strictEqual(written.maxLevel?.integerValue, '3');
-    assert.strictEqual(written.gameLimit?.integerValue, '3');
+    const writtenGames = written.games?.arrayValue?.values?.map(v => v.stringValue);
+    assert.deepStrictEqual(writtenGames, ['race', 'mystery', 'match']);
   } finally {
     restoreFetch();
   }
 });
 
 await testAsync('21. /api/user-status returns Free entitlement for users with no document', async () => {
-  setupMockFetch({ firestoreDoc: null }); // 404
+  setupMockFetch({ firestoreDoc: null });
   try {
     const req = new Request('https://abacus-buddy.com/api/user-status', {
       method: 'GET',
@@ -716,7 +735,7 @@ await testAsync('21. /api/user-status returns Free entitlement for users with no
     assert.strictEqual(data.paid, false);
     assert.strictEqual(data.tier, 'free');
     assert.strictEqual(data.maxLevel, 1);
-    assert.strictEqual(data.gameLimit, 1);
+    assert.deepStrictEqual(data.games, ['race']);
   } finally {
     restoreFetch();
   }
@@ -744,21 +763,21 @@ await testAsync('22. /api/user-status returns Lifetime for legacy paid:true Fire
     assert.strictEqual(data.tier, 'lifetime');
     assert.strictEqual(data.maxLevel, 15);
     assert.strictEqual(data.expiresAt, null);
-    assert.strictEqual(data.gameLimit, null);
+    assert.deepStrictEqual(data.games, ALL_GAMES);
   } finally {
     restoreFetch();
   }
 });
 
 await testAsync('23. /api/user-status returns Free fallback when Starter tier is expired in Firestore', async () => {
-  const pastDate = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
+  const pastDate = new Date(Date.now() - 3600000).toISOString();
   setupMockFetch({
     firestoreDoc: {
       fields: {
         paid: { booleanValue: true },
         tier: { stringValue: 'starter' },
         maxLevel: { integerValue: '3' },
-        gameLimit: { integerValue: '3' },
+        games: { arrayValue: { values: [{ stringValue: 'race' }, { stringValue: 'mystery' }, { stringValue: 'match' }] } },
         expiresAt: { stringValue: pastDate },
         orderId: { stringValue: 'order_expired_1' },
         paymentId: { stringValue: 'pay_expired_1' }
@@ -776,7 +795,7 @@ await testAsync('23. /api/user-status returns Free fallback when Starter tier is
     assert.strictEqual(data.paid, false);
     assert.strictEqual(data.tier, 'free');
     assert.strictEqual(data.maxLevel, 1);
-    assert.strictEqual(data.gameLimit, 1);
+    assert.deepStrictEqual(data.games, ['race']);
     assert.strictEqual(data.expired, true);
   } finally {
     restoreFetch();

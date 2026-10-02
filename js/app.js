@@ -7,6 +7,7 @@ import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
 import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getGameLimit, getEntitlement } from './payments.js';
+import { TIERS, getTierConfig } from './tiers.js';
 import { getAuthInstance } from '../firebase/auth.js';
 import {
   app, esc, $, $$, wait, newToken, currentToken, alive, every, clearTimers, setRouter, go,
@@ -34,12 +35,11 @@ const STICKERS = [
   { id: 'exam', e: '📝', name: 'Test Passed', how: 'Pass any test or exam', ok: () => state.exams.some(r => r.passed) },
 ];
 const earned = () => STICKERS.filter(x => x.ok());
-export const freeMax = () => 1;
+export const freeMax = () => TIERS.free.maxLevel;
 export const playableMax = () => {
   const t = getTier();
-  if (t === 'lifetime') return MAX_LEVEL;
-  if (t === 'starter') return 3;
-  return freeMax();
+  const cfg = getTierConfig(t);
+  return cfg.maxLevel;
 };
 export const levelAllowed = id => id >= 1 && id <= playableMax();
 
