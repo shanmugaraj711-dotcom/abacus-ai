@@ -6,12 +6,15 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
-import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
+import { refreshEntitlement, isPaid, buyUnlock, currentTier, buyStarter } from './payments.js';
+import { TIERS, TIER_CONFIG } from './tiers.js';
+import { getAuthInstance, signInWithGoogle, signOut, onAuthChange, getGoogleRedirectResult } from '../firebase/auth.js';
 import {
   isGuestUser,
   canAccessLevel,
+  canAccessLesson,
   canAccessGame,
+  canAccessFreePlay,
   canGuestAccessLevel,
   canGuestAccessGame,
   canGuestAccessFeature,
@@ -19,6 +22,7 @@ import {
   setAuthMode,
   showConversionPrompt,
   renderEmailAuthView,
+  formatAuthError,
   GUEST_GAME_ID,
 } from './access.js';
 import {
@@ -28,6 +32,9 @@ import {
 } from './ui.js';
 import { playRoom, openGame } from './games.js';
 import { testCentre, runExam, certificates, certificate, examList } from './exams.js';
+import { renderPublicLandingHtml } from './landing.js';
+import { renderChallenge } from './challenge.js';
+import { trackFunnelEvent, FUNNEL_EVENTS } from './events.js';
 
 
 // ---------- stickers (earned from progress; nothing extra to save except which ones were shown) ----------
@@ -47,9 +54,111 @@ const STICKERS = [
   { id: 'exam', e: '📝', name: 'Test Passed', how: 'Pass any test or exam', ok: () => state.exams.some(r => r.passed) },
 ];
 const earned = () => STICKERS.filter(x => x.ok());
-const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 2));
-const playableMax = () => isPaid() ? MAX_LEVEL : freeMax();
+const freeMax = () => 1;
+const playableMax = () => TIER_CONFIG[currentTier()]?.maxLevel ?? 1;
 const levelAllowed = id => id >= 1 && canAccessLevel(id);
+
+function formatPaymentError(msg) {
+  if (!msg || typeof msg !== 'string') {
+    return 'Unable to process payment. Please try again.';
+  }
+  const clean = msg.trim();
+  if (clean.includes('is not valid JSON') || clean.includes('Unexpected token') || clean === 'undefined' || clean === '"undefined"') {
+    return 'Payment service is temporarily unavailable. Please try again.';
+  }
+  return clean;
+}
+
+function starter() {
+  const isTa = lang() === 'ta';
+  const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
+  shell({ title: isTa ? 'ஸ்டார்ட்டர் திட்டம் — ₹99' : 'Starter Tier — ₹99', back: '#/home', body: `
+    <section class="card intro">
+      ${babi('happy', 'big bob')}
+      <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி ஸ்டார்ட்டர்' : 'Abacus Buddy Starter Tier'}</p>
+      <h2 class="display">${isTa ? '30 நாட்களுக்கு ₹99 மட்டும்' : '₹99 for 30 Days'}</h2>
+      <p class="lead">${isTa ? 'லெவல்கள் 1–3, பாடங்கள் 1–7, மற்றும் 3 விளையாட்டுகள்.' : 'Levels 1–3, Lessons 1–7, 3 Games & Free Play.'}</p>
+      <div class="tier-comparison" style="margin:1rem 0;text-align:left;font-size:0.9rem;border:1px solid var(--border,#ddd);border-radius:8px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:var(--card-subtle,#f5f5f5);">
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:left;">Feature</th>
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:center;">Free</th>
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:center;background:#e8f4fd;">Starter (₹99)</th>
+              <th style="padding:8px;border-bottom:1px solid #ddd;text-align:center;">Lifetime (₹499)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Practice Levels</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Level 1 only</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>Levels 1–3</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Levels 1–15</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Learn Lessons</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Lessons 1–6</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>Lessons 1–7</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">Lessons 1–11</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Bead Games</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">1 (Race)</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>3 (Race, Mystery, Match)</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">All 7 Games</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;"><b>Free Play</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">🔒 Locked</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;background:#f9fcff;"><b>✓ Unlocked</b></td>
+              <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">✓ Unlocked</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;"><b>Access Period</b></td>
+              <td style="padding:8px;text-align:center;">Always Free</td>
+              <td style="padding:8px;text-align:center;background:#f9fcff;"><b>30 Days</b></td>
+              <td style="padding:8px;text-align:center;">Permanent</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      ${signedIn ? `
+        <div class="stack">
+          <button class="btn primary wide" id="buy-starter">Pay ₹99 for Starter (30 Days)</button>
+          <a class="btn wide" href="#/unlock">View Lifetime Plan (₹499)</a>
+        </div>` : `
+        <div class="stack">
+          <a class="btn primary wide" id="signin-starter-btn" href="./auth-ui/sign-in.html?return=../#starter">${isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to get Starter (₹99)'}</a>
+          <a class="btn wide" href="#/unlock">View Lifetime Plan (₹499)</a>
+        </div>`}
+      <p class="muted tiny center" id="starter-status"></p>
+      <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
+    </section>` });
+
+  const buyStarterBtn = $('#buy-starter');
+  if (buyStarterBtn) {
+    buyStarterBtn.onclick = async () => {
+      buyStarterBtn.disabled = true;
+      const msg = $('#starter-status');
+      if (msg) msg.textContent = isTa ? 'கட்டணம் தொடங்குகிறது...' : 'Starting payment...';
+      try {
+        await buyStarter({
+          onSuccess: () => {
+            if (msg) msg.textContent = isTa ? 'கட்டணம் சரிபார்க்கப்பட்டது ✓ ஸ்டார்ட்டர் திறக்கப்பட்டது.' : 'Payment verified ✓ Starter tier is active.';
+            setTimeout(() => go('#/practice'), 700);
+          },
+          onError: err => {
+            if (msg) msg.textContent = formatPaymentError(err?.message);
+            buyStarterBtn.disabled = false;
+          }
+        });
+      } catch (err) {
+        if (msg) msg.textContent = formatPaymentError(err?.message);
+        buyStarterBtn.disabled = false;
+      }
+    };
+  }
+}
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
@@ -63,10 +172,15 @@ function unlock() {
       <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>மட்டும்.' : '<span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>'}</p>
       <p class="muted">${isTa ? 'சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
       <ul class="muted">
-        <li>${isTa ? 'லெவல்கள் 1–2 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Levels 1–2 and starter games stay free.'}</li>
-        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 3–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 3–15 and all games unlock permanently for this account.'}</li>
+        <li>${isTa ? 'லெவல் 1 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Level 1 and starter game stay free.'}</li>
+        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 1–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 1–15 and all games unlock permanently for this account.'}</li>
         <li>${isTa ? 'Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்.' : 'Payment is processed securely by Razorpay.'}</li>
       </ul>
+      <div style="margin: 1rem 0; padding: 12px; border: 1px solid var(--border,#e0e0e0); border-radius: 8px; background: var(--card-subtle,#fafafa); text-align: left;">
+        <p style="margin:0 0 4px; font-weight:bold;">${isTa ? 'குறைந்த விலையில் தொடங்க வேண்டுமா?' : 'Looking for a lighter option?'}</p>
+        <p class="muted small" style="margin:0 0 8px;">${isTa ? '₹99 செலுத்தி 30 நாட்களுக்கு லெவல்கள் 1–3, பாடங்கள் 1–7 & 3 விளையாட்டுகளைப் பெறுங்கள்.' : 'Get 30-day Starter access for ₹99 (Levels 1–3, Lessons 1–7, 3 games & Free Play).'}</p>
+        <a class="btn wide" href="#/starter" style="display:block;text-align:center;">${isTa ? '₹99 ஸ்டார்ட்டரைப் பார்' : 'View Starter Tier (₹99)'}</a>
+      </div>
       ${signedIn ? `
         <div class="stack">
           <label for="couponCode"><b>${isTa ? 'கூப்பன் குறியீடு' : 'Coupon code'}</b></label>
@@ -74,7 +188,7 @@ function unlock() {
             <input id="couponCode" maxlength="40" autocomplete="off" placeholder="EARLYBIRD" style="flex:1;">
             <button class="btn" id="applyCoupon" type="button">Apply</button>
           </div>
-          <button class="btn primary wide" id="buy">Pay ₹499 & Unlock</button>
+          <button class="btn primary wide" id="buy">Unlock for ₹499</button>
         </div>` : `
         <div class="stack"><a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a></div>`}
       <p class="muted tiny center" id="coupon-status"></p>
@@ -101,7 +215,7 @@ function unlock() {
     if(basePriceEl) basePriceEl.innerHTML = final < base ? `<s>₹${base}</s> ` : '';
     if(finalPriceEl) finalPriceEl.textContent = `₹${final}`;
     if(discountEl) discountEl.textContent = discount > 0 ? `(${isTa ? 'தள்ளுபடி' : 'Save'} ₹${discount})` : '';
-    if(buy) buy.textContent = isTa ? `₹${final} செலுத்தி திறக்கவும்` : `Pay ₹${final} & Unlock`;
+    if(buy) buy.textContent = isTa ? `₹${final} செலுத்தி திறக்கவும்` : (final === 499 ? 'Unlock for ₹499' : `Pay ₹${final} & Unlock`);
   };
   setPrice(499,499,0);
 
@@ -119,7 +233,7 @@ function unlock() {
     }catch(e){
       appliedCoupon='';
       setPrice(499,499,0);
-      if(msg)msg.textContent=e.message;
+      if(msg)msg.textContent=formatPaymentError(e?.message);
     }
     apply.disabled=false; apply.textContent='Apply';
   };
@@ -127,18 +241,19 @@ function unlock() {
   if (buy) buy.onclick = async () => {
     buy.disabled=true;
     const msg=$('#pay-status');
+    if (msg) msg.textContent = isTa ? 'கட்டணம் தொடங்குகிறது...' : 'Starting payment...';
     try{
       await buyUnlock({
         couponCode: appliedCoupon,
         onSuccess: () => { if(msg)msg.textContent=isTa?'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 3–15 திறக்கப்பட்டன.':'Payment verified ✓ Levels 3–15 are unlocked.'; },
-        onError: e => { if(msg)msg.textContent=e.message; },
+        onError: e => { if(msg)msg.textContent=formatPaymentError(e?.message); },
       });
       if(isPaid()) setTimeout(()=>go('#/practice'),700);
     }catch(e){
-      if(msg)msg.textContent=e.message;
+      if(msg)msg.textContent=formatPaymentError(e?.message);
       buy.disabled=false;
       const final=Number(finalPriceEl?.textContent?.replace(/[^0-9]/g,''))||499;
-      buy.textContent=isTa?`₹${final} செலுத்தி திறக்கவும்`:`Pay ₹${final} & Unlock`;
+      buy.textContent=isTa?`₹${final} செலுத்தி திறக்கவும்`:(final === 499 ? 'Unlock for ₹499' : `Pay ₹${final} & Unlock`);
     }
   };
 }
@@ -154,10 +269,37 @@ function stickers() {
 }
 
 // ---------- screens ----------
+function challenge() {
+  newToken(); clearTimers(); stopTalking();
+  renderChallenge({
+    container: app,
+    onComplete: () => {},
+    onExit: () => {
+      go(state.profile?.name ? '#/home' : '#/');
+    },
+  });
+  window.scrollTo(0, 0);
+}
+
+function landingPage() {
+  newToken(); clearTimers(); stopTalking();
+  app.innerHTML = renderPublicLandingHtml({ isTa: lang() === 'ta' });
+  window.scrollTo(0, 0);
+}
+
 function welcome() {
+  newToken(); clearTimers(); stopTalking();
   const authMode = getAuthMode();
-  const showGate = !authMode && !state.profile?.name;
-  const draft = { name: state.profile?.name || '', avatar: '🦁', lang: 'en', voiceLang: 'en' };
+  const showGate = !authMode;
+  const draft = {
+    name: state.profile?.name || '',
+    age: state.profile?.age || '6-8',
+    avatar: state.profile?.avatar || '🦁',
+    experience: state.profile?.experience || 'new',
+    lang: state.profile?.lang || (lang() === 'ta' ? 'ta' : 'en'),
+    voiceLang: state.profile?.voiceLang || (lang() === 'ta' ? 'ta' : 'en'),
+  };
+
   app.innerHTML = `
   <main class="view welcome">
     <div id="authGateStep" class="auth-gate" ${showGate ? '' : 'style="display:none;"'}>
@@ -166,7 +308,7 @@ function welcome() {
         <div>
           <p class="eyebrow">Abacus Buddy</p>
           <h1 class="display">Welcome!</h1>
-          <p class="lead">Let's start learning.</p>
+          <p class="lead">Sign in to start your learning journey.</p>
         </div>
       </div>
       <section class="card auth-gate-card">
@@ -178,12 +320,10 @@ function welcome() {
           <button type="button" class="btn wide auth-btn-email" id="authGateEmailBtn">
             ✉️ Login with Email & Password
           </button>
-          <div class="auth-divider">─── or ───</div>
-          <button type="button" class="btn wide auth-btn-guest" id="authGateGuestBtn">
-            🎮 Continue as Guest
-          </button>
+          <div id="authGateError" class="auth-error" style="display:none;margin-top:12px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;font-size:13px;text-align:left;" role="alert"></div>
         </div>
       </section>
+      <p class="center" style="margin-top:1.5rem;"><a href="#/" class="btn ghost small" style="text-decoration:none;color:#6b7280;">← Back to Home</a></p>
     </div>
 
     <div id="emailAuthStep" style="display:none;padding:18px 16px;"></div>
@@ -192,27 +332,46 @@ function welcome() {
       <section class="card form">
         <label for="kidName">What's your name?</label>
         <input id="kidName" maxlength="18" autocomplete="off" placeholder="Type your name" value="${esc(draft.name)}">
+
+        <label>How old are you?</label>
+        <div class="age-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+          <button type="button" class="choice ${draft.age === '3-5' ? 'on' : ''}" data-age="3-5"><b>3–5</b></button>
+          <button type="button" class="choice ${draft.age === '6-8' || !draft.age ? 'on' : ''}" data-age="6-8"><b>6–8</b></button>
+          <button type="button" class="choice ${draft.age === '8-10' ? 'on' : ''}" data-age="8-10"><b>8–10</b></button>
+          <button type="button" class="choice ${draft.age === '10+' ? 'on' : ''}" data-age="10+"><b>10+</b></button>
+        </div>
+
         <label>Pick your animal buddy</label>
         <div class="avatars">${AVATARS.map(a => `<button type="button" class="avatar ${a === draft.avatar ? 'on' : ''}" data-avatar="${a}" aria-label="Avatar ${a}">${a}</button>`).join('')}</div>
+
         <label>Have you used an abacus before?</label>
         <div class="two">
-          <button type="button" class="choice" data-exp="new"><b>🌱 I'm new</b><small>Teach me from the start</small></button>
-          <button type="button" class="choice" data-exp="known"><b>🚀 I know it</b><small>Quick check, then skip ahead</small></button>
+          <button type="button" class="choice ${draft.experience === 'new' ? 'on' : ''}" data-exp="new"><b>🌱 I'm new</b><small>Teach me from the start</small></button>
+          <button type="button" class="choice ${draft.experience === 'known' ? 'on' : ''}" data-exp="known"><b>🚀 I know it</b><small>Quick check, then skip ahead</small></button>
         </div>
+
+        <label>Language & Speech</label>
+        <div class="three" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
+          <button type="button" class="choice ${draft.lang === 'en' ? 'on' : ''}" data-lang-choice="en"><b>English</b></button>
+          <button type="button" class="choice ${draft.lang === 'ta' ? 'on' : ''}" data-lang-choice="ta"><b>தமிழ்</b></button>
+          <button type="button" class="choice ${draft.lang === 'hi' ? 'on' : ''}" data-lang-choice="hi"><b>हिन्दी</b></button>
+        </div>
+
         <label ${isOn('tamil') ? '' : 'hidden'}>What should Babi speak?</label>
         <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
-          <button type="button" class="choice on" data-voice-lang="en"><b>English audio</b></button>
-          <button type="button" class="choice" data-voice-lang="ta"><b>Tamil audio</b></button>
+          <button type="button" class="choice ${draft.voiceLang === 'en' ? 'on' : ''}" data-voice-lang="en"><b>English audio</b></button>
+          <button type="button" class="choice ${draft.voiceLang === 'ta' ? 'on' : ''}" data-voice-lang="ta"><b>Tamil audio</b></button>
         </div>
+
         <label ${isOn('tamil') ? '' : 'hidden'}>What should the screen show?</label>
         <div class="two" ${isOn('tamil') ? '' : 'hidden'}>
-          <button type="button" class="choice on" data-content-lang="en"><b>English content</b></button>
-          <button type="button" class="choice" data-content-lang="ta"><b>Tamil content</b></button>
+          <button type="button" class="choice ${draft.lang === 'en' ? 'on' : ''}" data-content-lang="en"><b>English content</b></button>
+          <button type="button" class="choice ${draft.lang === 'ta' ? 'on' : ''}" data-content-lang="ta"><b>Tamil content</b></button>
         </div>
+
         <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will stay quiet until a Tamil voice is available.</p>
-        <button class="btn primary wide" id="start" disabled>Let's go! →</button>
+        <button class="btn primary wide" id="start" ${draft.name ? '' : 'disabled'}>Let's go! →</button>
       </section>
-      <button class="linkish" id="demo">👀 Grown-up? Open a demo with sample progress</button>
     </div>
   </main>`;
 
@@ -221,7 +380,7 @@ function welcome() {
   const profileStep = $('#welcomeProfileStep');
   const authGoogleBtn = $('#authGateGoogleBtn');
   const authEmailBtn = $('#authGateEmailBtn');
-  const authGuestBtn = $('#authGateGuestBtn');
+  const authGateError = $('#authGateError');
 
   const proceedToProfile = () => {
     if (authGateStep) authGateStep.style.display = 'none';
@@ -231,29 +390,27 @@ function welcome() {
     if (nameEl) nameEl.focus();
   };
 
-  if (authGuestBtn) {
-    authGuestBtn.onclick = () => {
-      setAuthMode('guest');
-      pingVisit().catch(() => {});
-      proceedToProfile();
-    };
-  }
-
   if (authGoogleBtn) {
     authGoogleBtn.onclick = async () => {
       authGoogleBtn.disabled = true;
       authGoogleBtn.textContent = 'Connecting to Google…';
+      if (authGateError) authGateError.style.display = 'none';
       try {
         const cred = await signInWithGoogle();
         if (cred?.user) {
           setAuthMode('registered');
+          trackFunnelEvent(FUNNEL_EVENTS.SIGNUP, { method: 'google' });
           pingVisit(cred.user.uid).catch(() => {});
           proceedToProfile();
         }
       } catch (err) {
         authGoogleBtn.disabled = false;
-        authGoogleBtn.innerHTML = 'Continue with Google';
-        alert(err.message || 'Google sign-in error');
+        authGoogleBtn.innerHTML = `<svg style="width:20px;height:20px;margin-right:6px;vertical-align:middle;" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>Continue with Google`;
+        const msg = formatAuthError(err);
+        if (authGateError) {
+          authGateError.textContent = msg;
+          authGateError.style.display = 'block';
+        }
       }
     };
   }
@@ -268,6 +425,7 @@ function welcome() {
           initialMode: 'login',
           onSuccess: (user) => {
             setAuthMode('registered');
+            trackFunnelEvent(FUNNEL_EVENTS.SIGNUP, { method: 'email' });
             if (user?.uid) pingVisit(user.uid).catch(() => {});
             proceedToProfile();
           },
@@ -280,11 +438,20 @@ function welcome() {
     };
   }
 
-  let exp = '';
+  let exp = draft.experience || 'new';
+  let chosenAge = draft.age || '6-8';
   const ready = () => { $('#start').disabled = !($('#kidName').value.trim() && exp); };
   $('#kidName').addEventListener('input', ready);
+  $$('[data-age]').forEach(b => b.onclick = () => { chosenAge = b.dataset.age; $$('[data-age]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); });
   $$('[data-avatar]').forEach(b => b.onclick = () => { draft.avatar = b.dataset.avatar; $$('[data-avatar]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); });
   $$('[data-exp]').forEach(b => b.onclick = () => { exp = b.dataset.exp; $$('[data-exp]').forEach(x => x.classList.toggle('on', x === b)); sfx.tap(); ready(); });
+  $$('[data-lang-choice]').forEach(b => b.onclick = () => {
+    const l = b.dataset.langChoice;
+    draft.lang = l;
+    draft.voiceLang = l;
+    $$('[data-lang-choice]').forEach(x => x.classList.toggle('on', x === b));
+    sfx.tap();
+  });
   $$('[data-voice-lang]').forEach(b => b.onclick = () => {
     draft.voiceLang = b.dataset.voiceLang; $$('[data-voice-lang]').forEach(x => x.classList.toggle('on', x === b));
     state.profile = { ...(state.profile || {}), lang: draft.lang, voiceLang: draft.voiceLang }; sfx.tap();
@@ -299,27 +466,38 @@ function welcome() {
   });
   $('#start').onclick = () => {
     if (!getAuthMode()) {
-      setAuthMode('guest');
-      pingVisit().catch(() => {});
+      if (authGateStep) authGateStep.style.display = 'block';
+      if (profileStep) profileStep.style.display = 'none';
+      return;
     }
-    state.profile = { name: $('#kidName').value.trim().slice(0, 18), avatar: draft.avatar, experience: exp, lang: draft.lang, voiceLang: draft.voiceLang };
+    state.profile = {
+      name: $('#kidName').value.trim().slice(0, 18),
+      age: chosenAge || '6-8',
+      avatar: draft.avatar,
+      experience: exp,
+      lang: draft.lang,
+      voiceLang: draft.voiceLang
+    };
     saveNow(); sfx.good(); say(V('welcomeKid', state.profile.name));
+
+    // Check return path
+    let returnUrl = sessionStorage.getItem('abacus-auth-return');
+    if (!returnUrl) {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        returnUrl = p.get('return');
+      } catch {}
+    }
+    if (returnUrl) {
+      sessionStorage.removeItem('abacus-auth-return');
+      const clean = returnUrl.replace(/^\.\.\/?/, '');
+      go(clean.startsWith('#') ? clean : `#/${clean}`);
+      return;
+    }
+
     go(exp === 'known' ? '#/check' : '#/home');
   };
-  $('#demo').onclick = () => {
-    setAuthMode('registered');
-    Object.assign(state, {
-      profile: { name: 'Aru', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
-      lessonsDone: [1, 2, 3, 4, 5, 6, 7, 8], unlocked: 5,
-      levels: { 1: { stars: 3, best: 8, plays: 3 }, 2: { stars: 3, best: 8, plays: 2 }, 3: { stars: 2, best: 6, plays: 2 }, 4: { stars: 1, best: 5, plays: 2 } },
-      games: { race: 11, mystery: 8, match: 16 },
-    });
-    const d = new Date(); state.stats.days = [];
-    [0, 1, 2, 4, 5].forEach(k => { const x = new Date(d); x.setDate(d.getDate() - k); state.stats.days.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`); });
-    Object.assign(state.stats, { answered: 74, firstTry: 58, seconds: 2460, byRule: { direct: [49, 56], small: [9, 18], big: [0, 0] },
-      mistakes: [{ q: '4 + 3', answer: 7, given: 11, rule: 'small' }, { q: '8 − 6', answer: 2, given: 3, rule: 'direct' }, { q: '3 + 4', answer: 7, given: 8, rule: 'small' }] });
-    saveNow(); go('#/home');
-  };
+  window.scrollTo(0, 0);
 }
 
 const GAME_COUNT = () => ['gameRace', 'gameMystery', 'gameMatch', 'gameFlash', 'gameSpeedRead', 'gameFriendDash', 'gameLadder'].filter(isOn).length;
@@ -332,8 +510,9 @@ const testLine = () => {
 };
 
 function nextMission() {
-  if (state.unlocked > freeMax() && !isPaid()) {
-    const nextLv = freeMax() + 1;
+  const currentMax = playableMax();
+  if (state.unlocked > currentMax && !isPaid()) {
+    const nextLv = currentMax + 1;
     return {
       href: '#/unlock',
       emoji: '🔐',
@@ -343,10 +522,10 @@ function nextMission() {
       voiceTitle: lang() === 'ta' ? `லெவல் ${nextLv} திற` : `Unlock Level ${nextLv}`,
     };
   }
-  const lvl = Math.min(state.unlocked, playableMax());
+  const lvl = Math.min(state.unlocked, currentMax);
   const need = LESSON_FOR_LEVEL[lvl] || 11;
   const lesson = LESSONS.find(l => l.id <= need && !lessonDone(l.id));
-  if (lesson && state.profile.experience !== 'known') return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கற்றல்' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
+  if (lesson && state.profile.experience !== 'known' && canAccessLesson(lesson.id)) return { href: `#/lesson/${lesson.id}`, emoji: lesson.emoji, label: `${lang() === 'ta' ? 'கற்றல்' : 'Learn'}: ${lessonTitle(lesson)}`, say: T('missionLearn', lessonTitle(lesson)), kind: 'lesson', voiceTitle: voiceLang() === 'ta' ? (lesson.titleTa || lesson.title) : lesson.title };
   const L = LEVELS[lvl];
   return { href: `#/level/${lvl}`, emoji: L.emoji, label: `${lang() === 'ta' ? 'பயிற்சி' : 'Practise'} — ${lvl}: ${lvName(L)}`, say: T('missionPractise', lvName(L)), kind: 'level', voiceTitle: voiceLang() === 'ta' ? (L.nameTa || L.name) : L.name };
 }
@@ -354,17 +533,7 @@ function nextMission() {
 function home() {
   const isTa = lang() === 'ta';
   const m = nextMission(), sk = streak();
-  const guest = isGuestUser();
   shell({ body: `
-    ${guest ? `
-      <section class="card guest-home-banner" style="background:#eef2ff;border:1px solid #c7d2fe;margin-bottom:12px;padding:12px 14px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
-        <div>
-          <b style="color:#3730a3;font-size:14px;display:block;">🎮 ${isTa ? 'விருந்தினர் பயன்முறை' : 'Guest Mode'}</b>
-          <span style="font-size:12px;color:#4338ca;">${isTa ? 'லெவல் 1 மற்றும் புதிர் எண் திறக்கப்பட்டுள்ளது.' : 'Level 1 and Mystery Number unlocked. Save your progress!'}</span>
-        </div>
-        <button type="button" class="btn primary small" id="guestUpgradeBtn" style="white-space:nowrap;padding:6px 12px;font-size:13px;">${isTa ? 'கணக்கு உருவாக்கு' : 'Save Progress'}</button>
-      </section>
-    ` : ''}
     <section class="hello">
       <div class="kid-avatar">${esc(state.profile.avatar)}</div>
       <div><p class="eyebrow">${isTa ? 'மீண்டும் வருக' : 'Welcome back'}</p><h2 class="display">Hi, ${kidName()}!</h2></div>
@@ -381,20 +550,17 @@ function home() {
       ${isOn('practice') ? `<a class="tile practice" href="#/practice"><span>🎯</span><b>${isTa ? 'பயிற்சி' : 'Practise'}</b><small>${isTa ? `லெவல் ${Math.min(state.unlocked, MAX_LEVEL)} தயார்` : `Level ${Math.min(state.unlocked, MAX_LEVEL)} open`}</small></a>` : ''}
       ${isOn('play') ? `<a class="tile play" href="#/play"><span>🎮</span><b>${isTa ? 'விளையாட்டு' : 'Play'}</b><small>${isTa ? `${GAME_COUNT()} மணி விளையாட்டுகள்` : `${GAME_COUNT()} bead games`}</small></a>` : ''}
       ${examsOpen() ? `<a class="tile tests" href="#/tests"><span>📝</span><b>${isTa ? 'தேர்வுகள்' : 'Tests'}</b><small>${testLine()}</small></a>` : ''}
-      ${isOn('freePlay') ? `<a class="tile free" href="#/free"><span>✋</span><b>${isTa ? 'சுய பயிற்சி' : 'Free Play'}</b><small>${isTa ? 'மணிகளை நகர்த்தி பழகு' : 'Just move beads'}</small></a>` : ''}
+      ${isOn('freePlay') ? `<a class="tile free" href="${canAccessFreePlay() ? '#/free' : '#/unlock'}"><span>✋</span><b>${isTa ? 'சுய பயிற்சி' : 'Free Play'}</b><small>${canAccessFreePlay() ? (isTa ? 'மணிகளை நகர்த்தி பழகு' : 'Just move beads') : (isTa ? 'அன்லாக் தேவை' : 'Requires unlock')}</small></a>` : ''}
     </nav>
     ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>${isTa ? 'என் ஸ்டிக்கர்கள்' : 'My Stickers'}</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
     <a class="grownups" href="#/parents">👨‍👩‍👧 ${isTa ? 'பெற்றோருக்கான பகுதி' : 'Grown-ups corner'}</a>` });
-  const guestBtn = $('#guestUpgradeBtn');
-  if (guestBtn) {
-    guestBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => route() });
-  }
   setTimeout(() => say(voiceLang() === 'ta'
     ? (m.kind === 'lesson' ? V('missionLearn', m.voiceTitle) : V('missionPractise', m.voiceTitle))
     : V('hello', state.profile.name, m.say)), 250);
 }
 
 function free() {
+  if (!canAccessFreePlay()) return go('#/unlock');
   const isTa = lang() === 'ta';
   shell({ title: isTa ? 'சுய பயிற்சி' : 'Free Play', back: '#/home', body: `
     ${bubble(T('freePlay'), 'happy')}
@@ -423,10 +589,13 @@ function learnMap() {
   shell({ title: isTa ? 'கற்றல்' : 'Learn', back: '#/home', body: `
     ${bubble(T('pickLesson'), 'happy')}
     <ol class="path">${LESSONS.map((l, i) => {
-      const done = lessonDone(l.id), open = known || i === 0 || lessonDone(LESSONS[i - 1].id);
+      const done = lessonDone(l.id);
+      const tierAllowed = canAccessLesson(l.id);
+      const progressOpen = known || i === 0 || lessonDone(LESSONS[i - 1].id);
+      const open = tierAllowed && progressOpen;
       const next = open && !done;
       return `<li class="stone ${done ? 'done' : ''} ${next ? 'next' : ''} ${open ? '' : 'locked'}">
-        <a ${open ? `href="#/lesson/${l.id}"` : 'aria-disabled="true"'}>
+        <a ${open ? `href="#/lesson/${l.id}"` : (tierAllowed ? 'aria-disabled="true"' : 'href="#/unlock"')}>
           <span class="stone-emoji">${open ? l.emoji : '🔒'}</span>
           <span><small>${isTa ? `பாடம் ${l.id}` : `Lesson ${l.id}`}</small><b>${esc(lessonTitle(l))}</b></span>
           <span class="stone-end">${done ? '✅' : next ? '▶' : ''}</span>
@@ -436,6 +605,7 @@ function learnMap() {
 }
 
 function lesson(id) {
+  if (!canAccessLesson(id)) return go('#/unlock');
   const L = LESSONS.find(l => l.id === id); if (!L) return go('#/learn');
   let i = 0; const t = currentToken();
   shell({ title: lessonTitle(L), back: '#/learn', body: `<div class="progress"><i style="width:0"></i></div><div data-step></div>`, cls: 'lesson' });
@@ -766,11 +936,12 @@ function check() {
     if (ok && !failed) passedUntil = qs[idx].l; else failed = true;
     idx++;
     if (idx < qs.length && !failed) return show();
-    const lvl = Math.max(1, Math.min(MAX_LEVEL, passedUntil ? passedUntil + 1 : 1));
+    const maxAllowedLevel = playableMax();
+    const lvl = Math.max(1, Math.min(maxAllowedLevel, passedUntil ? passedUntil + 1 : 1));
     state.unlocked = Math.max(state.unlocked, lvl);
-    // lessons before that level count as known
-    LESSONS.forEach(l => { if (l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
-    if (lvl > 1) [1, 2, 3, 4, 5].forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
+    // lessons before that level count as known, clamped by tier
+    LESSONS.forEach(l => { if (canAccessLesson(l.id) && l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
+    if (lvl > 1) [1, 2, 3, 4, 5].filter(k => canAccessLesson(k)).forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
     markDay(); saveNow(); sfx.star(); confetti();
     const isTa = lang() === 'ta';
     $('.view').innerHTML = `<section class="done-card">${babi('cheer', 'big bob')}<h2 class="display">${isTa ? `அருமை, ${kidName()}!` : `Nice, ${kidName()}!`}</h2>
@@ -857,15 +1028,11 @@ function dashboard() {
       <p class="muted tiny">Choose them independently. Example: Tamil audio + English content. ${hasVoice('ta') ? '' : 'This phone has no Tamil voice installed.'}</p>
       <label for="setName">Child's name</label><input id="setName" maxlength="18" value="${esc(state.profile.name)}">
       <div class="row"><button class="btn" id="unlockAll">Unlock all levels</button><button class="btn danger" id="reset">Reset all progress</button></div>
-    </section>
     <section class="card auth-status">
-      <h3>${isGuestUser() ? '🎮 Guest Mode' : '👤 Account Status'}</h3>
-      <p class="muted tiny">${isGuestUser() ? 'You are exploring Abacus as a guest. Create a free account or sign in to save your child’s progress across devices and unlock more levels & games.' : 'Logged in with linked progress.'}</p>
-      ${isGuestUser() ? `<button type="button" class="btn primary small" id="parentsAccountBtn">Create Account / Sign In</button>` : ''}
+      <h3>👤 Account Status</h3>
+      <p class="muted tiny">Signed in with active account.</p>
     </section>
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
-  const parentsBtn = $('#parentsAccountBtn');
-  if (parentsBtn) parentsBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => dashboard() });
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
   $$('[data-setvoice-lang]').forEach(b => b.onclick = () => {
@@ -892,32 +1059,73 @@ function route() {
   newToken(); clearTimers(); stopTalking(); document.querySelectorAll('.confetti').forEach(c => c.remove());
   const hash = location.hash.replace(/^#\/?/, '');
   const [page, arg] = hash.split('/');
-  // Owner Console is a separate owner-only page (owner.html); never expose it in the child router.
-  if (!state.profile?.name) return welcome();
+
+  // 1. Explicit public screens (no profile required)
+  if (page === 'challenge') return challenge();
+  if (page === 'landing') return landingPage();
+
+  // 2. User without profile
+  //    - #/home (Sign In from landing) → existing auth gate + onboarding (welcome())
+  //    - #/starter or #/unlock → those screens directly
+  //    - anything else → parent SEO landing page
+  if (!state.profile?.name) {
+    if (page === 'home') return welcome();
+    if (page === 'starter') return starter();
+    if (page === 'unlock') return unlock();
+    return landingPage();
+  }
+
+  // 3. Authenticated / profiled user routes
   const n = Number(arg);
   const pages = {
-    '': home, home, stickers, parents, check,
-    free: () => (isOn('freePlay') ? free() : home()),
+    '': home, home, stickers, parents, check, starter,
+    landing: landingPage,
+    challenge,
+    free: () => (isOn('freePlay') ? (canAccessFreePlay() ? free() : go('#/unlock')) : home()),
     learn: () => (isOn('learn') ? learnMap() : home()),
     practice: () => (isOn('practice') ? practiceMap() : home()),
+    starter,
     unlock,
     play: () => (isOn('play') ? playRoom() : home()),
-    lesson: () => lesson(n),
+    lesson: () => (canAccessLesson(n) ? lesson(n) : go('#/unlock')),
     level: () => levelIntro(n),
-    game: () => (isOn('play') ? openGame(arg) : home()),
-    tests: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (examsOpen() ? testCentre() : home())),
-    exam: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : runExam(arg)),
-    certificates: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificates() : home())),
-    certificate: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificate(n || 0) : home())),
+    game: () => (isOn('play') ? (canAccessGame(arg) ? openGame(arg) : go('#/unlock')) : home()),
+    tests: () => (examsOpen() ? testCentre() : home()),
+    exam: () => runExam(arg),
+    certificates: () => (isOn('certificates') ? certificates() : home()),
+    certificate: () => (isOn('certificates') ? certificate(n || 0) : home()),
   };
   (pages[page] || home)();
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', route);
-window.addEventListener('abacus:guest-locked', () => {
-  showConversionPrompt({ onSuccessAuth: () => route() });
-});
 setRouter(route);
+
+// Keep auth state in sync and advance from auth gate when authentication finishes
+onAuthChange((user) => {
+  if (user?.uid) {
+    setAuthMode('registered');
+    const authGateStep = document.getElementById('authGateStep');
+    const profileStep = document.getElementById('welcomeProfileStep');
+    if (authGateStep && authGateStep.style.display !== 'none') {
+      authGateStep.style.display = 'none';
+      if (profileStep) profileStep.style.display = 'block';
+      const nameEl = document.getElementById('kidName');
+      if (nameEl) nameEl.focus();
+    }
+  }
+});
+
+// Check for returning Google redirect authentication (mobile devices)
+getGoogleRedirectResult().then((cred) => {
+  if (cred?.user?.uid) {
+    setAuthMode('registered');
+    pingVisit(cred.user.uid).catch(() => {});
+  }
+}).catch((err) => {
+  console.warn('[Auth] Google redirect error:', err);
+});
+
 // Read config.json (feature switches) first, then show the first screen.
 pingVisit().catch(() => {});
 loadConfig().then(async () => { await refreshEntitlement(); route(); }, route);

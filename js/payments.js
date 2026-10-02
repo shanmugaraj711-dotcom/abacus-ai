@@ -1,8 +1,8 @@
 // Paid unlock integration for Abacus Buddy.
-// Business model: free levels 1–2, one-time ₹499 base lifetime unlock for levels 3–15.
+// Business model: Free, Starter (₹99 / 30 days), Lifetime (₹499).
 //
 // Offline paid entitlement isolation:
-//   - A cached entitlement { paid: true, uid, cachedAt } in localStorage ('abacus-entitlement-v1')
+//   - A cached entitlement { paid: true, tier, expiresAt, uid, cachedAt } in localStorage ('abacus-entitlement-v1')
 //     is ONLY trusted when cached.uid strictly matches the currently authenticated Firebase user.
 //   - If the cached UID does not match the current user, or if no user is signed in,
 //     the cache is invalidated/cleared and paid is set to false.
@@ -12,12 +12,15 @@
 
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
 import { pingVisit } from "./store.js";
+import { resolveTier, TIERS, TIER_CONFIG, getGameLimit as tierGameLimit } from "./tiers.js";
+import { trackFunnelEvent, FUNNEL_EVENTS } from "./events.js";
 
 const CACHE_KEY = 'abacus-entitlement-v1';
 
 let paid = false;
 let checked = false;
 let currentUid = null;
+let currentEntitlementObj = null;
 
 function readCache() {
   try {
@@ -28,21 +31,41 @@ function readCache() {
   } catch { return null; }
 }
 
-function writeCache(uid, paidValue) {
+function writeCache(uid, data) {
   try {
     if (!uid) return;
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ paid: paidValue, uid, cachedAt: new Date().toISOString() }));
+    const isPaidBool = typeof data === 'boolean' ? data : (data?.paid === true);
+    const tierVal = typeof data === 'object' && data?.tier ? data.tier : (isPaidBool ? TIERS.LIFETIME : TIERS.FREE);
+    const expiresAtVal = typeof data === 'object' ? (data?.expiresAt || null) : null;
+    const maxLevelVal = typeof data === 'object' && data?.maxLevel ? data.maxLevel : (isPaidBool ? 15 : 1);
+    const gamesVal = typeof data === 'object' && data?.games ? data.games : null;
+
+    const payload = {
+      paid: isPaidBool,
+      tier: tierVal,
+      expiresAt: expiresAtVal,
+      maxLevel: maxLevelVal,
+      games: gamesVal,
+      uid,
+      cachedAt: new Date().toISOString(),
+    };
+    currentEntitlementObj = payload;
+    localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
   } catch {}
 }
 
 export function clearCache() {
   paid = false;
+  currentEntitlementObj = null;
   try {
     localStorage.removeItem(CACHE_KEY);
   } catch {}
 }
 
 export const isPaid = () => paid;
+export const currentTier = () => resolveTier(currentEntitlementObj).id;
+export const currentEntitlement = () => currentEntitlementObj;
+export const getGameLimit = () => tierGameLimit(resolveTier(currentEntitlementObj));
 export const entitlementChecked = () => checked;
 
 // Continuously listen to auth state changes to enforce entitlement isolation:
@@ -72,8 +95,9 @@ try {
         } catch {}
         pingVisit(newUid).catch(() => {});
         if (cache && cache.uid === newUid && cache.paid === true) {
-          // Same user matching cache: keep paid
-          paid = true;
+          const resolved = resolveTier(cache);
+          paid = resolved.id !== TIERS.FREE;
+          currentEntitlementObj = cache;
         } else {
           // User changed: never use another user's cached entitlement
           paid = false;
@@ -83,6 +107,57 @@ try {
     }
   });
 } catch {}
+
+/**
+ * Safely parses a response into a JSON object.
+ * Checks HTTP status, validates Content-Type / text, and guards against
+ * empty bodies and syntax errors.
+ * Never throws raw `"undefined" is not valid JSON` or SyntaxError.
+ */
+export async function parseJsonResponse(res, fallbackErrMsg) {
+  let text = "";
+  try {
+    text = await res.text();
+  } catch {
+    throw new Error(fallbackErrMsg || "Network error. Please check your connection and try again.");
+  }
+
+  let data = null;
+  if (typeof text === "string" && text.trim().length > 0) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!res.ok) {
+    let msg = "";
+    if (data && typeof data === "object" && typeof data.error === "string") {
+      msg = data.error.trim();
+    }
+    // Filter out internal/syntax error strings
+    if (msg.includes("is not valid JSON") || msg.includes("Unexpected token") || msg === "undefined" || msg === '"undefined"') {
+      msg = "";
+    }
+    if (!msg) {
+      if (res.status === 401 || res.status === 403) {
+        msg = "Authentication required. Please sign in first.";
+      } else if (res.status >= 500) {
+        msg = "Payment service is temporarily unavailable. Please try again shortly.";
+      } else {
+        msg = fallbackErrMsg || "Unable to complete request. Please try again.";
+      }
+    }
+    throw new Error(msg);
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new Error(fallbackErrMsg || "Invalid response from server. Please try again.");
+  }
+
+  return data;
+}
 
 export async function refreshEntitlement() {
   try {
@@ -134,14 +209,15 @@ export async function refreshEntitlement() {
   // 3. User is authenticated. Check cache ONLY for this specific user UID
   const cache = readCache();
   if (cache && cache.uid === user.uid && cache.paid === true) {
-    // Only trust cache when cached.uid === current authenticated UID
-    paid = true;
+    const resolved = resolveTier(cache);
+    paid = resolved.id !== TIERS.FREE;
+    currentEntitlementObj = cache;
   } else {
-    // Never use another user's cached entitlement
     if (cache && cache.uid !== user.uid) {
       clearCache();
     }
     paid = false;
+    currentEntitlementObj = null;
   }
 
   // 4. Verify against backend API over network
@@ -151,18 +227,22 @@ export async function refreshEntitlement() {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`Unable to check purchase status (${res.status})`);
-    const data = await res.json();
-    paid = data.paid === true;
-    writeCache(user.uid, paid);
+    const data = await parseJsonResponse(res, `Unable to check purchase status (${res.status})`);
+    const resolved = resolveTier(data);
+    paid = resolved.id !== TIERS.FREE;
+    currentEntitlementObj = { ...data, uid: user.uid };
+    writeCache(user.uid, data);
   } catch (err) {
     console.warn("[Abacus payment] entitlement check skipped:", err);
     // Offline fallback: ONLY trust cached value if cached.uid strictly matches current user
     const c = readCache();
     if (c && c.uid === user.uid && c.paid === true) {
-      paid = true;
+      const resolved = resolveTier(c);
+      paid = resolved.id !== TIERS.FREE;
+      currentEntitlementObj = c;
     } else {
       paid = false;
+      currentEntitlementObj = null;
     }
   }
 
@@ -181,7 +261,7 @@ async function loadRazorpay() {
   });
 }
 
-export async function validateCoupon(couponCode) {
+export async function validateCoupon(couponCode, tier = 'lifetime') {
   initFirebase();
   const user = getAuthInstance().currentUser;
   if (!user) throw new Error("Please sign in first.");
@@ -189,32 +269,46 @@ export async function validateCoupon(couponCode) {
   const res = await fetch("/api/validate-coupon", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ couponCode: String(couponCode || "").trim().toUpperCase() }),
+    body: JSON.stringify({
+      couponCode: String(couponCode || "").trim().toUpperCase(),
+      tier: String(tier || 'lifetime').toLowerCase(),
+    }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Invalid coupon.");
-  return data;
+  return await parseJsonResponse(res, "Invalid coupon.");
 }
 
-export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
+export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess, onError } = {}) {
   try {
     initFirebase();
     const user = getAuthInstance().currentUser;
     if (!user) throw new Error("Please sign in first.");
     const token = await user.getIdToken(true);
+    const normalizedTier = String(tier || 'lifetime').toLowerCase() === 'starter' ? 'starter' : 'lifetime';
+
+    trackFunnelEvent(FUNNEL_EVENTS.CHECKOUT_START, { tier: normalizedTier });
+
     const orderRes = await fetch("/api/create-order", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ couponCode: String(couponCode || "").trim().toUpperCase() }),
+      body: JSON.stringify({
+        tier: normalizedTier,
+        couponCode: String(couponCode || "").trim().toUpperCase(),
+      }),
     });
-    const order = await orderRes.json();
-    if (!orderRes.ok) throw new Error(order.error || "Could not create payment order.");
+    const order = await parseJsonResponse(orderRes, "Could not create payment order. Please try again.");
     if (order.paid) {
       paid = true;
       currentUid = user.uid;
-      writeCache(user.uid, true);
+      writeCache(user.uid, { paid: true, tier: normalizedTier });
       onSuccess?.();
       return true;
+    }
+
+    if (!order.keyId || typeof order.keyId !== "string" ||
+        !order.orderId || typeof order.orderId !== "string" ||
+        !Number.isFinite(order.amount) || order.amount <= 0 ||
+        order.currency !== "INR") {
+      throw new Error("Unable to start payment checkout: invalid order details received. Please try again.");
     }
 
     await loadRazorpay();
@@ -224,7 +318,9 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
         amount: order.amount,
         currency: order.currency,
         name: "Abacus Buddy",
-        description: "Lifetime unlock — Levels 4–15",
+        description: normalizedTier === 'starter'
+          ? "Starter Tier — Levels 1–3, 30 days"
+          : "Lifetime unlock — Levels 4–15",
         order_id: order.orderId,
         prefill: {
           contact: user.phoneNumber || "",
@@ -234,6 +330,9 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
         theme: { color: "#FFC53D" },
         handler: async (response) => {
           try {
+            if (!response || !response.razorpay_order_id || !response.razorpay_payment_id || !response.razorpay_signature) {
+              throw new Error("Payment response is incomplete. Please contact support if your account was charged.");
+            }
             const verifyRes = await fetch("/api/verify-payment", {
               method: "POST",
               headers: {
@@ -242,11 +341,18 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
               },
               body: JSON.stringify(response),
             });
-            const verify = await verifyRes.json();
-            if (!verifyRes.ok || verify.paid !== true) throw new Error(verify.error || "Payment verification failed.");
+            const verify = await parseJsonResponse(verifyRes, "Payment verification failed. Please contact support if your account was charged.");
+            if (verify.paid !== true) throw new Error(verify.error || "Payment verification failed.");
             paid = true;
             currentUid = user.uid;
-            writeCache(user.uid, true);
+            writeCache(user.uid, {
+              paid: true,
+              tier: verify.tier || normalizedTier,
+              expiresAt: verify.expiresAt || null,
+              maxLevel: verify.maxLevel || (normalizedTier === 'starter' ? 3 : 15),
+              games: verify.games || (normalizedTier === 'starter' ? ['race', 'mystery', 'match'] : null),
+            });
+            trackFunnelEvent(FUNNEL_EVENTS.PAYMENT_SUCCESS, { tier: verify.tier || normalizedTier });
             onSuccess?.();
             resolve(true);
           } catch (err) {
@@ -258,8 +364,9 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
       });
       checkout.on("payment.failed", (response) => {
         const msg = response?.error?.description || "Payment failed. No unlock was applied.";
-        onError?.(new Error(msg));
-        reject(new Error(msg));
+        const failureErr = new Error(msg);
+        onError?.(failureErr);
+        reject(failureErr);
       });
       checkout.open();
     });
@@ -267,4 +374,8 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
     onError?.(err);
     throw err;
   }
+}
+
+export async function buyStarter({ couponCode = "", onSuccess, onError } = {}) {
+  return buyUnlock({ tier: 'starter', couponCode, onSuccess, onError });
 }

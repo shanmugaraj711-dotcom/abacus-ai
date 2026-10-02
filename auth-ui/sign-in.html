@@ -11,15 +11,8 @@
 <link rel="stylesheet"
   href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Nunito:wght@600;700;800&display=swap">
 
-<!-- Auth stylesheet — does NOT import or modify css/app.css -->
+<!-- Auth stylesheet -->
 <link rel="stylesheet" href="../auth-ui/auth.css">
-
-<!--
-  Firebase SDK loaded via CDN ESM (importmap).
-  NOTE: The actual Firebase initialisation is gated on valid config.
-  If firebase/config.js still has REPLACE_ME values, the page will
-  show a configuration-required banner and do nothing else.
--->
 </head>
 
 <body>
@@ -30,7 +23,7 @@
     <div class="phase1-header">
       <div class="phase1-badge">Parent Access</div>
       <h1 class="phase1-title">🔐 Parent Sign-In</h1>
-      <p class="phase1-subtitle">Enter your mobile number to unlock Levels 4–15</p>
+      <p class="phase1-subtitle" id="phase1-header-subtitle">Sign in with Google or Email to unlock lessons & games</p>
     </div>
 
     <!-- ── Config blocker (shown when firebase/config.js is unconfigured) ── -->
@@ -42,15 +35,12 @@
       <ol>
         <li>Open <code>firebase/config.js</code></li>
         <li>Replace every <code>REPLACE_ME</code> with your real Firebase values</li>
-        <li>Enable <strong>Phone Auth</strong> in the Firebase Console</li>
-        <li>Add a test phone number under
-            <em>Authentication → Settings → Phone numbers for testing</em></li>
         <li>Reload this page</li>
       </ol>
     </div>
 
-    <!-- ── Step 1: Phone number entry ─────────────────────────────── -->
-    <section id="phase1-signin-section" hidden>
+    <!-- ── Sign-in / Registration Section ──────────────────────────── -->
+    <section id="phase1-signin-section">
       <!-- Google Sign-In (Primary Parent Experience) -->
       <div class="phase1-google-wrapper">
         <button
@@ -70,132 +60,96 @@
       </div>
 
       <div class="phase1-info-card">
-        <ul>
-          <li>One-time purchase of ₹499 permanently linked to your Google account</li>
+        <p class="phase1-info-badge">Why sign in?</p>
+        <ul class="phase1-info-list">
+          <li><strong>₹499 lifetime unlock</strong> is permanently linked to your Google account</li>
           <li>Instant 1-tap sign-in — no SMS or OTP delays</li>
+          <li>Switch devices anytime and restore all your purchases</li>
         </ul>
       </div>
 
       <div class="phase1-divider">
-        <span>or sign in with phone</span>
+        <span>or sign in with email</span>
       </div>
 
-      <div class="phase1-field">
-        <label class="phase1-label" for="phase1-phone">Mobile Number</label>
-        <div class="phase1-phone-row">
-          <select
-            id="phase1-country"
-            class="phase1-country-select"
-            aria-label="Country code"
-          >
-            <option value="+91" selected>🇮🇳 +91 (India)</option>
-            <option value="+1">🇺🇸 +1 (US/Canada)</option>
-            <option value="+44">🇬🇧 +44 (UK)</option>
-            <option value="+971">🇦🇪 +971 (UAE)</option>
-            <option value="+65">🇸🇬 +65 (Singapore)</option>
-            <option value="+60">🇲🇾 +60 (Malaysia)</option>
-            <option value="+61">🇦🇺 +61 (Australia)</option>
-            <option value="+966">🇸🇦 +966 (Saudi Arabia)</option>
-            <option value="+974">🇶🇦 +974 (Qatar)</option>
-            <option value="+968">🇴🇲 +968 (Oman)</option>
-            <option value="+965">🇰🇼 +965 (Kuwait)</option>
-            <option value="+973">🇧🇭 +973 (Bahrain)</option>
-            <option value="+49">🇩🇪 +49 (Germany)</option>
-            <option value="+33">🇫🇷 +33 (France)</option>
-            <option value="+81">🇯🇵 +81 (Japan)</option>
-            <option value="+64">🇳🇿 +64 (New Zealand)</option>
-          </select>
+      <!-- Inline Feedback -->
+      <div id="phase1-auth-error" class="phase1-error" role="alert" hidden></div>
+      <div id="phase1-auth-success" class="phase1-success" role="alert" hidden></div>
+
+      <!-- Email & Password Form -->
+      <form id="phase1-email-form" novalidate>
+        <div class="phase1-field">
+          <label class="phase1-label" for="phase1-email">Email Address</label>
           <input
-            id="phase1-phone"
-            class="phase1-input phase1-phone-input"
-            type="tel"
-            inputmode="numeric"
-            autocomplete="tel-national"
-            placeholder="98765 43210"
-            maxlength="16"
-            autofocus
-            aria-describedby="phase1-phone-hint phase1-phone-error"
+            id="phase1-email"
+            class="phase1-input"
+            type="email"
+            autocomplete="email"
+            placeholder="parent@example.com"
+            required
           >
         </div>
-        <span id="phase1-phone-hint" class="phase1-hint">
-          Enter 10-digit mobile number
-        </span>
-      </div>
 
-      <p id="phase1-phone-error" class="phase1-error" hidden></p>
+        <div class="phase1-field">
+          <label class="phase1-label" for="phase1-password">Password</label>
+          <input
+            id="phase1-password"
+            class="phase1-input"
+            type="password"
+            autocomplete="current-password"
+            placeholder="••••••••"
+            required
+          >
+        </div>
 
-      <div class="phase1-btn-row">
-        <button
-          id="phase1-send-btn"
-          class="phase1-btn phase1-btn-primary"
-          type="button"
-          aria-busy="false"
-        >
-          Send OTP
-        </button>
-      </div>
+        <div class="phase1-field" id="phase1-confirm-field" hidden>
+          <label class="phase1-label" for="phase1-confirm-password">Confirm Password</label>
+          <input
+            id="phase1-confirm-password"
+            class="phase1-input"
+            type="password"
+            autocomplete="new-password"
+            placeholder="••••••••"
+          >
+        </div>
 
-      <div class="phase1-resend-meta">
-        <span id="phase1-resend-countdown" aria-live="polite"></span>
-      </div>
+        <div class="phase1-btn-row">
+          <button
+            id="phase1-submit-btn"
+            class="phase1-btn phase1-btn-primary"
+            type="submit"
+            aria-busy="false"
+          >
+            Sign in
+          </button>
 
-      <!-- Invisible reCAPTCHA container — must exist in DOM before setupRecaptcha() -->
-      <div id="phase1-recaptcha"></div>
+          <button
+            id="phase1-forgot-btn"
+            class="phase1-btn phase1-btn-secondary"
+            type="button"
+          >
+            Forgot password?
+          </button>
+
+          <button
+            id="phase1-toggle-btn"
+            class="phase1-btn phase1-btn-secondary"
+            type="button"
+          >
+            New here? Create free account
+          </button>
+        </div>
+      </form>
     </section>
 
-    <!-- ── Step 2: OTP entry ───────────────────────────────────────── -->
-    <section id="phase1-otp-section" hidden>
-      <div class="phase1-otp-header">
-        <h2>Enter OTP</h2>
-        <p>
-          A 6-digit code was sent to
-          <span class="phase1-phone-pill" id="phase1-phone-display"></span>
-        </p>
-      </div>
-
-      <div class="phase1-field">
-        <label class="phase1-label" for="phase1-otp">One-time password</label>
-        <input
-          id="phase1-otp"
-          class="phase1-input phase1-otp-input"
-          type="text"
-          inputmode="numeric"
-          autocomplete="one-time-code"
-          maxlength="6"
-          placeholder="------"
-          aria-describedby="phase1-otp-error"
-        >
-      </div>
-
-      <p id="phase1-otp-error" class="phase1-error" hidden></p>
-
-      <div class="phase1-btn-row">
-        <button
-          id="phase1-verify-btn"
-          class="phase1-btn phase1-btn-primary"
-          type="button"
-          aria-busy="false"
-        >
-          Verify OTP
-        </button>
-        <button
-          id="phase1-back-btn"
-          class="phase1-btn phase1-btn-secondary"
-          type="button"
-        >
-          ← Change number / Resend
-        </button>
-      </div>
-    </section>
-
-    <!-- ── Step 3: Signed-in panel ────────────────────────────────── -->
+    <!-- ── Signed-in Panel ────────────────────────────────────────── -->
     <section id="phase1-signedin-section" hidden>
       <div class="phase1-signedin-panel">
         <div class="phase1-success-icon">✅</div>
         <h2>Signed In Successfully</h2>
         <ul class="phase1-user-info">
           <li id="phase1-user-name-row"><strong>Account:</strong> <span id="phase1-user-display-name"></span></li>
-          <li><strong>Phone / Email:</strong> <span id="phase1-user-phone"></span></li>
+          <li><strong>Email:</strong> <span id="phase1-user-phone"></span></li>
           <li><strong>UID:</strong> <span id="phase1-user-uid"
             style="font-size:.78rem;word-break:break-all"></span></li>
         </ul>
@@ -206,7 +160,7 @@
             class="phase1-btn phase1-btn-primary"
             href="../#unlock"
           >
-            Continue to Unlock Levels 4–15 →
+            Continue →
           </a>
           <button
             id="phase1-signout-btn"
@@ -227,15 +181,13 @@
   </p>
 </div><!-- /.phase1-shell -->
 
-<!--
-  Bootstrap the auth UI.
-  Uses ES modules — no bundler required.
-  auth/auth-state.js imports firebase/auth.js → firebase/config.js.
-  If the config is unconfigured, a banner is shown and nothing else happens.
--->
 <script type="module">
   import { initAuthUI } from "../auth/auth-state.js";
-  document.addEventListener("DOMContentLoaded", () => initAuthUI());
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => initAuthUI());
+  } else {
+    initAuthUI();
+  }
 </script>
 </body>
 </html>

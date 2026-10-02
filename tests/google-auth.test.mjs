@@ -200,17 +200,26 @@ try {
     assert.ok(cardText.includes('Instant 1-tap sign-in'), 'Must highlight 1-tap sign-in');
   });
 
-  await test('2.3 Phone fallback section and divider are preserved below Google button', async () => {
+  await test('2.3 Unified Email/Password section is present below Google button and Phone/OTP is completely absent', async () => {
     await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
     await authPage.waitForSelector('.phase1-divider');
 
     const dividerText = await authPage.textContent('.phase1-divider');
-    assert.ok(dividerText.toLowerCase().includes('phone'), 'Divider must separate phone sign-in');
+    assert.ok(dividerText.toLowerCase().includes('email'), 'Divider must indicate email sign-in');
 
     const hasPhone = await authPage.isVisible('#phase1-phone');
     const hasSendBtn = await authPage.isVisible('#phase1-send-btn');
-    assert.ok(hasPhone, 'Phone input must be present as fallback');
-    assert.ok(hasSendBtn, 'Send OTP button must be present as fallback');
+    const hasRecaptcha = await authPage.$('#phase1-recaptcha');
+    assert.equal(hasPhone, false, 'Phone input must be absent from user-facing login');
+    assert.equal(hasSendBtn, false, 'Send OTP button must be absent from user-facing login');
+    assert.equal(hasRecaptcha, null, 'Phone reCAPTCHA must be absent from user-facing login');
+
+    const hasEmail = await authPage.isVisible('#phase1-email');
+    const hasPassword = await authPage.isVisible('#phase1-password');
+    const hasSubmitBtn = await authPage.isVisible('#phase1-submit-btn');
+    assert.ok(hasEmail, 'Email input must be present');
+    assert.ok(hasPassword, 'Password input must be present');
+    assert.ok(hasSubmitBtn, 'Submit button must be present');
   });
 
   await test('2.4 Signed-in panel displays Google account display name, email, UID, and Continue button', async () => {
