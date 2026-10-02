@@ -306,12 +306,24 @@ try {
     assert.ok(!currentUrl.includes('auth-ui/sign-in.html'), 'Must NOT route through auth-ui/sign-in.html');
     assert.ok(!currentUrl.includes('#/signin'), 'Must NOT route through #/signin');
 
-    // Confirm auth-ui/sign-in.html is still a valid standalone page (for direct #/unlock flows)
-    await page.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#starter`);
-    await page.waitForSelector('#phase1-google-btn');
-    assert.ok(await page.isVisible('#phase1-google-btn'), 'Standalone auth-ui/sign-in.html still works for payment flows');
+    // The old standalone auth page is retired. Payment/auth must reuse the canonical #/home welcome flow.
+    const standaloneAuthPath = path.join(ROOT_DIR, 'auth-ui', 'sign-in.html');
+    assert.equal(fs.existsSync(standaloneAuthPath), false, 'Duplicate standalone sign-in page must be removed');
 
     await page.close();
+  });
+
+  // ── 4.2 Canonical auth/payment routing regressions ───────────────────────
+  await test('4.2 Starter/unlock auth never use duplicate sign-in and payment returns to app', () => {
+    const appSource = fs.readFileSync(path.join(ROOT_DIR, 'js', 'app.js'), 'utf8');
+    const soundSource = fs.readFileSync(path.join(ROOT_DIR, 'js', 'sound.js'), 'utf8');
+    const storeSource = fs.readFileSync(path.join(ROOT_DIR, 'js', 'store.js'), 'utf8');
+
+    assert.doesNotMatch(appSource, /auth-ui\\/sign-in\\.html/, 'App source must not link to the duplicate standalone sign-in page');
+    assert.doesNotMatch(appSource, /हिन्दी|data-lang-choice="hi"|draft\\.lang === ['"]hi['"]/, 'Hindi must not be exposed by the onboarding UI');
+    assert.match(appSource, /state\\.profile\\?\\.name \\? ['"]#\\/practice['"] : ['"]#\\/home['"]/, 'Successful payment must not fall back to the public landing page when onboarding is incomplete');
+    assert.match(soundSource, /voiceschanged/, 'Speech playback must wait for browser voices to become available');
+    assert.match(storeSource, /lang: data\\.profile\\.lang === ['"]ta['"] \\? ['"]ta['"] : ['"]en['"]/, 'Persisted app language must be restricted to English/Tamil');
   });
 
   // ── 5. Starter CTA & Payment Route ───────────────────────────────────────
