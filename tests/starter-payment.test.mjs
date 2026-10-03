@@ -1221,7 +1221,7 @@ await test('20.4 payments.js treats expired cached starter entitlement as free w
 });
 
 // ── 21. DISPLAY TEXT AUDIT: NO USER-FACING LIFETIME OR வாழ்நாள் ─────────────
-await test('21.1 No visible user-facing text uses Lifetime or வாழ்நாள் across js/*.html', async () => {
+await test('21.1 No visible user-facing text uses Lifetime or வாழ்நாள் across js/*.html, auth-ui/*.html and worker.js', async () => {
   const { readFileSync, readdirSync } = await import('node:fs');
   const path = await import('node:path');
 
@@ -1232,10 +1232,13 @@ await test('21.1 No visible user-facing text uses Lifetime or வாழ்நா
   }
 
   const jsDir = new URL('../js', import.meta.url).pathname;
+  const authUiDir = new URL('../auth-ui', import.meta.url).pathname;
   const rootDir = new URL('..', import.meta.url).pathname;
   const jsFiles = readdirSync(jsDir).filter(f => f.endsWith('.js')).map(f => path.join(jsDir, f));
   const htmlFiles = readdirSync(rootDir).filter(f => f.endsWith('.html')).map(f => path.join(rootDir, f));
-  const allFiles = [...jsFiles, ...htmlFiles];
+  const authUiFiles = readdirSync(authUiDir).filter(f => f.endsWith('.html')).map(f => path.join(authUiDir, f));
+  const workerFile = path.join(rootDir, 'worker.js');
+  const allFiles = [...jsFiles, ...htmlFiles, ...authUiFiles, workerFile];
 
   for (const file of allFiles) {
     const raw = readFileSync(file, 'utf8');

@@ -10,7 +10,7 @@
  *  5. Remote configuration and 3-layer offline fallback
  *  6. Game visibility by level and direct-route protection
  *  7. Feature switches affect the child app
- *  8. Free Levels 1-3 and paid Levels 4-15
+ *  8. Tiered level access (Free 1, Starter 1-6, One-time payment 1-15)
  *  9. Razorpay ₹499 flow not broken
  * 10. Order-based payment amount validation
  * 11. Payment/webhook idempotency
@@ -776,9 +776,9 @@ await test('worker.js accesses Firestore only via service account (not client SD
 // ──────────────────────────────────────────────────────────────────────────────────────
 
 // ──────────────────────────────────────────────────────────────────────────────────────
-// SECTION 8: Free Levels 1-3 and paid Levels 4-15
+// SECTION 8: Tiered level access (Free 1, Starter 1-6, One-time payment 1-15)
 // ──────────────────────────────────────────────────────────────────────────────────────
-console.log('\n═══ Item 8: Free 1-3 / Paid 4-15 (browser) ═══');
+console.log('\n═══ Item 8: Tiered level access (Free 1, Starter 1-6, One-time payment 1-15) (browser) ═══');
 
 await test('Level gating: freeLevels defaults to 2, MAX_LEVEL is 15', async () => {
   const src = fs.readFileSync(path.join(ROOT_DIR, 'js/config.js'), 'utf8');
@@ -791,7 +791,7 @@ await test('Level gating: freeLevels defaults to 2, MAX_LEVEL is 15', async () =
   assert.equal(MAX_LEVEL, 15, `MAX_LEVEL must be 15, got ${MAX_LEVEL}`);
 });
 
-await test('app.js gates levels using isPaid() and freeLevels config', async () => {
+await test('app.js gates levels using isPaid() and tiered access limits', async () => {
   const src = fs.readFileSync(path.join(ROOT_DIR, 'js/app.js'), 'utf8');
   assert.ok(src.includes('isPaid()'), 'app.js must check isPaid()');
   assert.ok(src.includes('freeMax()'), 'app.js must use freeMax()');

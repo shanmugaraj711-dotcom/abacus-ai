@@ -462,6 +462,13 @@ function renderConsole({ user, token, offline }) {
               const subId = isAnon ? `Visitor ID: ${u.visitorId || u.uid}` : `UID: ${u.uid}`;
               const status = u.visitorStatus || (isAnon ? 'New visitor' : (u.paid ? 'Paid learner' : 'Registered'));
 
+              const isPaidUser = !!u.paid;
+              const isStarter = u.tier === 'starter';
+              const tierName = isStarter ? 'Starter' : (isPaidUser || u.tier === 'lifetime' ? 'One-time payment' : 'Free');
+              const tierBadgeText = isStarter
+                ? `Starter${u.expiresAt ? ` (exp: ${new Date(u.expiresAt).toLocaleDateString()})` : ''}`
+                : 'One-time payment';
+
               return `
                 <div class="admin-user-card${u.possibleDuplicate ? ' duplicate-flagged' : ''}${isAnon ? ' visitor-card' : ''}">
                   <div class="admin-user-header">
@@ -476,15 +483,17 @@ function renderConsole({ user, token, offline }) {
                           <small class="badge-reason">${esc(reason)}</small>
                         </span>
                       ` : ''}
-                      ${u.paid
-                        ? `<span class="badge-paid">Paid (₹499)</span>`
+                      ${isPaidUser
+                        ? `<span class="badge-paid">${esc(tierBadgeText)}</span>`
                         : (isAnon
-                          ? `<span class="badge-visitor">Anonymous Free (1–3)</span>`
-                          : `<span class="badge-registered-free">Registered Free (1–3)</span>`)}
+                          ? `<span class="badge-visitor">Anonymous Free (Level 1)</span>`
+                          : `<span class="badge-registered-free">Registered Free (Level 1)</span>`)}
                       <span class="badge-status status-${esc(String(status).toLowerCase().replace(/\s+/g, '-'))}">${esc(status)}</span>
                     </div>
                   </div>
                   <div class="admin-user-details">
+                    <span class="admin-user-field">🎯 Tier: <b>${esc(tierName)}</b></span>
+                    ${u.expiresAt ? `<span class="admin-user-field" title="Expiry date">⏱️ Expiry: <b>${esc(new Date(u.expiresAt).toLocaleDateString())}</b></span>` : ''}
                     ${!isAnon && u.phone ? `<span class="admin-user-field">📞 ${esc(u.phone)}</span>` : ''}
                     ${!isAnon && u.email && u.phone ? `<span class="admin-user-field">✉️ ${esc(u.email)}</span>` : ''}
                     ${!isAnon && u.provider ? `<span class="admin-user-field">🔑 ${esc(ownerProviderLabel(u.provider))}</span>` : ''}
@@ -526,6 +535,47 @@ function renderConsole({ user, token, offline }) {
     redraw();
   }
 
+  function renderPaymentsView(data, out) {
+    const list = Array.isArray(data?.payments) ? data.payments : (Array.isArray(data) ? data : []);
+    out.innerHTML = `
+      <div class="admin-payments-view">
+        <p class="eyebrow">Payments (${list.length})</p>
+        ${list.length === 0 ? '<p class="muted center">No payments found.</p>' : `
+          <div class="admin-payments-list">
+            ${list.map(p => {
+              const tier = p.tier === 'starter' ? 'Starter' : 'One-time payment';
+              const expiry = p.expiresAt ? new Date(p.expiresAt).toLocaleDateString() : (p.tier === 'starter' ? 'N/A' : 'Never');
+              const date = p.paidAt ? new Date(p.paidAt).toLocaleDateString() : 'N/A';
+              return `
+                <div class="admin-user-card">
+                  <div class="admin-user-header">
+                    <div class="admin-user-identity">
+                      <b class="admin-user-name">${esc(p.uid || 'Anonymous')}</b>
+                      <span class="admin-user-uid"><code>Order: ${esc(p.orderId || 'N/A')}</code></span>
+                    </div>
+                    <div class="admin-user-badges">
+                      <span class="badge-paid">${esc(tier)}</span>
+                    </div>
+                  </div>
+                  <div class="admin-user-details">
+                    <span class="admin-user-field">🎯 Tier: <b>${esc(tier)}</b></span>
+                    <span class="admin-user-field">⏱️ Expiry: <b>${esc(expiry)}</b></span>
+                    <span class="admin-user-field">💳 Payment ID: <code>${esc(p.paymentId || 'N/A')}</code></span>
+                    <span class="admin-user-field">📅 Paid: ${esc(date)}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+        <details class="admin-raw-details" style="margin-top:16px;">
+          <summary class="muted tiny">View raw JSON</summary>
+          <pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>
+        </details>
+      </div>
+    `;
+  }
+
   // Admin data loaders (require network + owner token)
   async function adminFetch(endpoint, label) {
     const out = $('#adminDataOut');
@@ -539,6 +589,8 @@ function renderConsole({ user, token, offline }) {
       if (!res.ok) { out.innerHTML = `<p class="muted tiny">Error: ${esc(data.error || 'Unknown error')}</p>`; return; }
       if (endpoint === 'users') {
         renderUsersView(data, out);
+      } else if (endpoint === 'payments') {
+        renderPaymentsView(data, out);
       } else {
         out.innerHTML = `<pre class="admin-json">${esc(JSON.stringify(data, null, 2))}</pre>`;
       }

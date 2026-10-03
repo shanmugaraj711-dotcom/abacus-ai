@@ -935,6 +935,8 @@ async function main(req,env){
         if(uid)entMap[uid]={
           paid:f.paid?.booleanValue===true,
           paidAt:fsVal(f.paidAt)||null,
+          tier:fsVal(f.tier)||(f.paid?.booleanValue?"lifetime":"free"),
+          expiresAt:fsVal(f.expiresAt)||null,
           email:fsVal(f.email)||"",
           phone:fsVal(f.phone)||fsVal(f.phoneNumber)||"",
         };
@@ -950,6 +952,8 @@ async function main(req,env){
           phone:a.phone||ent?.phone||"",
           paid:ent?.paid===true,
           paidAt:ent?.paidAt||null,
+          tier:ent?.tier||(ent?.paid?"lifetime":"free"),
+          expiresAt:ent?.expiresAt||null,
         });
       }
       for(const uid of Object.keys(entMap)){
@@ -964,6 +968,8 @@ async function main(req,env){
             lastLoginAt:null,
             paid:entMap[uid].paid,
             paidAt:entMap[uid].paidAt,
+            tier:entMap[uid].tier,
+            expiresAt:entMap[uid].expiresAt,
           });
         }
       }
@@ -1059,7 +1065,16 @@ async function main(req,env){
       const docs=await firestoreList(env,"entitlements",50,true);
       const payments=docs.filter(d=>d.fields?.paid?.booleanValue===true).map(d=>{
         const f=d.fields||{};
-        return{uid:fsVal(f.uid)||d.name.split("/").pop(),paid:true,orderId:fsVal(f.orderId)||null,paymentId:fsVal(f.paymentId)||null,paidAt:fsVal(f.paidAt)||null,product:fsVal(f.product)||null};
+        return{
+          uid:fsVal(f.uid)||d.name.split("/").pop(),
+          paid:true,
+          orderId:fsVal(f.orderId)||null,
+          paymentId:fsVal(f.paymentId)||null,
+          paidAt:fsVal(f.paidAt)||null,
+          tier:fsVal(f.tier)||"lifetime",
+          expiresAt:fsVal(f.expiresAt)||null,
+          product:fsVal(f.product)||null
+        };
       });
       return json({payments,total:payments.length});
     }

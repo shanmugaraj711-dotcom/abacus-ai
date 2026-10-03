@@ -73,8 +73,13 @@ function startServer() {
       }
 
       if (pathname === '/api/user-status') {
+        const auth = req.headers.authorization || '';
+        let status = { ...currentApiStatus };
+        if (currentApiStatus.starterEnabled === false && (auth.includes('tester') || auth.includes('user_tester'))) {
+          status.starterEnabled = true;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        return res.end(JSON.stringify(currentApiStatus));
+        return res.end(JSON.stringify(status));
       }
 
       if (pathname === '/api/create-order') {
@@ -1023,6 +1028,188 @@ async function runE2ESuite() {
     passedAssertions += 3;
     totalAssertions += 3;
     await authContext.close();
+
+    // 10. Starter button check twice (free & starter-expired: starterEnabled=false vs true, plus tester UID)
+    console.log('\n─── Testing #/starter Button States (free, starter-expired, tester-UID) ───');
+    const testUserCases = [
+      { name: 'free', uid: 'user-free-btn-check', tier: 'free', expired: false },
+      { name: 'starter-expired', uid: 'user-expired-btn-check', tier: 'starter', expired: true }
+    ];
+
+    for (const u of testUserCases) {
+      const uContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const uPage = await uContext.newPage();
+
+      await uPage.addInitScript(({ uid, tier, expired }) => {
+        window.__mockUser = { uid, getIdToken: async () => 'mock-token-' + uid };
+        localStorage.setItem('abacus-auth-mode', 'registered');
+        localStorage.setItem(
+          'abacus-kids-v3',
+          JSON.stringify({
+            v: 3,
+            profile: { name: 'Aarya', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
+            settings: { sound: false, voice: false },
+            lessonsDone: [],
+            levels: {},
+            unlocked: 1,
+            stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+            games: {},
+            exams: [],
+            recent: [],
+            stickersSeen: [],
+          })
+        );
+        const ent = {
+          paid: tier === 'starter' && !expired,
+          tier: tier,
+          maxLevel: tier === 'starter' && !expired ? 6 : 1,
+          maxLesson: tier === 'starter' && !expired ? 6 : 1,
+          games: tier === 'starter' && !expired ? ['race', 'mystery', 'match', 'flash'] : ['race'],
+          freePlay: tier === 'starter' && !expired,
+          expiresAt: tier === 'starter' ? new Date(Date.now() + (expired ? -2 : 25) * 86400000).toISOString() : null,
+          expired: expired,
+        };
+        localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ uid, paid: ent.paid, tier: ent.tier, entitlement: ent }));
+      }, { uid: u.uid, tier: u.tier, expired: u.expired });
+
+      // Run 1: starterEnabled = false
+      currentApiStatus = {
+        paid: false,
+        tier: u.tier,
+        starterEnabled: false,
+        expiresAt: u.expired ? new Date(Date.now() - 2 * 86400000).toISOString() : null,
+        expired: u.expired
+      };
+      createdOrderCalls = [];
+      await uPage.goto(`${baseUrl}/#/starter`);
+      await uPage.waitForSelector('#starter-buy-btn');
+      const btn1 = uPage.locator('#starter-buy-btn');
+      const isDisabled1 = await btn1.getAttribute('disabled');
+      const text1 = (await btn1.textContent()).trim();
+      assert.notEqual(isDisabled1, null, `${u.name} button must be disabled when starterEnabled=false`);
+      assert.ok(text1.includes('Coming soon') || text1.includes('விரைவில் வரும்'), `${u.name} button must show Coming soon`);
+      await uPage.evaluate(() => {
+        const b = document.getElementById('starter-buy-btn');
+        if (b) b.click();
+      });
+      await uPage.waitForTimeout(200);
+      assert.equal(createdOrderCalls.length, 0, `${u.name} click must trigger 0 API calls when disabled`);
+      console.log(`  ✓ [E2E] ${u.name} user (starterEnabled=false): disabled, text="${text1}", 0 API calls verified`);
+      passedAssertions += 3;
+      totalAssertions += 3;
+
+      // Run 2: starterEnabled = true
+      currentApiStatus = {
+        paid: false,
+        tier: u.tier,
+        starterEnabled: true,
+        expiresAt: u.expired ? new Date(Date.now() - 2 * 86400000).toISOString() : null,
+        expired: u.expired
+      };
+      await uPage.reload();
+      await uPage.waitForSelector('#starter-buy-btn');
+      const btn2 = uPage.locator('#starter-buy-btn');
+      const isDisabled2 = await btn2.getAttribute('disabled');
+      const text2 = (await btn2.textContent()).trim();
+      assert.equal(isDisabled2, null, `${u.name} button must be enabled when starterEnabled=true`);
+      assert.ok(text2.includes('Get Starter - Rs 99') || text2.includes('ஸ்டார்ட்டர் பெறுங்கள் - Rs 99'), `${u.name} button must show Get Starter - Rs 99`);
+      console.log(`  ✓ [E2E] ${u.name} user (starterEnabled=true): enabled, text="${text2}" verified`);
+      passedAssertions += 2;
+      totalAssertions += 2;
+
+      await uContext.close();
+    }
+
+    // Tester UID case (global starterEnabled = false, but tester UID enables Starter)
+    const testerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const testerPage = await testerContext.newPage();
+    await testerPage.addInitScript(() => {
+      window.__mockUser = { uid: 'user_tester', getIdToken: async () => 'mock-token-user_tester' };
+      localStorage.setItem('abacus-auth-mode', 'registered');
+      localStorage.setItem(
+        'abacus-kids-v3',
+        JSON.stringify({
+          v: 3,
+          profile: { name: 'Aarya', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
+          settings: { sound: false, voice: false },
+          lessonsDone: [],
+          levels: {},
+          unlocked: 1,
+          stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+          games: {},
+          exams: [],
+          recent: [],
+          stickersSeen: [],
+        })
+      );
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ uid: 'user_tester', paid: false, tier: 'free' }));
+    });
+    currentApiStatus = { paid: false, tier: 'free', starterEnabled: false };
+    await testerPage.goto(`${baseUrl}/#/starter`);
+    await testerPage.waitForSelector('#starter-buy-btn');
+    const testerBtn = testerPage.locator('#starter-buy-btn');
+    const isTesterDisabled = await testerBtn.getAttribute('disabled');
+    const testerText = (await testerBtn.textContent()).trim();
+    assert.equal(isTesterDisabled, null, 'Tester UID button must be enabled even when global starterEnabled=false');
+    assert.ok(testerText.includes('Get Starter - Rs 99') || testerText.includes('ஸ்டார்ட்டர் பெறுங்கள் - Rs 99'), 'Tester UID button must show Get Starter - Rs 99');
+    console.log(`  ✓ [E2E] tester-UID user (starterEnabled=false globally): enabled, text="${testerText}" verified`);
+    passedAssertions += 2;
+    totalAssertions += 2;
+    await testerContext.close();
+
+    // 11. Gated level tap navigation & Sign-in loop stability check
+    console.log('\n─── Testing Level 2 tap navigation & Sign-in Loop Stability ───');
+    const tapContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const tapPage = await tapContext.newPage();
+    await tapPage.addInitScript(() => {
+      window.__mockUser = { uid: 'user-free-tap-test', getIdToken: async () => 'mock-token-tap-test' };
+      localStorage.setItem('abacus-auth-mode', 'registered');
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ uid: 'user-free-tap-test', paid: false, tier: 'free' }));
+      localStorage.setItem(
+        'abacus-kids-v3',
+        JSON.stringify({
+          v: 3,
+          profile: { name: 'Aarya', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
+          settings: { sound: false, voice: false },
+          lessonsDone: [1],
+          levels: { 1: { stars: 3, best: 8, plays: 1 } },
+          unlocked: 2,
+          stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+          games: {},
+          exams: [],
+          recent: [],
+          stickersSeen: [],
+        })
+      );
+    });
+    currentApiStatus = { paid: false, tier: 'free', starterEnabled: true };
+
+    // Signed-in free user taps Level 2 on #/practice -> lands on #/starter
+    await tapPage.goto(`${baseUrl}/#/practice`);
+    await tapPage.waitForSelector('.levels');
+    const lvl2Card = tapPage.locator('.levels a.level').nth(1); // second level (Level 2)
+    await lvl2Card.click();
+    await tapPage.waitForURL(`${baseUrl}/#/starter`, { timeout: 5000 });
+    assert.equal(tapPage.url(), `${baseUrl}/#/starter`, 'Signed-in free user tapping Level 2 lands on #/starter');
+    console.log('  ✓ [E2E] Signed-in free user tapping Level 2 navigates to #/starter verified');
+    passedAssertions += 1;
+    totalAssertions += 1;
+
+    // Sign-in page loop stability: visit twice, final URL stable, no redirect loop
+    await tapPage.goto(`${baseUrl}/auth-ui/sign-in.html`);
+    await tapPage.waitForTimeout(400);
+    const signinUrl1 = tapPage.url();
+    assert.ok(signinUrl1.includes('/auth-ui/sign-in.html'), 'First visit loads sign-in.html without crash');
+
+    await tapPage.goto(`${baseUrl}/auth-ui/sign-in.html`);
+    await tapPage.waitForTimeout(400);
+    const signinUrl2 = tapPage.url();
+    assert.equal(signinUrl1, signinUrl2, 'Sign-in page URL is stable after multiple visits (no redirect cycle)');
+    assert.ok(signinUrl2.includes('/auth-ui/sign-in.html'), 'Final URL remains sign-in page without loop');
+    console.log('  ✓ [E2E] Sign-in page visited twice with no redirection loop (URL is stable) verified');
+    passedAssertions += 3;
+    totalAssertions += 3;
+    await tapContext.close();
 
     console.log('\n═════════════════════════════════════════════════════════════════════════════════════════');
     console.log('                         E2E MATRIX VERIFICATION SUMMARY TABLE                           ');
