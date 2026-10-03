@@ -242,7 +242,7 @@ try {
     assert.ok(signinText.includes('Sign in to unlock with Google'), 'CTA text must be "Sign in to unlock with Google"');
 
     const href = await signinBtn.getAttribute('href');
-    assert.ok(href.includes('sign-in.html?return=../#unlock'), 'Must link to sign-in page with return URL');
+    assert.equal(href, '#/home', 'Must link to #/home for canonical in-app auth');
     await appPage.close();
   });
 

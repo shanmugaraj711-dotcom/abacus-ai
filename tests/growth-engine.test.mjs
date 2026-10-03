@@ -299,7 +299,7 @@ try {
 
     assert.ok(await page.isVisible('#authGateGoogleBtn'), 'Existing Google auth button visible after one click');
     assert.ok(await page.isVisible('#authGateEmailBtn'), 'Existing Email auth button visible');
-    assert.ok(await page.isVisible('#kidName'), 'Child name input visible (existing onboarding)');
+    assert.ok(await page.isVisible('#kidName') === false, 'Child name input hidden before authentication');
 
     // Confirm NO intermediate Growth Engine page was shown
     const currentUrl = page.url();
@@ -319,11 +319,11 @@ try {
     const soundSource = fs.readFileSync(path.join(ROOT_DIR, 'js', 'sound.js'), 'utf8');
     const storeSource = fs.readFileSync(path.join(ROOT_DIR, 'js', 'store.js'), 'utf8');
 
-    assert.doesNotMatch(appSource, /auth-ui\\/sign-in\\.html/, 'App source must not link to the duplicate standalone sign-in page');
-    assert.doesNotMatch(appSource, /हिन्दी|data-lang-choice="hi"|draft\\.lang === ['"]hi['"]/, 'Hindi must not be exposed by the onboarding UI');
-    assert.match(appSource, /state\\.profile\\?\\.name \\? ['"]#\\/practice['"] : ['"]#\\/home['"]/, 'Successful payment must not fall back to the public landing page when onboarding is incomplete');
+    assert.doesNotMatch(appSource, /auth-ui\/sign-in\.html/, 'App source must not link to the duplicate standalone sign-in page');
+    assert.doesNotMatch(appSource, /हिन्दी|data-lang-choice="hi"|draft\.lang === ['"]hi['"]/, 'Hindi must not be exposed by the onboarding UI');
+    assert.match(appSource, /state\.profile\?\.name \? ['"]#\/practice['"] : ['"]#\/home['"]/, 'Successful payment must not fall back to the public landing page when onboarding is incomplete');
     assert.match(soundSource, /voiceschanged/, 'Speech playback must wait for browser voices to become available');
-    assert.match(storeSource, /lang: data\\.profile\\.lang === ['"]ta['"] \\? ['"]ta['"] : ['"]en['"]/, 'Persisted app language must be restricted to English/Tamil');
+    assert.match(storeSource, /lang: data\.profile\.lang === ['"]ta['"] \? ['"]ta['"] : ['"]en['"]/, 'Persisted app language must be restricted to English/Tamil');
   });
 
   // ── 5. Starter CTA & Payment Route ───────────────────────────────────────
