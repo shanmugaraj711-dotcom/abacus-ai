@@ -455,7 +455,7 @@ export async function startCheckout(tier = 'starter') {
       const { go } = await import('./ui.js');
       showConversionPrompt({
         onContinueGuest: () => { go('#/home'); },
-        onSuccessAuth: () => { go('#/home'); }
+        onSuccessAuth: () => { go('#/starter'); }
       });
       return false;
     }
@@ -464,7 +464,7 @@ export async function startCheckout(tier = 'starter') {
     if (isGuestUser()) {
       showConversionPrompt({
         onContinueGuest: () => { go('#/home'); },
-        onSuccessAuth: () => { go('#/home'); }
+        onSuccessAuth: () => { go('#/starter'); }
       });
       return false;
     }

@@ -374,6 +374,9 @@ export function showConversionPrompt(options = {}) {
           <button type="button" class="btn wide auth-btn-email" id="modalEmailBtn">
             ✉️ Login with Email
           </button>
+          <button type="button" class="btn ghost wide" id="modalPlansBtn" style="margin-top:4px;min-height:44px;">
+            See plans
+          </button>
           <div class="auth-divider">─── or ───</div>
           <button type="button" class="btn wide auth-btn-guest" id="modalGuestBtn">
             🎮 Continue as Guest
@@ -385,6 +388,15 @@ export function showConversionPrompt(options = {}) {
     const googleBtn = modal.querySelector('#modalGoogleBtn');
     const emailBtn = modal.querySelector('#modalEmailBtn');
     const guestBtn = modal.querySelector('#modalGuestBtn');
+    const plansBtn = modal.querySelector('#modalPlansBtn');
+
+    if (plansBtn) {
+      plansBtn.onclick = async () => {
+        modal.remove();
+        const { go } = await import('./ui.js');
+        go('#/starter');
+      };
+    }
 
     if (guestBtn) {
       guestBtn.onclick = () => {

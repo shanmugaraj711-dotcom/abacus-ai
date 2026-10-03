@@ -447,7 +447,7 @@ function lesson(id) {
     showConversionPrompt({ onContinueGuest: () => go('#/learn'), onSuccessAuth: () => route() });
     return;
   }
-  if (!lessonAllowed(id)) return go('#/starter');
+  if (!lessonAllowed(id)) return go('#/starter', { replace: true });
   let i = 0; const t = currentToken();
   shell({ title: lessonTitle(L), back: '#/learn', body: `<div class="progress"><i style="width:0"></i></div><div data-step></div>`, cls: 'lesson' });
 
@@ -629,7 +629,7 @@ function levelIntro(id) {
     showConversionPrompt({ onContinueGuest: () => go('#/practice'), onSuccessAuth: () => route() });
     return;
   }
-  if (!levelAllowed(id)) return go('#/starter'); // backward compat: if (!levelAllowed(id)) return go('#/unlock')
+  if (!levelAllowed(id)) return go('#/starter', { replace: true }); // backward compat: if (!levelAllowed(id)) return go('#/unlock')
   const needLesson = LESSON_FOR_LEVEL[id], lessonNeeded = needLesson && !lessonDone(needLesson);
   const LL = LESSONS.find(l => l.id === needLesson);
   shell({ title: isTa ? `லெவல் ${id}` : `Level ${id}`, back: '#/practice', body: `
@@ -644,7 +644,7 @@ function levelIntro(id) {
         <button class="btn wide" data-start>${isTa ? 'தயார் — ஆரம்பிக்கலாம்' : "I'm ready — start"}</button>`
       : `<button class="btn primary wide" data-start>${isTa ? 'ஆரம்பி ▶' : 'Start ▶'}</button>`}
     </section>` });
-  $('[data-start]').onclick = () => practice(id);
+  $('[data-start]').onclick = (e) => { e.currentTarget.disabled = true; practice(id); };
   say(V('levelIntro', id, voiceLang() === 'ta' ? (L.nameTa || L.name) : L.name, voiceLang() === 'ta' ? (L.tipTa || L.tip) : L.tip));
 }
 
@@ -809,7 +809,7 @@ function parents() {
       <p class="lead">What is ${a} × ${b}?</p>
       <div class="options">${opts.map(o => `<button class="opt" data-gate="${o}">${o}</button>`).join('')}</div>
     </section>` });
-  $$('[data-gate]').forEach(btn => btn.onclick = () => +btn.dataset.gate === ans ? dashboard() : (btn.classList.add('wrong'), btn.disabled = true));
+  $$('[data-gate]').forEach(btn => btn.onclick = () => +btn.dataset.gate === ans ? (btn.disabled = true, dashboard()) : (btn.classList.add('wrong'), btn.disabled = true));
 }
 
 function dashboard() {
@@ -885,8 +885,6 @@ function dashboard() {
   if (parentsBtn) parentsBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => dashboard() });
   const renewStarter = $('#renew-starter-btn');
   if (renewStarter) renewStarter.onclick = () => startCheckout('starter');
-  const renewExpired = $('#renew-expired-btn');
-  if (renewExpired) renewExpired.onclick = () => startCheckout('starter');
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
   $$('[data-setvoice-lang]').forEach(b => b.onclick = () => {
@@ -926,7 +924,7 @@ function route() {
           showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() });
           return;
         }
-        return go('#/starter'); // legacy: if (!canAccessFreePlay()) return go('#/unlock');
+        return go('#/starter', { replace: true }); // legacy: if (!canAccessFreePlay()) return go('#/unlock');
       }
       return free();
     },
@@ -940,7 +938,7 @@ function route() {
           showConversionPrompt({ onContinueGuest: () => go('#/learn'), onSuccessAuth: () => route() });
           return;
         }
-        return go('#/starter');
+        return go('#/starter', { replace: true });
       }
       return lesson(n);
     },
@@ -950,7 +948,7 @@ function route() {
           showConversionPrompt({ onContinueGuest: () => go('#/practice'), onSuccessAuth: () => route() });
           return;
         }
-        return go('#/starter');
+        return go('#/starter', { replace: true });
       }
       return levelIntro(n);
     },

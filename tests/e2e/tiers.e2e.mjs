@@ -124,7 +124,8 @@ function startServer() {
             tier: 'starter',
             maxLevel: 6,
             games: ['race', 'mystery', 'match', 'flash'],
-            expiresAt
+            expiresAt,
+            starterEnabled: true,
           };
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           return res.end(JSON.stringify({
@@ -716,22 +717,38 @@ async function runE2ESuite() {
         await page.waitForTimeout(300);
       }
       const planDesc = (await page.locator('#parents-user-plan').textContent()).trim();
+      assert.equal(await page.locator('#parents-user-plan').count(), 1, `Exactly one plan line in Grown-ups for ${stateKey}`);
+      const parentsHtmlEn = await page.locator('.view.parents').innerHTML();
+      assert.ok(!parentsHtmlEn.includes('Coming soon') && !parentsHtmlEn.includes('விரைவில் வரும்'), 'Coming soon must NEVER appear in Grown-ups corner');
+
       if (stateKey === 'lifetime' || stateKey === 'legacy') {
         assert.equal(planDesc, 'One-time payment - never expires', `Parents plan for ${stateKey} must be One-time payment - never expires`);
         assert.equal(await page.locator('#parents-plan-actions button, #parents-plan-actions a').count(), 0, 'Lifetime has no plan action buttons');
       } else if (stateKey === 'starter') {
         assert.ok(planDesc.includes('Starter - valid until') && planDesc.includes('days left'), `Parents plan for starter must include Starter - valid until and days left, got: ${planDesc}`);
-        assert.equal(await page.locator('#renew-starter-btn').count(), 1, 'Renew starter button exists');
-        assert.equal(await page.locator('#upgrade-lifetime-btn').count(), 1, 'Upgrade lifetime button exists');
+        const isStarterAvail = config.apiStatus?.starterEnabled === true;
+        if (isStarterAvail) {
+          assert.equal(await page.locator('#renew-starter-btn').count(), 1, 'Renew starter button exists');
+          assert.equal(await page.locator('#upgrade-lifetime-btn').count(), 1, 'Upgrade lifetime button exists');
+          assert.equal(await page.locator('#see-plans-btn').count(), 0, 'No see plans button for active starter when enabled');
+        } else {
+          assert.equal(await page.locator('#see-plans-btn').count(), 1, 'See plans button exists when starterEnabled=false');
+          assert.equal(await page.locator('#renew-starter-btn').count(), 0, 'No renew button when starterEnabled=false');
+          assert.equal(await page.locator('#upgrade-lifetime-btn').count(), 0, 'No upgrade button when starterEnabled=false');
+        }
       } else if (stateKey === 'starter-expired') {
         assert.ok(planDesc.includes('Starter expired on') && planDesc.includes('You are on the Free plan.'), `Parents plan for starter-expired must include Starter expired on and Free plan, got: ${planDesc}`);
-        assert.equal(await page.locator('#renew-expired-btn').count(), 1, 'Renew expired button exists');
+        assert.equal(await page.locator('#see-plans-btn').count(), 1, 'See plans button exists for expired');
+        assert.equal(await page.locator('#renew-expired-btn').count(), 0, 'No separate Starter button for expired');
+        assert.equal(await page.locator('#renew-starter-btn').count(), 0, 'No renew starter button for expired');
       } else {
         assert.equal(planDesc, 'Free plan', `Parents plan for ${stateKey} must be Free plan`);
         assert.equal(await page.locator('#see-plans-btn').count(), 1, 'See plans button exists');
+        assert.equal(await page.locator('#renew-starter-btn').count(), 0, 'No renew button for free');
+        assert.equal(await page.locator('#renew-expired-btn').count(), 0, 'No renew-expired button for free');
       }
-      passedAssertions += 3;
-      totalAssertions += 3;
+      passedAssertions += 5;
+      totalAssertions += 5;
       console.log(`  ✓ Grown-ups plan line: "${planDesc}" with plan actions for ${stateKey}`);
 
       // 12. Save Screenshots (Adult Corner in EN and TA, and #/starter)
@@ -761,6 +778,11 @@ async function runE2ESuite() {
           await page.click(`[data-gate="${ans}"]`).catch(() => {});
           await page.waitForTimeout(300);
         }
+        assert.equal(await page.locator('#parents-user-plan').count(), 1, `Exactly one plan line in TA Grown-ups for ${stateKey}`);
+        const parentsHtmlTa = await page.locator('.view.parents').innerHTML();
+        assert.ok(!parentsHtmlTa.includes('Coming soon') && !parentsHtmlTa.includes('விரைவில் வரும்'), 'Coming soon must NEVER appear in TA Grown-ups corner');
+        passedAssertions += 2;
+        totalAssertions += 2;
         const adultTaPath = path.join(SCREENSHOT_DIR, `grownups-plan-${stateKey}-ta.png`);
         await page.screenshot({ path: adultTaPath });
         console.log(`  📸 Saved adult corner TA screenshot: ${adultTaPath}`);

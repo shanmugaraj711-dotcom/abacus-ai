@@ -48,20 +48,18 @@ export function getPlanActionsHtml(isTa = false) {
   if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
     return '';
   }
+  const starterAvail = isStarterEnabled();
   if (tier === 'starter' && !ent.expired) {
-    return `
-      <button type="button" class="btn small" id="renew-starter-btn">${isTa ? 'ஸ்டார்ட்டரைப் புதுப்பிக்கவும் (Rs 99)' : 'Renew Starter (Rs 99)'}</button>
-      <a class="btn primary small" href="#/unlock" id="upgrade-lifetime-btn">${isTa ? 'ஒரே முறை கட்டணத்திற்கு மேம்படுத்து (Rs 499)' : 'Upgrade to One-time payment (Rs 499)'}</a>
-    `;
+    if (starterAvail) {
+      return `
+        <button type="button" class="btn small" id="renew-starter-btn">${isTa ? 'புதுப்பிக்கவும்' : 'Renew'}</button>
+        <a class="btn primary small" href="#/unlock" id="upgrade-lifetime-btn">${isTa ? 'ஒரே முறை கட்டணத்திற்கு மேம்படுத்து' : 'Upgrade to One-time payment'}</a>
+      `;
+    }
+    return `<a class="btn small" href="#/starter" id="see-plans-btn">${isTa ? 'திட்டங்களைக் காண்க' : 'See plans'}</a>`;
   }
-  if (ent.expired || (ent.expiresAt && tier === 'free')) {
-    return `
-      <button type="button" class="btn primary small" id="renew-expired-btn">${isTa ? 'ஸ்டார்ட்டரைப் புதுப்பிக்கவும் (Rs 99)' : 'Renew Starter (Rs 99)'}</button>
-    `;
-  }
-  return `
-    <a class="btn small" href="#/starter" id="see-plans-btn">${isTa ? 'திட்டங்களைக் காண்க' : 'See plans'}</a>
-  `;
+  // Free or expired: ONE button "See plans" (goes to the plans screen). No separate Starter button.
+  return `<a class="btn small" href="#/starter" id="see-plans-btn">${isTa ? 'திட்டங்களைக் காண்க' : 'See plans'}</a>`;
 }
 
 export function starterScreen() {
@@ -70,7 +68,7 @@ export function starterScreen() {
 
   // Lifetime and legacy paid users never see #/starter (redirect to #/home)
   if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
-    go('#/home');
+    go('#/home', { replace: true });
     return;
   }
 

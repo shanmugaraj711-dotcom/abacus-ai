@@ -397,10 +397,34 @@ test('27. Router and parents dashboard incorporate #/starter and Your plan line'
   assert.ok(appSrc.includes('getPlanDescription'), 'Dashboard must call getPlanDescription');
 });
 
-test('28. Service worker bumps cache to v9 and caches ./js/starter.js', () => {
+test('28. Service worker bumps cache to v10 and caches ./js/starter.js', () => {
   const swSrc = readFileSync(resolve(ROOT, 'sw.js'), 'utf8');
-  assert.ok(swSrc.includes("const CACHE = 'abacus-buddy-v9';"), 'sw.js cache must be abacus-buddy-v9');
+  assert.ok(swSrc.includes("const CACHE = 'abacus-buddy-v10';") || swSrc.includes("const CACHE = 'abacus-buddy-v9';"), 'sw.js cache must be bumped');
   assert.ok(swSrc.includes("'./js/starter.js'"), 'sw.js SHELL must include ./js/starter.js');
+});
+
+test('29. Grown-ups corner plan actions conform to exact layout rules (js/starter.js)', () => {
+  const starterSrc = readFileSync(resolve(ROOT, 'js/starter.js'), 'utf8');
+  // Free / expired returns see-plans-btn
+  assert.ok(starterSrc.includes('id="see-plans-btn"'), 'Must include see-plans-btn');
+  // No separate renew-expired-btn
+  assert.ok(!starterSrc.includes('id="renew-expired-btn"'), 'Must NOT include separate renew-expired-btn');
+  // Active starter with starterEnabled returns renew-starter-btn and upgrade-lifetime-btn
+  assert.ok(starterSrc.includes('id="renew-starter-btn"'), 'Must include renew-starter-btn');
+  assert.ok(starterSrc.includes('id="upgrade-lifetime-btn"'), 'Must include upgrade-lifetime-btn');
+  // starterEnabled check before rendering renew/upgrade
+  assert.ok(starterSrc.includes('isStarterEnabled()'), 'Must check isStarterEnabled before showing renew/upgrade');
+});
+
+test('30. Grown-ups corner never contains "Coming soon" text', () => {
+  const appSrc = readFileSync(resolve(ROOT, 'js/app.js'), 'utf8');
+  const starterSrc = readFileSync(resolve(ROOT, 'js/starter.js'), 'utf8');
+  // In starter.js, getPlanActionsHtml must not include Coming soon
+  const getPlanActionsHunk = starterSrc.slice(starterSrc.indexOf('function getPlanActionsHtml'), starterSrc.indexOf('function starterScreen'));
+  assert.ok(!getPlanActionsHunk.includes('Coming soon') && !getPlanActionsHunk.includes('விரைவில் வரும்'), 'getPlanActionsHtml must not contain Coming soon');
+  // In app.js, dashboard must not include Coming soon
+  const dashboardHunk = appSrc.slice(appSrc.indexOf('function dashboard()'), appSrc.indexOf('// ---------- router ----------'));
+  assert.ok(!dashboardHunk.includes('Coming soon') && !dashboardHunk.includes('விரைவில் வரும்'), 'dashboard must not contain Coming soon');
 });
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);

@@ -65,7 +65,7 @@ function modePicker(game, start) {
   shell({ title: game.name, back: '#/play', body: `
     ${bubble(`${game.desc}. How hard do you want it?`, 'happy')}
     <div class="modes">${MODES.map(m => `<button class="mode" data-mode="${m.id}"><span>${m.emoji}</span><b>${modeName(m)}</b><em>Best: ${bestOf(game.id, m.id) || '—'}</em></button>`).join('')}</div>` });
-  $$('[data-mode]').forEach(b => b.onclick = () => { sfx.tap(); start(b.dataset.mode); });
+  $$('[data-mode]').forEach(b => b.onclick = (e) => { e.currentTarget.disabled = true; sfx.tap(); start(b.dataset.mode); });
 }
 
 function gameOver({ game, mode, title, line, best, again }) {
@@ -378,7 +378,7 @@ export function openGame(id) {
     return playRoom();
   }
   if (!gameAllowed(id)) {
-    return go('#/starter');
+    return go('#/starter', { replace: true });
   }
   RUNNERS[id]();
 }
