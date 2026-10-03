@@ -1,6 +1,6 @@
 // #/starter plans screen (Starter ₹99 / Lifetime ₹499)
 import { TIERS } from './tiers.js';
-import { getTier, getEntitlement, isPaid, startCheckout, isStarterEnabled } from './payments.js';
+import { getTier, getEntitlement, isPaid, startCheckout, isStarterEnabled, isPendingEntitlement } from './payments.js';
 import { shell, lang, go, esc } from './ui.js';
 import { babi } from './babi.js';
 
@@ -39,10 +39,16 @@ export function getPlanDescription(isTa = false) {
       ? `ஸ்டார்ட்டர் ${dateStr} அன்று காலாவதியானது. நீங்கள் இலவச திட்டத்தில் உள்ளீர்கள்.`
       : `Starter expired on ${dateStr}. You are on the Free plan.`;
   }
+  if (isPendingEntitlement()) {
+    return isTa ? 'சரிபார்க்கிறது…' : 'Checking…';
+  }
   return isTa ? 'இலவச திட்டம்' : 'Free plan';
 }
 
 export function getPlanActionsHtml(isTa = false) {
+  if (isPendingEntitlement()) {
+    return '';
+  }
   const ent = getEntitlement();
   const tier = getTier();
   if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {

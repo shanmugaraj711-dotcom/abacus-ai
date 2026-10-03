@@ -6,7 +6,7 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock, startCheckout, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay, getGames } from './payments.js';
+import { refreshEntitlement, isPaid, buyUnlock, startCheckout, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay, getGames, isPendingEntitlement } from './payments.js';
 import { TIERS, getTierConfig } from './tiers.js';
 import { starterScreen, getPlanDescription, getPlanActionsHtml } from './starter.js';
 import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
@@ -911,19 +911,31 @@ function dashboard() {
   };
 }
 
+let pendingReloadOnHome = false;
+
 // ---------- router ----------
 function route() {
   newToken(); clearTimers(); stopTalking(); document.querySelectorAll('.confetti').forEach(c => c.remove());
   const hash = location.hash.replace(/^#\/?/, '');
   const [page, arg] = hash.split('/');
-  // Owner Console is a separate owner-only page (owner.html); never expose it in the child router.
+  if (pendingReloadOnHome && (page === '' || page === 'home')) {
+    pendingReloadOnHome = false;
+    window.location.reload();
+    return;
+  }
   if (!state.profile?.name) return welcome();
   const n = Number(arg);
   const pages = {
-    '': home, home, stickers, parents, check,
+    '': home, home, stickers,
+    parents: async () => {
+      if (isPendingEntitlement()) await refreshEntitlement();
+      parents();
+    },
+    check,
     starter: starterScreen,
-    free: () => {
+    free: async () => {
       if (!isOn('freePlay')) return home();
+      if (isPendingEntitlement()) await refreshEntitlement();
       if (!canAccessFreePlay()) {
         if (isGuestUser()) {
           showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() });
@@ -933,12 +945,25 @@ function route() {
       }
       return free();
     },
-    learn: () => (isOn('learn') ? learnMap() : home()),
-    practice: () => (isOn('practice') ? practiceMap() : home()),
+    learn: async () => {
+      if (!isOn('learn')) return home();
+      if (isPendingEntitlement()) await refreshEntitlement();
+      learnMap();
+    },
+    practice: async () => {
+      if (!isOn('practice')) return home();
+      if (isPendingEntitlement()) await refreshEntitlement();
+      practiceMap();
+    },
     unlock: starterScreen,
     pay,
-    play: () => (isOn('play') ? playRoom() : home()),
-    lesson: () => {
+    play: async () => {
+      if (!isOn('play')) return home();
+      if (isPendingEntitlement()) await refreshEntitlement();
+      playRoom();
+    },
+    lesson: async () => {
+      if (isPendingEntitlement()) await refreshEntitlement();
       if (isNaN(n) || !lessonAllowed(n)) {
         if (isGuestUser() && n > 1) {
           showConversionPrompt({ onContinueGuest: () => go('#/learn'), onSuccessAuth: () => route() });
@@ -948,7 +973,8 @@ function route() {
       }
       return lesson(n);
     },
-    level: () => {
+    level: async () => {
+      if (isPendingEntitlement()) await refreshEntitlement();
       if (isNaN(n) || !levelAllowed(n)) {
         if (isGuestUser() && n > 1) {
           showConversionPrompt({ onContinueGuest: () => go('#/practice'), onSuccessAuth: () => route() });
@@ -958,7 +984,11 @@ function route() {
       }
       return levelIntro(n);
     },
-    game: () => (isOn('play') ? openGame(arg) : home()),
+    game: async () => {
+      if (!isOn('play')) return home();
+      if (isPendingEntitlement()) await refreshEntitlement();
+      openGame(arg);
+    },
     tests: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (examsOpen() ? testCentre() : home())),
     exam: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : runExam(arg)),
     certificates: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (isOn('certificates') ? certificates() : home())),
@@ -971,11 +1001,65 @@ window.addEventListener('hashchange', route);
 window.addEventListener('abacus:guest-locked', () => {
   showConversionPrompt({ onSuccessAuth: () => route() });
 });
+window.addEventListener('abacus:entitlement-updated', () => {
+  const planEl = document.getElementById('parents-user-plan');
+  if (planEl) {
+    planEl.textContent = getPlanDescription(lang() === 'ta');
+  }
+  const hash = location.hash.replace(/^#\/?/, '');
+  const [page] = hash.split('/');
+  if (page === 'practice' || page === 'parents' || page === 'learn' || page === 'home' || page === '') {
+    route();
+  }
+});
 setRouter(route);
 // Read config.json (feature switches) first, then show the first screen.
 pingVisit().catch(() => {});
 loadConfig().then(async () => { await refreshEntitlement(); route(); }, route);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.__NO_SW__) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  let refreshing = false;
+  let hadPreviousController = Boolean(navigator.serviceWorker.controller);
+
+  function isSafeToReload() {
+    const hash = (location.hash || '').replace(/^#\/?/, '');
+    const [page] = hash.split('/');
+    // Safe to reload ONLY on home screen or maps
+    return page === '' || page === 'home' || page === 'learn' || page === 'practice';
+  }
+
+  if (typeof window !== 'undefined') {
+    window.__swHelper = {
+      isSafeToReload,
+      isPendingReload: () => pendingReloadOnHome,
+      setPendingReload: (val) => { pendingReloadOnHome = val; }
+    };
+  }
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadPreviousController) {
+      hadPreviousController = true;
+      return;
+    }
+    if (refreshing) return;
+    if (isSafeToReload()) {
+      refreshing = true;
+      window.location.reload();
+    } else {
+      pendingReloadOnHome = true;
+    }
+  });
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        reg.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            reg.update().catch(() => {});
+          }
+        });
+      })
+      .catch(() => {});
+  });
 }

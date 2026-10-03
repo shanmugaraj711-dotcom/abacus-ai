@@ -81,6 +81,22 @@ export const getMaxLesson = () => getTierConfig(entitlement.tier).maxLesson;
 export const canAccessFreePlay = () => isFreePlayAllowedForTier(getTierConfig(entitlement.tier));
 export const isStarterEnabled = () => starterEnabled;
 
+export function hasCachedEntitlementForUser(uid) {
+  if (!uid) return false;
+  const c = readCache();
+  return Boolean(c && c.uid === uid && (c.paid || c.tier));
+}
+
+export function isPendingEntitlement() {
+  if (checked) return false;
+  const authMode = typeof localStorage !== 'undefined' ? localStorage.getItem('abacus-auth-mode') : null;
+  const effectiveUid = currentUid || (typeof window !== 'undefined' && (window._abacusAuthUid || window.__mockUser?.uid));
+  const hasUser = Boolean(effectiveUid || (typeof window !== 'undefined' && window.__mockUser) || authMode === 'registered');
+  if (!hasUser) return false;
+  if (effectiveUid && hasCachedEntitlementForUser(effectiveUid)) return false;
+  return true;
+}
+
 function applyCachedEntitlement(c) {
   if (!c) return;
   const rawEnt = c.entitlement;
@@ -168,12 +184,27 @@ try {
           // User changed: never use another user's cached entitlement
           clearCache();
         }
+        refreshEntitlement().catch(() => {});
       }
     }
   });
 } catch {}
 
-export async function refreshEntitlement() {
+let refreshPromise = null;
+
+export function refreshEntitlement() {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      return await _executeRefreshEntitlement();
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
+async function _executeRefreshEntitlement() {
   try {
     initFirebase();
   } catch (err) {
@@ -220,6 +251,9 @@ export async function refreshEntitlement() {
   if (!user || !user.uid) {
     clearCache();
     checked = true;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('abacus:entitlement-updated', { detail: { ...entitlement } }));
+    }
     return false;
   }
 
@@ -311,6 +345,9 @@ export async function refreshEntitlement() {
   }
 
   checked = true;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('abacus:entitlement-updated', { detail: { ...entitlement } }));
+  }
   return isPaid();
 }
 

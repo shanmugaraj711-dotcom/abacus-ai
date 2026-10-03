@@ -1440,6 +1440,181 @@ async function runE2ESuite() {
     await taPracticeContext.close();
     console.log('  ✓ [E2E] Guest on Practise map sees "Pay to unlock" / "செலுத்தி திற" on levels 2-15 and no "Free account" text verified');
 
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // SECTION: CACHE FRESHNESS & PLAN FLASH TESTS (Requirement 5 a, b, c)
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    console.log('\n─── Testing Cache Freshness & Plan Flash (Deploy simulation, Lesson/Game safety, Empty-storage) ───');
+
+    // (b) No reload happens during a lesson or game when service worker changes controller
+    const swSafetyContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const swSafetyPage = await swSafetyContext.newPage();
+    await swSafetyPage.addInitScript(() => {
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'SafetyKid', avatar: '🦁', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [],
+        levels: {},
+        unlocked: 1,
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: []
+      }));
+    });
+
+    // Test during lesson
+    await swSafetyPage.goto(`${baseUrl}/#/lesson/1`);
+    await swSafetyPage.waitForSelector('.lesson');
+    await swSafetyPage.evaluate(() => { window.__lessonMarker = 'still-here-lesson'; });
+    await swSafetyPage.evaluate(() => {
+      navigator.serviceWorker.dispatchEvent(new Event('controllerchange'));
+    });
+    const isPendingLesson = await swSafetyPage.evaluate(() => window.__swHelper?.isPendingReload?.());
+    const lessonMarker = await swSafetyPage.evaluate(() => window.__lessonMarker);
+    assert.equal(isPendingLesson, true, 'Pending reload must be flagged during a lesson');
+    assert.equal(lessonMarker, 'still-here-lesson', 'Page must not reload during a lesson');
+    passedAssertions += 2;
+    totalAssertions += 2;
+
+    // Test during game
+    await swSafetyPage.goto(`${baseUrl}/#/game/race`);
+    await swSafetyPage.waitForSelector('header.top');
+    await swSafetyPage.evaluate(() => { window.__gameMarker = 'still-here-game'; });
+    await swSafetyPage.evaluate(() => {
+      navigator.serviceWorker.dispatchEvent(new Event('controllerchange'));
+    });
+    const isPendingGame = await swSafetyPage.evaluate(() => window.__swHelper?.isPendingReload?.());
+    const gameMarker = await swSafetyPage.evaluate(() => window.__gameMarker);
+    assert.equal(isPendingGame, true, 'Pending reload must be flagged during a game');
+    assert.equal(gameMarker, 'still-here-game', 'Page must not reload during a game');
+    passedAssertions += 2;
+    totalAssertions += 2;
+
+    // Navigate to home and verify pending reload is applied
+    await swSafetyPage.evaluate(() => { location.hash = '#/home'; });
+    await swSafetyPage.waitForTimeout(500);
+    const pendingAfterHome = await swSafetyPage.evaluate(() => window.__swHelper?.isPendingReload?.());
+    assert.equal(pendingAfterHome, false, 'Pending reload is applied upon reaching home');
+    passedAssertions += 1;
+    totalAssertions += 1;
+    await swSafetyContext.close();
+    console.log('  ✓ (b) No reload during lesson or game; applied next time home is reached verified');
+
+    // (a) Deploy simulation: on home/map, controllerchange triggers immediate single reload
+    const swDeployContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const swDeployPage = await swDeployContext.newPage();
+    await swDeployPage.addInitScript(() => {
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'DeployKid', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [],
+        levels: {},
+        unlocked: 1,
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: []
+      }));
+    });
+    await swDeployPage.goto(`${baseUrl}/#/home`);
+    await swDeployPage.waitForSelector('header.top');
+    await swDeployPage.evaluate(() => { window.__beforeDeploy = 'marker'; });
+    // Trigger controllerchange while on home
+    await Promise.all([
+      swDeployPage.waitForNavigation({ timeout: 5000 }).catch(() => {}),
+      swDeployPage.evaluate(() => {
+        navigator.serviceWorker.dispatchEvent(new Event('controllerchange'));
+      }),
+    ]);
+    const markerAfterDeploy = await swDeployPage.evaluate(() => window.__beforeDeploy);
+    assert.equal(markerAfterDeploy, undefined, 'Home screen immediately reloaded upon new worker controller');
+    passedAssertions += 1;
+    totalAssertions += 1;
+    await swDeployContext.close();
+    console.log('  ✓ (a) Deploy simulation: new SW takes control and reloads once without second manual refresh verified');
+
+    // (c) Starter and Lifetime users on fresh empty storage NEVER see "Free" on Grown-ups or Practise map
+    for (const testTier of ['starter', 'lifetime']) {
+      currentApiStatus = testTier === 'starter'
+        ? {
+            paid: true,
+            tier: 'starter',
+            maxLevel: 6,
+            maxLesson: 6,
+            games: ['race', 'mystery', 'match', 'flash'],
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            expired: false,
+            starterEnabled: true,
+          }
+        : {
+            paid: true,
+            tier: 'lifetime',
+            maxLevel: 15,
+            maxLesson: 11,
+            games: ALL_GAMES,
+            freePlay: true,
+          };
+
+      const freshContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const freshPage = await freshContext.newPage();
+      const mockUid = testTier === 'starter' ? 'user-starter-e2e' : 'user-lifetime-e2e';
+
+      await freshPage.addInitScript(({ uid }) => {
+        window.__mockUser = { uid, getIdToken: async () => 'mock-token-' + uid };
+        localStorage.setItem('abacus-auth-mode', 'registered');
+        localStorage.removeItem('abacus-entitlement-v1'); // STRICTLY EMPTY STORAGE
+        localStorage.setItem('abacus-kids-v3', JSON.stringify({
+          v: 3,
+          profile: { name: 'FreshUser', avatar: '🦁', experience: 'new', lang: 'en', voiceLang: 'en' },
+          settings: { sound: false, voice: false },
+          lessonsDone: [1],
+          levels: { 1: { stars: 3, best: 8, plays: 1 } },
+          unlocked: 2,
+          stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+          games: {}, exams: [], recent: [], stickersSeen: []
+        }));
+      }, { uid: mockUid });
+
+      // 1. Visit Grown-ups corner directly
+      await freshPage.goto(`${baseUrl}/#/parents`);
+      await freshPage.waitForSelector('.lead');
+      const lead = await freshPage.locator('.lead').textContent().catch(() => '');
+      const nums = (lead || '').match(/\d+/g);
+      if (nums && nums.length >= 2) {
+        const ans = Number(nums[0]) * Number(nums[1]);
+        await freshPage.click(`[data-gate="${ans}"]`);
+        await freshPage.waitForSelector('#parents-user-plan');
+      }
+      const planText = (await freshPage.locator('#parents-user-plan').textContent()).trim();
+      assert.ok(!planText.includes('Free') && !planText.includes('Free plan'), `Fresh ${testTier} user never sees "Free" on Grown-ups plan line, got: "${planText}"`);
+      if (testTier === 'starter') {
+        assert.ok(planText.includes('Starter - valid until'), `Fresh starter user shows starter plan, got: "${planText}"`);
+      } else {
+        assert.ok(planText.includes('One-time payment - never expires'), `Fresh lifetime user shows one-time payment plan, got: "${planText}"`);
+      }
+
+      // 2. Visit Practise map directly
+      await freshPage.goto(`${baseUrl}/#/practice`);
+      await freshPage.waitForSelector('.levels a.level');
+      const practicePageText = await freshPage.locator('#app').textContent();
+      assert.ok(!practicePageText.includes('Free account'), `Fresh ${testTier} user never sees "Free account" text on Practise map`);
+
+      const levelElements = await freshPage.evaluate(() => {
+        return Array.from(document.querySelectorAll('.levels a.level')).map(el => ({
+          text: el.textContent,
+          strong: el.querySelector('strong') ? el.querySelector('strong').textContent : '',
+          isLocked: el.classList.contains('locked'),
+          href: el.getAttribute('href')
+        }));
+      });
+      const l2 = levelElements[1];
+      assert.equal(l2.href, '#/level/2', `Fresh ${testTier} user can access Level 2 without lockout`);
+      assert.ok(!l2.strong.includes('Pay to unlock'), `Fresh ${testTier} user does not see Pay to unlock on Level 2`);
+
+      passedAssertions += 4;
+      totalAssertions += 4;
+      await freshContext.close();
+    }
+    console.log('  ✓ (c) Starter and One-time payment users on fresh empty storage never see "Free" on Grown-ups or Practise map verified');
+
     console.log('\n═════════════════════════════════════════════════════════════════════════════════════════');
     console.log('                         E2E MATRIX VERIFICATION SUMMARY TABLE                           ');
     console.log('═════════════════════════════════════════════════════════════════════════════════════════');
