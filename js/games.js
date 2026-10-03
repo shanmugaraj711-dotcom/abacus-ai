@@ -7,6 +7,7 @@ import { createAbacus, miniAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { isOn } from './config.js';
 import { canAccessGame, isGuestUser } from './access.js';
+import { getTier, getGames } from './payments.js';
 import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, voiceLang, go } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
@@ -28,6 +29,12 @@ export const GAMES = [
   { id: 'ladder', flag: 'gameLadder', emoji: '🪜', name: 'Bead Ladder', desc: 'Climb as high as you can — it keeps getting harder', best: 'rungs', cls: 'ladder' },
 ];
 
+export function gameAllowed(id) {
+  const allowedGames = getGames();
+  if (!allowedGames) return false;
+  return allowedGames.includes(id);
+}
+
 const bestOf = (id, mode) => state.games[`${id}_${mode}`] ?? (mode === 'star' ? state.games[id] : undefined) ?? 0;
 function saveBest(id, mode, value, lower = false) {
   const key = `${id}_${mode}`, old = state.games[key];
@@ -42,14 +49,16 @@ export function playRoom() {
   shell({ title: 'Play', back: '#/home', body: `
     ${bubble(T('pickGame'), 'happy')}
     <div class="games">${games.map(g => {
-      const allowed = canAccessGame(g.id);
+      const allowed = gameAllowed(g.id);
       if (allowed) {
         return `<a class="game ${g.cls}" href="#/game/${g.id}"><span>${g.emoji}</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>Best: ${bestOf(g.id, 'star') || '—'} ${g.best}</em></a>`;
       }
       if (isGuestUser()) {
         return `<button type="button" class="game ${g.cls} locked" data-locked-guest-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>Create free account to play</em></button>`;
       }
-      return `<a class="game ${g.cls} locked" href="#/unlock" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>₹499 to unlock all games</em></a>`;
+      const lockHref = getTier() === 'free' ? '#/starter' : '#/unlock';
+      const lockLabel = getTier() === 'free' ? 'Unlock with Starter' : 'Unlock with Lifetime';
+      return `<a class="game ${g.cls} locked" href="${lockHref}"><span>🔒</span><b>${esc(g.name)}</b><small>${lockLabel}</small><em>Locked</em></a>`;
     }).join('')}</div>
     ${games.length ? '' : '<p class="muted center">Games are switched off right now.</p>'}` });
   $$('[data-locked-guest-game]').forEach(b => {
@@ -366,7 +375,6 @@ function runLadder(mode) {
 
 const RUNNERS = { race, mystery, match, flash, speed, friend, ladder };
 
-/** Open a game by id — but only if the owner console has it switched on. */
 export function openGame(id) {
   const game = G(id);
   if (!game || !isOn(game.flag) || !RUNNERS[id]) return playRoom();
@@ -374,7 +382,8 @@ export function openGame(id) {
     window.dispatchEvent(new CustomEvent('abacus:guest-locked', { detail: { type: 'game', id } }));
     return playRoom();
   }
-  if (!canAccessGame(id)) {
+  if (!gameAllowed(id)) {
+    if (getTier() === 'free') return go('#/starter');
     return go('#/unlock');
   }
   RUNNERS[id]();

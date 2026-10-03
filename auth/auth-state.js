@@ -111,6 +111,10 @@ export function initAuthUI() {
   onAuthChange((user) => {
     if (user) {
       showSignedInPanel(user);
+      const ret = getSafeReturnUrl();
+      if (ret) {
+        window.location.assign(ret);
+      }
     } else {
       showSignInForm();
     }
@@ -135,6 +139,20 @@ export function initAuthUI() {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+export function getSafeReturnUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const ret = params.get("return");
+    if (!ret) return null;
+    if (ret.startsWith("../") || ret.startsWith("./") || ret.startsWith("/") || ret.startsWith("#")) {
+      if (!ret.startsWith("//") && !ret.includes("://")) {
+        return ret;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 /** Called by otp-verification when Firebase confirms the credential. */
 function handleSignedIn(credential) {
   try {
@@ -149,6 +167,10 @@ function handleSignedIn(credential) {
     }
   } catch {}
   showSignedInPanel(credential.user);
+  const ret = getSafeReturnUrl();
+  if (ret) {
+    window.location.assign(ret);
+  }
 }
 
 function showSignedInPanel(user) {
@@ -160,7 +182,13 @@ function showSignedInPanel(user) {
   const nameEl   = document.getElementById("phase1-user-phone");
   const uidEl    = document.getElementById("phase1-user-uid");
   const tokenEl  = document.getElementById("phase1-token-status");
-  const contBtn  = document.getElementById("phase1-continue-btn");
+  const contBtn  = document.getElementById("phase1-continue-btn") || document.getElementById("phase1-return-btn");
+  const ret      = getSafeReturnUrl();
+
+  if (contBtn && ret) {
+    contBtn.href = ret;
+    contBtn.hidden = false;
+  }
 
   if (dNameEl) dNameEl.textContent = user.displayName || (user.email ? user.email.split("@")[0] : "(Google Account)");
   if (nameEl)  nameEl.textContent  = user.email || user.phoneNumber || "(no email/phone)";
