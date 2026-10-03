@@ -81,6 +81,62 @@ export const getMaxLesson = () => getTierConfig(entitlement.tier).maxLesson;
 export const canAccessFreePlay = () => isFreePlayAllowedForTier(getTierConfig(entitlement.tier));
 export const isStarterEnabled = () => starterEnabled;
 
+function applyCachedEntitlement(c) {
+  if (!c) return;
+  const rawEnt = c.entitlement;
+  const tier = rawEnt?.tier || c.tier || (c.paid ? 'lifetime' : 'free');
+  if (tier === 'starter') {
+    const expiresAt = rawEnt?.expiresAt || c.expiresAt;
+    const isExpired = expiresAt ? (Date.parse(expiresAt) <= Date.now()) : false;
+    if (isExpired) {
+      const freeCfg = TIERS.free;
+      entitlement = {
+        paid: false,
+        tier: 'free',
+        maxLevel: freeCfg.maxLevel,
+        games: freeCfg.games,
+        maxLesson: freeCfg.maxLesson,
+        freePlay: freeCfg.freePlay,
+        expiresAt: expiresAt || null,
+        expired: true
+      };
+      return;
+    }
+  }
+
+  if (c.paid === true) {
+    if (rawEnt) {
+      entitlement = { ...rawEnt };
+    } else {
+      const cfg = getTierConfig(tier);
+      entitlement = {
+        paid: true,
+        tier,
+        maxLevel: cfg.maxLevel,
+        games: cfg.games,
+        maxLesson: cfg.maxLesson,
+        freePlay: cfg.freePlay,
+        expiresAt: rawEnt?.expiresAt || c.expiresAt || null,
+        expired: false
+      };
+    }
+  } else if (rawEnt) {
+    entitlement = { ...rawEnt };
+  } else {
+    const freeCfg = TIERS.free;
+    entitlement = {
+      paid: false,
+      tier: 'free',
+      maxLevel: freeCfg.maxLevel,
+      games: freeCfg.games,
+      maxLesson: freeCfg.maxLesson,
+      freePlay: freeCfg.freePlay,
+      expiresAt: null,
+      expired: false
+    };
+  }
+}
+
 // Continuously listen to auth state changes to enforce entitlement isolation:
 // If the user signs out or a different user signs in, invalidate cached entitlement immediately.
 try {
@@ -107,27 +163,7 @@ try {
         } catch {}
         pingVisit(newUid).catch(() => {});
         if (cache && cache.uid === newUid) {
-          if (cache.paid === true) {
-            // Same user matching cache: keep paid
-            if (cache.entitlement) {
-              entitlement = cache.entitlement;
-            } else {
-              const tier = cache.tier || 'lifetime';
-              const cfg = getTierConfig(tier);
-              entitlement = {
-                paid: true,
-                tier,
-                maxLevel: cfg.maxLevel,
-                games: cfg.games,
-                maxLesson: cfg.maxLesson,
-                freePlay: cfg.freePlay,
-                expiresAt: null,
-                expired: false
-              };
-            }
-          } else if (cache.entitlement) {
-            entitlement = cache.entitlement;
-          }
+          applyCachedEntitlement(cache);
         } else {
           // User changed: never use another user's cached entitlement
           clearCache();
@@ -190,26 +226,7 @@ export async function refreshEntitlement() {
   // 3. User is authenticated. Check cache ONLY for this specific user UID
   const cache = readCache();
   if (cache && cache.uid === user.uid) {
-    if (cache.paid === true) {
-      if (cache.entitlement) {
-        entitlement = cache.entitlement;
-      } else {
-        const tier = cache.tier || 'lifetime';
-        const cfg = getTierConfig(tier);
-        entitlement = {
-          paid: true,
-          tier,
-          maxLevel: cfg.maxLevel,
-          games: cfg.games,
-          maxLesson: cfg.maxLesson,
-          freePlay: cfg.freePlay,
-          expiresAt: null,
-          expired: false
-        };
-      }
-    } else if (cache.entitlement) {
-      entitlement = cache.entitlement;
-    }
+    applyCachedEntitlement(cache);
   } else {
     if (cache && cache.uid !== user.uid) {
       clearCache();
@@ -287,26 +304,7 @@ export async function refreshEntitlement() {
     // Offline fallback: ONLY trust cached value if cached.uid strictly matches current user
     const c = readCache();
     if (c && c.uid === user.uid) {
-      if (c.paid === true) {
-        if (c.entitlement) {
-          entitlement = c.entitlement;
-        } else {
-          const tier = c.tier || 'lifetime';
-          const cfg = getTierConfig(tier);
-          entitlement = {
-            paid: true,
-            tier,
-            maxLevel: cfg.maxLevel,
-            games: cfg.games,
-            maxLesson: cfg.maxLesson,
-            freePlay: cfg.freePlay,
-            expiresAt: null,
-            expired: false
-          };
-        }
-      } else if (c.entitlement) {
-        entitlement = c.entitlement;
-      }
+      applyCachedEntitlement(c);
     } else if (c && c.uid !== user.uid) {
       clearCache();
     }

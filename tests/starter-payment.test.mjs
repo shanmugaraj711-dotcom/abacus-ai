@@ -1192,29 +1192,65 @@ await test('20.3 payments.js preserves cached paid entitlement and cache unchang
   assert.equal(result.cache.tier, 'starter', 'cache must stay starter');
 });
 
+await test('20.4 payments.js treats expired cached starter entitlement as free when network fails or offline', async () => {
+  const expiredCache = {
+    uid: 'test-user-preservation',
+    paid: true,
+    tier: 'starter',
+    entitlement: {
+      paid: true,
+      tier: 'starter',
+      maxLevel: 6,
+      games: ['race', 'mystery', 'match', 'flash'],
+      maxLesson: 6,
+      freePlay: true,
+      expiresAt: new Date(Date.now() - 10000).toISOString(),
+      expired: false
+    }
+  };
+  const result = await runPaymentsWithFetchMock(
+    async () => new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 }),
+    expiredCache
+  );
+  assert.equal(result.paidResult, false, 'refreshEntitlement() must return false for expired cached starter');
+  assert.equal(result.isPaid, false, 'isPaid() must be false');
+  assert.equal(result.entitlement.paid, false, 'entitlement.paid must be false');
+  assert.equal(result.entitlement.tier, 'free', 'entitlement.tier must be free');
+  assert.equal(result.entitlement.expired, true, 'entitlement.expired must be true');
+  assert.equal(result.entitlement.maxLevel, 1, 'entitlement.maxLevel must be free tier maxLevel');
+});
+
 // ── 21. DISPLAY TEXT AUDIT: NO USER-FACING LIFETIME OR வாழ்நாள் ─────────────
-await test('21.1 No visible user-facing text uses Lifetime or வாழ்நாள்', async () => {
-  const { readFileSync } = await import('node:fs');
+await test('21.1 No visible user-facing text uses Lifetime or வாழ்நாள் across js/*.html', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const path = await import('node:path');
+
+  function stripComments(code) {
+    return code
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*/g, '');
+  }
+
+  const jsDir = new URL('../js', import.meta.url).pathname;
+  const rootDir = new URL('..', import.meta.url).pathname;
+  const jsFiles = readdirSync(jsDir).filter(f => f.endsWith('.js')).map(f => path.join(jsDir, f));
+  const htmlFiles = readdirSync(rootDir).filter(f => f.endsWith('.html')).map(f => path.join(rootDir, f));
+  const allFiles = [...jsFiles, ...htmlFiles];
+
+  for (const file of allFiles) {
+    const raw = readFileSync(file, 'utf8');
+    const content = file.endsWith('.html') ? raw.replace(/<!--[\s\S]*?-->/g, '') : stripComments(raw);
+    const matches = content.match(/Lifetime|வாழ்நாள்/g);
+    assert.equal(matches, null, `Found visible 'Lifetime' or 'வாழ்நாள்' in ${path.basename(file)}: ${matches}`);
+  }
+
+  // Preserve explicit checks on key customer-facing strings
   const starterCode = readFileSync(new URL('../js/starter.js', import.meta.url), 'utf8');
   const appCode = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
-
-  // Check starter.js visible strings
-  assert.ok(!starterCode.includes("'Lifetime - never expires'"), 'Plan description renamed in starter.js');
-  assert.ok(!starterCode.includes("'வாழ்நாள் - எப்போதும் காலாவதியாகாது'"), 'Tamil plan description renamed in starter.js');
-  assert.ok(!starterCode.includes("'Upgrade to Lifetime"), 'Upgrade button renamed in starter.js');
-  assert.ok(!starterCode.includes("'வாழ்நாள் திட்டத்திற்கு மேம்படுத்து"), 'Tamil upgrade button renamed in starter.js');
-  assert.ok(!starterCode.includes("'Lifetime'</h3>"), 'Plan card title renamed in starter.js');
-  assert.ok(!starterCode.includes("'வாழ்நாள் திட்டம்'</h3>"), 'Tamil plan card title renamed in starter.js');
-  assert.ok(!starterCode.includes("'Coupons apply to Lifetime only.'"), 'Coupons note renamed in starter.js');
-  assert.ok(!starterCode.includes("'கூப்பன்கள் வாழ்நாள்"), 'Tamil coupons note renamed in starter.js');
   assert.ok(starterCode.includes('One-time payment - never expires'), 'Has One-time payment in starter.js');
   assert.ok(starterCode.includes('ஒரே முறை கட்டணம் - எப்போதும் காலாவதியாகாது'), 'Has Tamil One-time payment in starter.js');
-
-  // Check app.js visible strings
-  assert.ok(!appCode.includes("'Abacus Buddy lifetime unlock'"), 'App unlock eyebrow renamed');
-  assert.ok(!appCode.includes("'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்'"), 'Tamil app unlock eyebrow renamed');
-  assert.ok(appCode.includes("'Abacus Buddy One-time payment'"), 'Has One-time payment eyebrow in app.js');
-  assert.ok(appCode.includes("'அபாகஸ் பட்டி ஒரே முறை கட்டணம்'"), 'Has Tamil One-time payment eyebrow in app.js');
+  assert.ok(appCode.includes('Abacus Buddy One-time payment'), 'Has One-time payment eyebrow in app.js');
+  assert.ok(appCode.includes('அபாகஸ் பட்டி ஒரே முறை கட்டணம்'), 'Has Tamil One-time payment eyebrow in app.js');
 });
 
 console.log(`\nStarter Payment Test Summary: ${passed} passed, ${failed} failed\n`);
