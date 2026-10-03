@@ -360,25 +360,43 @@ export function showConversionPrompt(options = {}) {
   modal.setAttribute('aria-modal', 'true');
 
   function renderPromptContent() {
+    const isTa = (() => {
+      try {
+        const raw = localStorage.getItem('abacus-kids-v3');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return parsed.profile?.lang === 'ta';
+        }
+      } catch {}
+      return false;
+    })();
+
+    const titleText = isTa ? 'இது கட்டண திட்டத்தின் ஒரு பகுதி.' : 'This is part of a paid plan.';
+    const descText = isTa ? 'ஸ்டார்ட்டர் Rs 99 (30 நாட்கள்) அல்லது ஒரே முறை கட்டணம் Rs 499. தேர்வு செய்ய Google மூலம் உள்நுழையவும்.' : 'Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose.';
+    const googleBtnText = isTa ? 'Google மூலம் உள்நுழையவும்' : 'Sign in with Google';
+    const emailBtnText = isTa ? '✉️ மின்னஞ்சல் மூலம் உள்நுழைக' : '✉️ Sign in with Email';
+    const plansBtnText = isTa ? 'திட்டங்களைக் காண்க' : 'See plans';
+    const notNowBtnText = isTa ? 'இப்போது வேண்டாம்' : 'Not now';
+
     modal.innerHTML = `
       <div class="conversion-modal-card">
         <div style="font-size:38px;margin-bottom:6px;">🔒</div>
-        <h2 class="conversion-modal-title">This is part of a paid plan.</h2>
-        <p class="conversion-modal-desc">Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose.</p>
+        <h2 class="conversion-modal-title">${titleText}</h2>
+        <p class="conversion-modal-desc">${descText}</p>
 
         <div class="auth-actions">
           <button type="button" class="btn wide auth-btn-google" id="modalGoogleBtn">
             ${GOOGLE_SVG}
-            Sign in with Google
+            ${googleBtnText}
           </button>
           <button type="button" class="btn wide auth-btn-email" id="modalEmailBtn">
-            ✉️ Sign in with Email
+            ${emailBtnText}
           </button>
           <button type="button" class="btn ghost wide" id="modalPlansBtn" style="margin-top:4px;min-height:44px;">
-            See plans
+            ${plansBtnText}
           </button>
           <button type="button" class="btn wide auth-btn-guest" id="modalGuestBtn" data-btn="modalNotNowBtn" style="margin-top:4px;min-height:44px;">
-            Not now
+            ${notNowBtnText}
           </button>
         </div>
       </div>
@@ -407,7 +425,7 @@ export function showConversionPrompt(options = {}) {
     if (googleBtn) {
       googleBtn.onclick = async () => {
         googleBtn.disabled = true;
-        googleBtn.textContent = 'Connecting to Google…';
+        googleBtn.textContent = isTa ? 'Google உள்நுழைகிறது…' : 'Connecting to Google…';
         try {
           const cred = await signInWithGoogle();
           if (cred?.user) {
@@ -421,7 +439,7 @@ export function showConversionPrompt(options = {}) {
           }
         } catch (err) {
           googleBtn.disabled = false;
-          googleBtn.innerHTML = `${GOOGLE_SVG} Sign in with Google`;
+          googleBtn.innerHTML = `${GOOGLE_SVG} ${googleBtnText}`;
           alert(formatAuthError(err));
         }
       };
