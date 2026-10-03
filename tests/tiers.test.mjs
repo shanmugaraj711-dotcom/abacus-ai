@@ -332,5 +332,55 @@ test('21. Static import graph integrity check: no missing exports between app, g
   }
 });
 
+// ── 13. Additional Coverage for Final Fix Requirements ───────────────────────
+
+test('22. Unlock screen copy reflects truth (Levels 2–15, all lessons, Free Play and all games)', () => {
+  const appSrc = readFileSync(resolve(ROOT, 'js/app.js'), 'utf8');
+  assert.ok(appSrc.includes('Levels 2–15, all lessons, Free Play and all games unlock permanently for this account.'), 'English unlock copy must state Levels 2-15');
+  assert.ok(appSrc.includes('லெவல்கள் 2–15, அனைத்து பாடங்கள், சுய பயிற்சி மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.'), 'Tamil unlock copy must state Levels 2-15');
+  assert.ok(!appSrc.includes('Levels 3–15 and all games unlock permanently'), 'Old false copy "Levels 3-15" must be eliminated');
+});
+
+test('23. Placement test check() strictly bounds unlocked levels and lessons by tier', () => {
+  const appSrc = readFileSync(resolve(ROOT, 'js/app.js'), 'utf8');
+  assert.ok(appSrc.includes('const maxLvl = playableMax();'), 'check() must read playableMax()');
+  assert.ok(appSrc.includes('Math.min(maxLvl, passedUntil ? passedUntil + 1 : 1)'), 'check() must cap level by maxLvl');
+  assert.ok(appSrc.includes('canAccessLesson(l.id)'), 'check() must filter LESSONS by canAccessLesson');
+  assert.ok(appSrc.includes('canAccessLesson(k)'), 'check() must filter batch lessons by canAccessLesson');
+
+  // Verify pure check placement capping logic for each tier:
+  // Free:
+  const freeMaxLvl = TIERS.free.maxLevel; // 1
+  const freePassedUntil = 8;
+  const freeLvl = Math.max(1, Math.min(freeMaxLvl, freePassedUntil + 1));
+  assert.equal(freeLvl, 1, 'Free user placement test must never exceed Level 1');
+
+  // Starter:
+  const starterMaxLvl = TIERS.starter.maxLevel; // 6
+  const starterPassedUntil = 10;
+  const starterLvl = Math.max(1, Math.min(starterMaxLvl, starterPassedUntil + 1));
+  assert.equal(starterLvl, 6, 'Starter user placement test must never exceed Level 6');
+
+  // Lifetime:
+  const lifetimeMaxLvl = TIERS.lifetime.maxLevel; // 15
+  const lifetimePassedUntil = 12;
+  const lifetimeLvl = Math.max(1, Math.min(lifetimeMaxLvl, lifetimePassedUntil + 1));
+  assert.equal(lifetimeLvl, 13, 'Lifetime user placement test can reach unlocked level up to 15');
+});
+
+test('24. #/free route is strictly gated by tier (freePlayAllowed / canAccessFreePlay)', () => {
+  const appSrc = readFileSync(resolve(ROOT, 'js/app.js'), 'utf8');
+  assert.ok(appSrc.includes("if (!canAccessFreePlay()) return go('#/unlock');"), 'Router free: handler must gate by canAccessFreePlay()');
+  assert.equal(freePlayAllowed(TIERS.free), false, 'Free tier Free Play must be false');
+  assert.equal(freePlayAllowed(TIERS.starter), true, 'Starter tier Free Play must be true');
+  assert.equal(freePlayAllowed(TIERS.lifetime), true, 'Lifetime tier Free Play must be true');
+});
+
+test('25. lessonAllowed delegates directly to canAccessLesson', () => {
+  const appSrc = readFileSync(resolve(ROOT, 'js/app.js'), 'utf8');
+  assert.ok(appSrc.includes('export const lessonAllowed = id => canAccessLesson(id);'), 'lessonAllowed must delegate to canAccessLesson(id)');
+});
+
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
+

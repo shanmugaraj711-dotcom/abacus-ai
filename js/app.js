@@ -13,6 +13,7 @@ import {
   isGuestUser,
   canAccessLevel,
   canAccessGame,
+  canAccessLesson,
   canGuestAccessLevel,
   canGuestAccessGame,
   canGuestAccessFeature,
@@ -52,22 +53,22 @@ export const freeMax = () => TIERS.free.maxLevel;
 export const playableMax = () => (isGuestUser() ? 1 : getMaxLevel());
 export const levelAllowed = id => id >= 1 && canAccessLevel(id);
 export const maxLessonAllowed = () => (isGuestUser() ? 1 : getMaxLesson());
-export const lessonAllowed = id => id >= 1 && id <= maxLessonAllowed();
+export const lessonAllowed = id => canAccessLesson(id);
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
   const isTa = lang() === 'ta';
   const ctaText = isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to unlock with Google';
-  shell({ title: isTa ? 'லெவல் 3–15 திறக்கவும்' : 'Unlock Levels 3–15', back: '#/practice', body: `
+  shell({ title: isTa ? 'லெவல்கள் 2–15 திறக்கவும்' : 'Unlock Levels 2–15', back: '#/practice', body: `
     <section class="card intro">
       ${babi('happy', 'big bob')}
       <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்' : 'Abacus Buddy lifetime unlock'}</p>
-      <h2 class="display">${isTa ? 'லெவல்கள் 3–15 & விளையாட்டுகள்' : 'Levels 3–15 & All Games'}</h2>
+      <h2 class="display">${isTa ? 'லெவல்கள் 2–15, பாடங்கள், சுய பயிற்சி & விளையாட்டுகள்' : 'Levels 2–15, All Lessons, Free Play & All Games'}</h2>
       <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>மட்டும்.' : '<span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>'}</p>
       <p class="muted">${isTa ? 'சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
       <ul class="muted">
         <li>${isTa ? 'லெவல் 1, பாடம் 1 மற்றும் 1 அறிமுக விளையாட்டு எப்போதும் இலவசம்.' : 'Level 1, Lesson 1, and 1 starter game stay free.'}</li>
-        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 3–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 3–15 and all games unlock permanently for this account.'}</li>
+        <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 2–15, அனைத்து பாடங்கள், சுய பயிற்சி மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 2–15, all lessons, Free Play and all games unlock permanently for this account.'}</li>
         <li>${isTa ? 'Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்.' : 'Payment is processed securely by Razorpay.'}</li>
       </ul>
       ${signedIn ? `
@@ -133,7 +134,7 @@ function unlock() {
     try{
       await buyUnlock({
         couponCode: appliedCoupon,
-        onSuccess: () => { if(msg)msg.textContent=isTa?'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 3–15 திறக்கப்பட்டன.':'Payment verified ✓ Levels 3–15 are unlocked.'; },
+        onSuccess: () => { if(msg)msg.textContent=isTa?'கட்டணம் சரிபார்க்கப்பட்டது ✓ லெவல்கள் 2–15 திறக்கப்பட்டன.':'Payment verified ✓ Levels 2–15 are unlocked.'; },
         onError: e => { if(msg)msg.textContent=e.message; },
       });
       if(isPaid()) setTimeout(()=>go('#/practice'),700);
@@ -775,12 +776,11 @@ function check() {
     idx++;
     if (idx < qs.length && !failed) return show();
     const maxLvl = playableMax();
-    const maxLsn = maxLessonAllowed();
     const lvl = Math.max(1, Math.min(maxLvl, passedUntil ? passedUntil + 1 : 1));
     state.unlocked = Math.max(state.unlocked, lvl);
-    // lessons before that level count as known
-    LESSONS.forEach(l => { if (l.id <= maxLsn && l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
-    if (lvl > 1) [1, 2, 3, 4, 5, 6].filter(k => k <= maxLsn).forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
+    // lessons before that level count as known, strictly capped by tier limits
+    LESSONS.forEach(l => { if (canAccessLesson(l.id) && l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
+    if (lvl > 1) [1, 2, 3, 4, 5, 6].filter(k => canAccessLesson(k)).forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
     markDay(); saveNow(); sfx.star(); confetti();
     const isTa = lang() === 'ta';
     $('.view').innerHTML = `<section class="done-card">${babi('cheer', 'big bob')}<h2 class="display">${isTa ? `அருமை, ${kidName()}!` : `Nice, ${kidName()}!`}</h2>
