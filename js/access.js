@@ -4,8 +4,9 @@
  *
  * Rules:
  *   - Guest: Level 1 allowed; Mystery Number ('mystery') allowed; all others locked
- *   - Free registered: Levels 1-2 allowed; Games 'race' & 'mystery' allowed; all others locked (require ₹499)
- *   - Paid registered: Levels 1-15 allowed; all games allowed; ₹499 lifetime unlock
+ *   - Free registered: Level 1 allowed; Game 'race' allowed; Lesson 1 allowed; Free Play locked
+ *   - Starter registered: Levels 1-6 allowed; 4 games allowed; Lessons 1-6 allowed; Free Play open (₹99/30d)
+ *   - Paid registered: Levels 1-15 allowed; all games allowed; all lessons allowed; Free Play open (₹499 lifetime unlock)
  */
 
 import {
@@ -184,7 +185,7 @@ export function renderEmailAuthView({ container, initialMode = 'login', onSucces
       <div class="auth-form-card">
         <h3 class="auth-form-title">${isLogin ? '🔐 Account Login' : '✨ Create Free Account'}</h3>
         <p class="muted center tiny" style="margin-bottom:14px;">
-          ${isLogin ? 'Enter your details to sign in and restore your child’s progress.' : 'Create your free account to unlock Levels 1–3 and all games.'}
+          ${isLogin ? 'Enter your details to sign in and restore your child’s progress.' : 'Create your free account to save your progress.'}
         </p>
 
         <div id="emailAuthError" class="auth-error" style="display:none;" role="alert"></div>
@@ -363,7 +364,7 @@ export function showConversionPrompt(options = {}) {
       <div class="conversion-modal-card">
         <div style="font-size:38px;margin-bottom:6px;">🔒</div>
         <h2 class="conversion-modal-title">More Abacus adventures are waiting!</h2>
-        <p class="conversion-modal-desc">Create your free account to continue.</p>
+        <p class="conversion-modal-desc">Create your free account to save your progress.</p>
 
         <div class="auth-actions">
           <button type="button" class="btn wide auth-btn-google" id="modalGoogleBtn">

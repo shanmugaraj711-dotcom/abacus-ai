@@ -609,7 +609,7 @@ try {
     await p.waitForSelector('#abacusConversionModal');
     const modalText = await p.textContent('#abacusConversionModal');
     assert.ok(modalText.includes('More Abacus adventures are waiting!'));
-    assert.ok(modalText.includes('Create your free account to continue.'));
+    assert.ok(modalText.includes('Create your free account to save your progress.'));
     assert.ok(modalText.includes('Continue as Guest'));
     assert.ok(modalText.includes('Continue with Google'));
     assert.ok(modalText.includes('Login with Email'));

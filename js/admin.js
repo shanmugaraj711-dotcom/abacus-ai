@@ -205,7 +205,7 @@ function renderConsole({ user, token, offline }) {
         ${num('exam.minutes', 'Grand exam minutes', c.exam.minutes, 1, 90)}
         ${num('exam.passMark', 'Grand exam pass %', c.exam.passMark, 10, 100)}
       </div>
-      <p class="muted tiny">Payment: Levels 1–3 free, Levels 4–15 at ₹499 (fixed — not editable here).</p>
+      <p class="muted tiny">Payment: Level 1 free, Levels 2–15 at ₹499 (fixed — not editable here).</p>
     </section>
 
     <section class="card">
@@ -624,7 +624,7 @@ function renderOwnerUserCard(u) {
     <div class="user-detail-row"><span>Visit count</span><span>${u.visitCount || 1}</span></div>
     <div class="user-detail-row"><span>Free/Paid</span><span>${u.paid ? 'Paid' : (isAnon ? 'Guest / Anonymous' : 'Free')}</span></div>
     <div class="user-detail-row"><span>Payment date</span><span>${esc(fmtDate(u.paidAt))}</span></div>
-    <div class="user-detail-row"><span>Entitlement</span><span>${u.paid ? 'Levels 1–15 unlocked' : 'Levels 1–3 (free)'}</span></div>
+    <div class="user-detail-row"><span>Entitlement</span><span>${u.paid ? 'Levels 1–15 unlocked' : 'Level 1 (free)'}</span></div>
     <div class="user-detail-row"><span>Possible duplicate</span><span>${u.possibleDuplicate ? 'Yes' : 'No'}</span></div>
     <div class="user-detail-row"><span>Duplicate reason</span><span>${esc(u.duplicateReasons?.length ? u.duplicateReasons.join(', ') : 'Not available')}</span></div>
     <div class="user-detail-row"><span>UID (debug)</span><span>${esc(u.uid || 'Not available')}</span></div>

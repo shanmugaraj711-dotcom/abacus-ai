@@ -6,7 +6,7 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay } from './payments.js';
+import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay, getGames } from './payments.js';
 import { TIERS, getTierConfig } from './tiers.js';
 import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
 import {
@@ -14,6 +14,7 @@ import {
   canAccessLevel,
   canAccessGame,
   canAccessLesson,
+  canAccessFreePlayMode,
   canGuestAccessLevel,
   canGuestAccessGame,
   canGuestAccessFeature,
@@ -28,7 +29,7 @@ import {
   lang, T, V, say, voiceLang, lessonTitle, lvName, lvTip, kidName, lessonDone, AVATARS, stars, mmss,
   shell, bubble, setBubble, confetti, playDemo,
 } from './ui.js';
-import { playRoom, openGame } from './games.js';
+import { playRoom, openGame, GAMES } from './games.js';
 import { testCentre, runExam, certificates, certificate, examList } from './exams.js';
 
 
@@ -216,7 +217,6 @@ function welcome() {
         <p class="muted tiny" id="langNote" hidden>This phone has no Tamil voice, so Babi will stay quiet until a Tamil voice is available.</p>
         <button class="btn primary wide" id="start" disabled>Let's go! →</button>
       </section>
-      <button class="linkish" id="demo">👀 Grown-up? Open a demo with sample progress</button>
     </div>
   </main>`;
 
@@ -310,20 +310,6 @@ function welcome() {
     saveNow(); sfx.good(); say(V('welcomeKid', state.profile.name));
     go(exp === 'known' ? '#/check' : '#/home');
   };
-  $('#demo').onclick = () => {
-    setAuthMode('registered');
-    Object.assign(state, {
-      profile: { name: 'Aru', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
-      lessonsDone: [1, 2, 3, 4, 5, 6, 7, 8], unlocked: 5,
-      levels: { 1: { stars: 3, best: 8, plays: 3 }, 2: { stars: 3, best: 8, plays: 2 }, 3: { stars: 2, best: 6, plays: 2 }, 4: { stars: 1, best: 5, plays: 2 } },
-      games: { race: 11, mystery: 8, match: 16 },
-    });
-    const d = new Date(); state.stats.days = [];
-    [0, 1, 2, 4, 5].forEach(k => { const x = new Date(d); x.setDate(d.getDate() - k); state.stats.days.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`); });
-    Object.assign(state.stats, { answered: 74, firstTry: 58, seconds: 2460, byRule: { direct: [49, 56], small: [9, 18], big: [0, 0] },
-      mistakes: [{ q: '4 + 3', answer: 7, given: 11, rule: 'small' }, { q: '8 − 6', answer: 2, given: 3, rule: 'direct' }, { q: '3 + 4', answer: 7, given: 8, rule: 'small' }] });
-    saveNow(); go('#/home');
-  };
 }
 
 const GAME_COUNT = () => ['gameRace', 'gameMystery', 'gameMatch', 'gameFlash', 'gameSpeedRead', 'gameFriendDash', 'gameLadder'].filter(isOn).length;
@@ -359,7 +345,11 @@ function home() {
   const isTa = lang() === 'ta';
   const m = nextMission(), sk = streak();
   const guest = isGuestUser();
-  shell({ body: `
+    const freePlayOpen = !guest && canAccessFreePlay();
+    const availableLessons = maxLessonAllowed();
+    const doneLessonsCount = state.lessonsDone.filter(id => lessonAllowed(id)).length;
+    const availableGames = guest ? 1 : (getGames() || ['race']).filter(id => { const g = GAMES.find(x => x.id === id); return g && isOn(g.flag); }).length;
+    shell({ body: `
     ${guest ? `
       <section class="card guest-home-banner" style="background:#eef2ff;border:1px solid #c7d2fe;margin-bottom:12px;padding:12px 14px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div>
@@ -381,11 +371,11 @@ function home() {
     </a>
     ${(() => { const fresh = earned().filter(x => !state.stickersSeen.includes(x.id)); return fresh.length ? `<a class="new-sticker" href="#/stickers"><span>${fresh[0].e}</span><div><b>${isTa ? 'புதிய ஸ்டிக்கர்!' : 'New sticker!'}</b><small>${esc(fresh[0].name)} — ${isTa ? 'பார்க்க தொடவும்' : 'tap to see'}</small></div></a>` : ''; })()}
     <nav class="tiles">
-      ${isOn('learn') ? `<a class="tile learn" href="#/learn"><span>📘</span><b>${isTa ? 'கற்றல்' : 'Learn'}</b><small>${isTa ? `${state.lessonsDone.length}/${LESSONS.length} பாடங்கள்` : `${state.lessonsDone.length} of ${LESSONS.length} lessons`}</small></a>` : ''}
-      ${isOn('practice') ? `<a class="tile practice" href="#/practice"><span>🎯</span><b>${isTa ? 'பயிற்சி' : 'Practise'}</b><small>${isTa ? `லெவல் ${Math.min(state.unlocked, MAX_LEVEL)} தயார்` : `Level ${Math.min(state.unlocked, MAX_LEVEL)} open`}</small></a>` : ''}
-      ${isOn('play') ? `<a class="tile play" href="#/play"><span>🎮</span><b>${isTa ? 'விளையாட்டு' : 'Play'}</b><small>${isTa ? `${GAME_COUNT()} மணி விளையாட்டுகள்` : `${GAME_COUNT()} bead games`}</small></a>` : ''}
+      ${isOn('learn') ? `<a class="tile learn" href="#/learn"><span>📘</span><b>${isTa ? 'கற்றல்' : 'Learn'}</b><small>${isTa ? `${doneLessonsCount}/${availableLessons} பாடங்கள்` : `${doneLessonsCount} of ${availableLessons} lesson${availableLessons === 1 ? '' : 's'}`}</small></a>` : ''}
+      ${isOn('practice') ? `<a class="tile practice" href="#/practice"><span>🎯</span><b>${isTa ? 'பயிற்சி' : 'Practise'}</b><small>${isTa ? `லெவல் ${Math.min(state.unlocked, playableMax())} தயார்` : `Level ${Math.min(state.unlocked, playableMax())} open`}</small></a>` : ''}
+      ${isOn('play') ? `<a class="tile play" href="#/play"><span>🎮</span><b>${isTa ? 'விளையாட்டு' : 'Play'}</b><small>${isTa ? `${availableGames} மணி விளையாட்டு${availableGames === 1 ? '' : 'கள்'}` : `${availableGames} bead game${availableGames === 1 ? '' : 's'}`}</small></a>` : ''}
       ${examsOpen() ? `<a class="tile tests" href="#/tests"><span>📝</span><b>${isTa ? 'தேர்வுகள்' : 'Tests'}</b><small>${testLine()}</small></a>` : ''}
-      ${isOn('freePlay') ? `<a class="tile free" href="#/free"><span>✋</span><b>${isTa ? 'சுய பயிற்சி' : 'Free Play'}</b><small>${isTa ? 'மணிகளை நகர்த்தி பழகு' : 'Just move beads'}</small></a>` : ''}
+      ${isOn('freePlay') ? `<a class="tile free ${freePlayOpen ? '' : 'locked'}" href="#/free"><span>${freePlayOpen ? '✋' : '🔒'}</span><b>${isTa ? 'சுய பயிற்சி' : 'Free Play'}</b><small>${freePlayOpen ? (isTa ? 'மணிகளை நகர்த்தி பழகு' : 'Just move beads') : (isTa ? 'பூட்டப்பட்டுள்ளது' : 'Locked')}</small></a>` : ''}
     </nav>
     ${isOn('stickers') ? `<a class="sticker-link" href="#/stickers"><span>🏅</span><b>${isTa ? 'என் ஸ்டிக்கர்கள்' : 'My Stickers'}</b><em>${earned().length}/${STICKERS.length}</em></a>` : ''}
     <a class="grownups" href="#/parents">👨‍👩‍👧 ${isTa ? 'பெற்றோருக்கான பகுதி' : 'Grown-ups corner'}</a>` });
@@ -920,7 +910,16 @@ function route() {
       if (isNaN(n) || !lessonAllowed(n)) return go('#/unlock');
       return lesson(n);
     },
-    level: () => levelIntro(n),
+    level: () => {
+      if (isNaN(n) || !levelAllowed(n)) {
+        if (isGuestUser() && n > 1) {
+          showConversionPrompt({ onContinueGuest: () => go('#/practice'), onSuccessAuth: () => route() });
+          return;
+        }
+        return go('#/unlock');
+      }
+      return levelIntro(n);
+    },
     game: () => (isOn('play') ? openGame(arg) : home()),
     tests: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (examsOpen() ? testCentre() : home())),
     exam: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : runExam(arg)),

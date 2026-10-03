@@ -9,7 +9,8 @@
     "syntax": "node --check js/app.js js/admin.js js/config.js js/payments.js js/engine.js js/store.js worker.js js/tiers.js js/games.js js/access.js",
     "test:sound": "node tests/sound.test.mjs",
     "test:coupons": "node tests/coupons.test.mjs",
-    "test:tiers": "node tests/tiers.test.mjs"
+    "test:tiers": "node tests/tiers.test.mjs",
+    "test:e2e": "node tests/e2e/tiers.e2e.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0"
