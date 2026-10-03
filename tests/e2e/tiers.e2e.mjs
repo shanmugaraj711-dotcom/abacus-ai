@@ -53,6 +53,11 @@ function startServer() {
         return res.end();
       }
 
+      if (pathname === '/favicon.ico') {
+        res.writeHead(204);
+        return res.end();
+      }
+
       // API mocks
       if (pathname === '/api/remote-config') {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -293,7 +298,20 @@ async function runE2ESuite() {
 
       const page = await context.newPage();
       const pageErrors = [];
+      const consoleErrors = [];
+      const failedJsRequests = [];
       page.on('pageerror', (err) => pageErrors.push(err.message));
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          consoleErrors.push(msg.text());
+        }
+      });
+      page.on('requestfailed', (req) => {
+        const url = req.url();
+        if (url.includes('/js/') || url.endsWith('.js')) {
+          failedJsRequests.push({ url, failure: req.failure()?.errorText });
+        }
+      });
 
       // Inject clean stubbed state before any scripts run
       await page.addInitScript(({ mockUser, authMode, entitlementCache }) => {
@@ -472,7 +490,18 @@ async function runE2ESuite() {
       totalAssertions++;
       console.log(`  ✓ Tests/exams access: guest-locked=${isGuest}`);
 
-      // 7. Placement test check() strict bounding
+      // 7. Practice map direct URL hash test
+      await page.evaluate(() => { location.hash = '#/practice'; });
+      await page.waitForTimeout(100);
+      const practiceHash = await page.evaluate(() => location.hash);
+      assert.equal(practiceHash, '#/practice', `#/practice must open for ${stateKey}`);
+      const levelsCount = await page.locator('.levels .level').count();
+      assert.ok(levelsCount >= 15, `Practice map must render 15 levels for ${stateKey}`);
+      passedAssertions += 2;
+      totalAssertions += 2;
+      console.log(`  ✓ Practice map direct URL: open with ${levelsCount} levels`);
+
+      // 8. Placement test check() strict bounding
       const placementResult = await page.evaluate(async () => {
         const { playableMax } = await import('./js/app.js');
         // Probe questions test [1, 3, 5, 6, 8, 9] -> if all passed, passedUntil = 9 -> lvl = min(maxLvl, 10)
@@ -490,25 +519,59 @@ async function runE2ESuite() {
       totalAssertions += 3;
       console.log(`  ✓ Placement test check() strictly capped: probe unlocks Level ${placementResult.probeLvl}, absolute cap is Level ${placementResult.maxLvl}`);
 
-      // 8. Tampering resistance test
-      if (stateKey === 'free' || stateKey === 'starter-expired') {
+      // 9. Tampering resistance test (lessonsDone=all, unlocked=15)
+      if (stateKey === 'free' || stateKey === 'starter' || stateKey === 'starter-expired') {
+        console.log(`  ── Tampering test for ${stateKey}: lessonsDone=all, unlocked=15 ──`);
         await page.evaluate(() => {
-          // Attempt client-side tampering of unlocked level in storage and DOM
           const raw = localStorage.getItem('abacus-kids-v3');
           if (raw) {
             const data = JSON.parse(raw);
             data.unlocked = 15;
+            data.lessonsDone = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
             localStorage.setItem('abacus-kids-v3', JSON.stringify(data));
           }
-          location.hash = '#/level/15';
         });
-        await page.waitForTimeout(200);
-        const tamperedHash = await page.evaluate(() => location.hash);
-        assert.equal(tamperedHash, '#/unlock', `Tampered Level 15 must still be blocked by paywall for ${stateKey}`);
-        passedAssertions++;
-        totalAssertions++;
-        console.log(`  ✓ Tampering resistance: state.unlocked=15 still redirected to ${tamperedHash}`);
+
+        const lockedLesson = stateKey === 'starter' ? 7 : 2;
+        const lockedLevel = stateKey === 'starter' ? 7 : 2;
+        const lockedGame = stateKey === 'starter' ? 'speed' : 'mystery';
+
+        // 1. Direct URL hash navigation to locked lesson
+        await page.evaluate((l) => { location.hash = `#/lesson/${l}`; }, lockedLesson);
+        await page.waitForTimeout(150);
+        const lessonTamperedHash = await page.evaluate(() => location.hash);
+        assert.equal(lessonTamperedHash, '#/unlock', `Tampered locked Lesson ${lockedLesson} must redirect to #/unlock for ${stateKey}`);
+
+        // 2. Direct URL hash navigation to locked level
+        await page.evaluate((l) => { location.hash = `#/level/${l}`; }, lockedLevel);
+        await page.waitForTimeout(150);
+        const levelTamperedHash = await page.evaluate(() => location.hash);
+        assert.equal(levelTamperedHash, '#/unlock', `Tampered locked Level ${lockedLevel} must redirect to #/unlock for ${stateKey}`);
+
+        // 3. Direct URL hash navigation to locked game
+        await page.evaluate((g) => { location.hash = `#/game/${g}`; }, lockedGame);
+        await page.waitForTimeout(150);
+        const gameTamperedHash = await page.evaluate(() => location.hash);
+        assert.equal(gameTamperedHash, '#/unlock', `Tampered locked Game ${lockedGame} must redirect to #/unlock for ${stateKey}`);
+
+        // 4. Direct URL hash navigation to Level 15
+        await page.evaluate(() => { location.hash = '#/level/15'; });
+        await page.waitForTimeout(150);
+        const lvl15TamperedHash = await page.evaluate(() => location.hash);
+        assert.equal(lvl15TamperedHash, '#/unlock', `Tampered Level 15 must redirect to #/unlock for ${stateKey}`);
+
+        passedAssertions += 4;
+        totalAssertions += 4;
+        console.log(`  ✓ Tampering defense: locked lesson ${lockedLesson} -> ${lessonTamperedHash}, level ${lockedLevel} -> ${levelTamperedHash}, game ${lockedGame} -> ${gameTamperedHash}, level 15 -> ${lvl15TamperedHash}`);
       }
+
+      // 10. Console errors, page errors, and failed own-JS requests assertion
+      assert.equal(consoleErrors.length, 0, `Zero console errors for ${stateKey}: ${consoleErrors.join('; ')}`);
+      assert.equal(pageErrors.length, 0, `Zero page errors for ${stateKey}: ${pageErrors.join('; ')}`);
+      assert.equal(failedJsRequests.length, 0, `Zero failed JS requests for ${stateKey}: ${JSON.stringify(failedJsRequests)}`);
+      passedAssertions += 3;
+      totalAssertions += 3;
+      console.log(`  ✓ Console & network integrity: consoleErrors=0, pageErrors=0, failedJsRequests=0`);
 
       summaryMatrix.push({
         state: config.label,
