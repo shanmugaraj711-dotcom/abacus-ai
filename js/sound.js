@@ -2,25 +2,6 @@
 import { state } from './store.js';
 
 let ctx = null;
-let activeUtterance = null;
-
-function unlockAudio() {
-  try {
-    if (ctx && ctx.state === 'suspended') ctx.resume();
-  } catch {}
-  try {
-    if ('speechSynthesis' in window && speechSynthesis.paused) {
-      speechSynthesis.resume();
-    }
-  } catch {}
-}
-
-if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-  ['pointerdown', 'touchstart', 'click', 'keydown'].forEach(ev => {
-    window.addEventListener(ev, unlockAudio, { passive: true, capture: true });
-  });
-}
-
 function audio() {
   if (!state.settings.sound) return null;
   try {
@@ -122,27 +103,13 @@ export function tamilNumberWord(value) {
   return `${connector} ${tamilNumberWord(remainder)}`;
 }
 
-let cachedVoices = [];
-function refreshVoices() {
-  try {
-    if ('speechSynthesis' in window) {
-      cachedVoices = speechSynthesis.getVoices() || [];
-    }
-  } catch {}
-}
-
 function voiceFor(tag) {
   try {
-    const vs = cachedVoices.length ? cachedVoices : (speechSynthesis.getVoices() || []);
+    const vs = speechSynthesis.getVoices();
     return vs.find(v => v.lang?.replace('_', '-') === tag) || vs.find(v => v.lang?.startsWith(tag.slice(0, 2))) || null;
   } catch { return null; }
 }
-try {
-  refreshVoices();
-  if (typeof speechSynthesis?.addEventListener === 'function') {
-    speechSynthesis.addEventListener('voiceschanged', refreshVoices);
-  }
-} catch {}
+try { speechSynthesis?.getVoices(); speechSynthesis.addEventListener('voiceschanged', () => {}); } catch {}
 
 /** Does this device have a voice for this language? (Tamil is missing on many phones.) */
 export function hasVoice(lang) {
@@ -152,9 +119,9 @@ export function hasVoice(lang) {
 
 let last = { text: '', at: 0 };
 /** Speak one line. Returns a Promise that resolves when speech completes or fails. */
-export async function say(text, lang = 'en') {
+export function say(text, lang = 'en') {
   if (!state.settings.voice || !('speechSynthesis' in window) || !text) {
-    return;
+    return Promise.resolve();
   }
   const now = Date.now();
   if (text === last.text && now - last.at < 1200) {
@@ -170,7 +137,6 @@ export async function say(text, lang = 'en') {
       if (speechSynthesis.speaking || speechSynthesis.pending) {
         speechSynthesis.cancel();
       }
-      try { speechSynthesis.resume(); } catch {}
       const clean = String(text)
         .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
         .replace(/−/g, lang === 'ta' ? ' கழித்தல் ' : ' minus ')
@@ -199,17 +165,15 @@ export async function say(text, lang = 'en') {
         if (lang === 'ta') return n <= 999 ? tamilNumberWord(n) : numberWord(n);
         return n <= 999 ? englishNumberWord(n) : value;
       }).replace(/\s+/g, ' ').trim();
-      const currentVoice = voiceFor(tag);
+      const v = voiceFor(tag);
       const u = new SpeechSynthesisUtterance(spoken);
-      if (currentVoice) u.voice = currentVoice;
+      if (v) u.voice = v;
       u.lang = tag; u.rate = lang === 'ta' ? 0.92 : 0.95; u.pitch = 1.15;
 
-      activeUtterance = u;
       let settled = false;
       const done = () => {
         if (!settled) {
           settled = true;
-          if (activeUtterance === u) activeUtterance = null;
           clearTimeout(fallbackTimer);
           resolve();
         }
@@ -224,11 +188,4 @@ export async function say(text, lang = 'en') {
     }
   });
 }
-export function stopTalking() {
-  try {
-    speechSynthesis.cancel();
-    speechSynthesis.resume();
-    activeUtterance = null;
-    last = { text: '', at: 0 };
-  } catch {}
-}
+export function stopTalking() { try { speechSynthesis.cancel(); last = { text: '', at: 0 }; } catch {} }

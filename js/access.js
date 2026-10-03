@@ -15,26 +15,18 @@ import {
   signUpWithEmail,
   resetPassword,
 } from '../firebase/auth.js';
-import { isPaid, currentTier } from './payments.js';
+import { isPaid } from './payments.js';
 import { pingVisit } from './store.js';
-import {
-  TIERS,
-  TIER_CONFIG,
-  canAccessLevel as tierCanAccessLevel,
-  canAccessLesson as tierCanAccessLesson,
-  canAccessGame as tierCanAccessGame,
-  canAccessFreePlay as tierCanAccessFreePlay,
-} from './tiers.js';
 
-export const GUEST_GAME_ID = 'race';
-export const FREE_LEVELS = [1];
-export const FREE_GAMES = ['race'];
+export const GUEST_GAME_ID = 'mystery'; // Mystery Number — introductory bead reading game
+export const FREE_LEVELS = [1, 2];
+export const FREE_GAMES = ['race', 'mystery']; // Game 1: Bead Race ('race'), Game 2: Mystery Number ('mystery')
 export const AUTH_MODE_KEY = 'abacus-auth-mode';
 
 const GOOGLE_SVG = `<svg style="width:20px;height:20px;margin-right:6px;vertical-align:middle;" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>`;
 
 /**
- * Returns current auth mode: 'registered' | null (if not yet chosen)
+ * Returns current auth mode: 'registered' | 'guest' | null (if not yet chosen)
  */
 export function getAuthMode() {
   try {
@@ -43,36 +35,46 @@ export function getAuthMode() {
   } catch {}
   try {
     const mode = localStorage.getItem(AUTH_MODE_KEY);
-    if (mode === 'registered') return mode;
+    if (mode === 'registered' || mode === 'guest') return mode;
   } catch {}
   return null;
 }
 
 /**
- * Explicitly save the chosen auth mode ('registered' only, guest mode retired)
+ * Explicitly save the chosen auth mode ('guest' | 'registered')
  */
 export function setAuthMode(mode) {
   try {
-    if (mode === 'registered') localStorage.setItem(AUTH_MODE_KEY, mode);
+    if (mode) localStorage.setItem(AUTH_MODE_KEY, mode);
     else localStorage.removeItem(AUTH_MODE_KEY);
   } catch {}
 }
 
 export function isGuestUser() {
+  try {
+    const user = getAuthInstance()?.currentUser;
+    if (user && user.uid) return false;
+  } catch {}
+  if (isPaid()) return false;
+  try {
+    const mode = localStorage.getItem(AUTH_MODE_KEY);
+    if (mode === 'registered') return false;
+    if (mode === 'guest') return true;
+  } catch {}
   return false;
 }
 
 /**
  * Authoritative level access check:
- * - Free / Guest: Level 1 only
- * - Starter: Levels 1–3
- * - Lifetime: Levels 1–15
+ * - Paid: Levels 1..15 are allowed
+ * - Guest: only Level 1 is allowed
+ * - Free registered: only Levels 1-2 are allowed; Level 3+ locked (requires ₹499)
  */
 export function canAccessLevel(level) {
   const n = Number(level);
-  if (!Number.isFinite(n) || n < 1) return false;
+  if (isPaid()) return n >= 1 && n <= 15;
   if (isGuestUser()) return n === 1;
-  return tierCanAccessLevel(n, currentTier());
+  return FREE_LEVELS.includes(n);
 }
 
 /**
@@ -83,30 +85,17 @@ export function canGuestAccessLevel(level) {
 }
 
 /**
- * Authoritative lesson access check:
- * - Free: Lessons 1–6
- * - Starter: Lessons 1–7
- * - Lifetime: Lessons 1–11
- */
-export function canAccessLesson(lessonId) {
-  const n = Number(lessonId);
-  if (!Number.isFinite(n) || n < 1) return false;
-  if (isGuestUser()) return n <= 6;
-  return tierCanAccessLesson(n, currentTier());
-}
-
-/**
  * Authoritative game access check:
- * - Free: 'race' (1 game)
- * - Starter: 'race', 'mystery', 'match' (3 games)
- * - Lifetime: all 7 games
+ * - Paid: all games allowed
+ * - Guest: only GUEST_GAME_ID ('mystery') allowed
+ * - Free registered: only FREE_GAMES (['race', 'mystery']) allowed; all others locked (require ₹499)
  */
 export function canAccessGame(gameId) {
-  if (!gameId) return false;
+  if (isPaid()) return true;
   if (isGuestUser()) {
     return String(gameId) === GUEST_GAME_ID;
   }
-  return tierCanAccessGame(gameId, currentTier());
+  return FREE_GAMES.includes(String(gameId));
 }
 
 /**
@@ -114,16 +103,6 @@ export function canAccessGame(gameId) {
  */
 export function canGuestAccessGame(gameId) {
   return canAccessGame(gameId);
-}
-
-/**
- * Authoritative Free Play check:
- * - Free / Guest: locked
- * - Starter / Lifetime: unlocked
- */
-export function canAccessFreePlay() {
-  if (isGuestUser()) return false;
-  return tierCanAccessFreePlay(currentTier());
 }
 
 /**
@@ -165,9 +144,7 @@ export function formatAuthError(err) {
     case 'auth/popup-closed-by-user':
       return 'Sign-in cancelled. Please try again.';
     case 'auth/popup-blocked':
-      return 'Sign-in popup was blocked by your browser. Please allow popups or sign in with Email.';
-    case 'auth/unauthorized-domain':
-      return 'Google Sign-In is not authorized for this domain. Please add this domain to Firebase Console → Authentication → Settings → Authorized domains.';
+      return 'Sign-in popup was blocked by your browser. Please allow popups.';
     default:
       return err?.message || 'Authentication error. Please try again.';
   }
@@ -375,20 +352,29 @@ export function showConversionPrompt(options = {}) {
           <button type="button" class="btn wide auth-btn-email" id="modalEmailBtn">
             ✉️ Login with Email
           </button>
-          <div id="modalAuthError" class="auth-error" style="display:none;margin-top:10px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;font-size:13px;text-align:left;" role="alert"></div>
+          <div class="auth-divider">─── or ───</div>
+          <button type="button" class="btn wide auth-btn-guest" id="modalGuestBtn">
+            🎮 Continue as Guest
+          </button>
         </div>
       </div>
     `;
 
     const googleBtn = modal.querySelector('#modalGoogleBtn');
     const emailBtn = modal.querySelector('#modalEmailBtn');
-    const errorEl = modal.querySelector('#modalAuthError');
+    const guestBtn = modal.querySelector('#modalGuestBtn');
+
+    if (guestBtn) {
+      guestBtn.onclick = () => {
+        modal.remove();
+        if (options.onContinueGuest) options.onContinueGuest();
+      };
+    }
 
     if (googleBtn) {
       googleBtn.onclick = async () => {
         googleBtn.disabled = true;
         googleBtn.textContent = 'Connecting to Google…';
-        if (errorEl) errorEl.style.display = 'none';
         try {
           const cred = await signInWithGoogle();
           if (cred?.user) {
@@ -403,10 +389,7 @@ export function showConversionPrompt(options = {}) {
         } catch (err) {
           googleBtn.disabled = false;
           googleBtn.innerHTML = `${GOOGLE_SVG} Continue with Google`;
-          if (errorEl) {
-            errorEl.textContent = formatAuthError(err);
-            errorEl.style.display = 'block';
-          }
+          alert(formatAuthError(err));
         }
       };
     }

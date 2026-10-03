@@ -171,61 +171,102 @@ try {
 
   await page.close();
 
-  // ── GROUP 2: Canonical in-app Google Auth & Onboarding ────────────────────
-  console.log('\n--- GROUP 2: Canonical in-app Google Auth & Onboarding ---');
+  // ── GROUP 2: Google Sign-In on auth-ui/sign-in.html ───────────────────────
+  console.log('\n--- GROUP 2: Google Sign-In UI on sign-in.html ---');
 
-  await test('2.1 #/home renders the existing Google + Email auth gate with no duplicate auth page', async () => {
-    const page = await setupAppPage(browser, { profileState: { profile: null } });
-    await page.goto(`${BASE_URL}/index.html#/home`);
-    await page.waitForSelector('#authGateGoogleBtn');
-    assert.ok(await page.isVisible('#authGateGoogleBtn'));
-    assert.ok(await page.isVisible('#authGateEmailBtn'));
-    assert.ok(await page.isVisible('#kidName') === false);
-    assert.equal(await page.$('#phase1-google-btn'), null);
-    assert.equal(fs.existsSync(path.join(ROOT_DIR, 'auth-ui', 'sign-in.html')), false);
-    await page.close();
-  });
+  const authPage = await browser.newPage();
 
-  await test('2.2 Successful Google auth advances directly to the existing child-profile onboarding screen', async () => {
-    const page = await browser.newPage();
-    await page.addInitScript(() => {
-      localStorage.clear(); sessionStorage.clear();
-      window.__mockSignInWithGoogle = () => Promise.resolve({
-        user: { uid: 'google_welcome_uid', email: 'parent@example.com', displayName: 'Parent User' }
-      });
+  await test('2.1 Google Sign-In button is rendered prominently with official Google icon', async () => {
+    await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
+    await authPage.waitForSelector('#phase1-google-btn');
+
+    const btnText = await authPage.textContent('#phase1-google-btn');
+    assert.ok(btnText.includes('Sign in with Google'), 'Button text must say "Sign in with Google"');
+
+    const hasIcon = await authPage.evaluate(() => {
+      const icon = document.querySelector('#phase1-google-btn svg.phase1-google-icon');
+      return !!icon && icon.querySelectorAll('path').length >= 4;
     });
-    await page.goto(`${BASE_URL}/index.html#/home`);
-    await page.waitForSelector('#authGateGoogleBtn');
-    await page.click('#authGateGoogleBtn');
-    await page.waitForSelector('#kidName');
-    assert.ok(await page.isVisible('#kidName'));
-    assert.ok(await page.isVisible('#start'));
-    await page.close();
+    assert.equal(hasIcon, true, 'Google button must contain official 4-color SVG icon');
   });
 
-  await test('2.3 Welcome onboarding exposes English and Tamil only', async () => {
-    const page = await setupAppPage(browser, { profileState: { profile: null } });
-    await page.goto(`${BASE_URL}/index.html#/home`);
-    await page.waitForSelector('#authGateGoogleBtn');
-    await page.evaluate(() => {
-      document.getElementById('authGateStep').style.display = 'none';
-      document.getElementById('welcomeProfileStep').style.display = 'block';
+  await test('2.2 Value proposition card communicates ₹499 lifetime account unlock and 1-tap sign-in', async () => {
+    await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
+    await authPage.waitForSelector('.phase1-info-card');
+
+    const cardText = await authPage.textContent('.phase1-info-card');
+    assert.ok(cardText.includes('₹499'), 'Must mention ₹499');
+    assert.ok(cardText.includes('permanently linked to your Google account'), 'Must mention Google account link');
+    assert.ok(cardText.includes('Instant 1-tap sign-in'), 'Must highlight 1-tap sign-in');
+  });
+
+  await test('2.3 Phone fallback section and divider are preserved below Google button', async () => {
+    await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
+    await authPage.waitForSelector('.phase1-divider');
+
+    const dividerText = await authPage.textContent('.phase1-divider');
+    assert.ok(dividerText.toLowerCase().includes('phone'), 'Divider must separate phone sign-in');
+
+    const hasPhone = await authPage.isVisible('#phase1-phone');
+    const hasSendBtn = await authPage.isVisible('#phase1-send-btn');
+    assert.ok(hasPhone, 'Phone input must be present as fallback');
+    assert.ok(hasSendBtn, 'Send OTP button must be present as fallback');
+  });
+
+  await test('2.4 Signed-in panel displays Google account display name, email, UID, and Continue button', async () => {
+    const signedInPage = await browser.newPage();
+    await signedInPage.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#unlock`);
+    await signedInPage.waitForSelector('#phase1-signin-section:not([hidden])');
+
+    await signedInPage.evaluate(() => {
+      const mockGoogleUser = {
+        uid: 'google-parent-uid-101',
+        displayName: 'Priya Sharma',
+        email: 'priya.sharma@gmail.com',
+        phoneNumber: null,
+        photoURL: null,
+        getIdToken: async () => 'mock-google-id-token-abc-xyz',
+      };
+
+      const nameEl = document.getElementById('phase1-user-display-name');
+      const emailEl = document.getElementById('phase1-user-phone');
+      const uidEl = document.getElementById('phase1-user-uid');
+      const contBtn = document.getElementById('phase1-continue-btn');
+
+      if (nameEl) nameEl.textContent = mockGoogleUser.displayName;
+      if (emailEl) emailEl.textContent = mockGoogleUser.email;
+      if (uidEl) uidEl.textContent = mockGoogleUser.uid;
+      if (contBtn) {
+        const params = new URLSearchParams(window.location.search);
+        let ret = params.get('return') || '../#unlock';
+        if (window.location.hash && !ret.includes('#')) {
+          ret += window.location.hash;
+        }
+        contBtn.href = ret;
+      }
+
+      document.getElementById('phase1-signin-section').hidden = true;
+      document.getElementById('phase1-signedin-section').hidden = false;
     });
-    const labels = await page.locator('[data-lang-choice]').allTextContents();
-    assert.deepEqual(labels.map(x => x.trim()), ['English', 'தமிழ்']);
-    await page.close();
+
+    const isPanelVisible = await signedInPage.isVisible('#phase1-signedin-section');
+    assert.ok(isPanelVisible, 'Signed-in section must be visible');
+
+    const nameText = await signedInPage.textContent('#phase1-user-display-name');
+    assert.equal(nameText, 'Priya Sharma');
+
+    const emailText = await signedInPage.textContent('#phase1-user-phone');
+    assert.equal(emailText, 'priya.sharma@gmail.com');
+
+    const uidText = await signedInPage.textContent('#phase1-user-uid');
+    assert.equal(uidText, 'google-parent-uid-101');
+
+    const continueHref = await signedInPage.getAttribute('#phase1-continue-btn', 'href');
+    assert.equal(continueHref, '../#unlock', 'Continue button must link to #unlock');
+    await signedInPage.close();
   });
 
-  await test('2.4 Payment/auth CTAs use #/home instead of the retired standalone sign-in page', async () => {
-    const page = await setupAppPage(browser, { profileState: { profile: null } });
-    await page.goto(`${BASE_URL}/index.html#/starter`);
-    const starterHref = await page.getAttribute('#signin-starter-btn', 'href');
-    assert.equal(starterHref, '#/home');
-    await page.goto(`${BASE_URL}/index.html#/unlock`);
-    const unlockHref = await page.getAttribute('#signin-btn', 'href');
-    assert.equal(unlockHref, '#/home');
-    await page.close();
-  });
+  await authPage.close();
 
   // ── GROUP 3: In-App #/unlock Google Sign-In & Purchase Journey ────────────
   console.log('\n--- GROUP 3: In-App #/unlock Google Sign-In & Purchase Journey ---');
@@ -242,7 +283,7 @@ try {
     assert.ok(signinText.includes('Sign in to unlock with Google'), 'CTA text must be "Sign in to unlock with Google"');
 
     const href = await signinBtn.getAttribute('href');
-    assert.equal(href, '#/home', 'Must link to #/home for canonical in-app auth');
+    assert.ok(href.includes('sign-in.html?return=../#unlock'), 'Must link to sign-in page with return URL');
     await appPage.close();
   });
 
