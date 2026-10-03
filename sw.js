@@ -1,9 +1,9 @@
 // Offline support. Network-first for app files so updates arrive right away;
 // cache is the fallback when offline.
-const CACHE = 'abacus-buddy-v7';
+const CACHE = 'abacus-buddy-v8';
 const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/engine.js', './js/store.js', './js/sound.js',
   './js/abacusView.js', './js/babi.js', './js/lessons.js', './js/i18n.js', './js/ui.js', './js/config.js', './js/games.js', './js/exams.js',
-  './js/access.js', './js/payments.js', './firebase/auth.js', './firebase/config.js',
+  './js/access.js', './js/payments.js', './js/tiers.js', './firebase/auth.js', './firebase/config.js',
   './config.json', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));

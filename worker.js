@@ -585,9 +585,31 @@ async function main(req,env){
 
   // ── /api/verify-payment ──────────────────────────────────────────────────────
   if(path==="/api/verify-payment"&&req.method==="POST"){
-    const user=await bearer(req,env), b=await req.json();
+    let user;
+    try{
+      user=await bearer(req,env);
+    }catch{
+      return json({error:"missing authorization"},401);
+    }
+    let b;
+    try{
+      b=await req.json();
+    }catch{
+      return json({error:"Invalid request body"},400);
+    }
     const existing=await getEntitlement(env,user.uid);
-    if(existing?.paid){return json({paid:true});}
+    // Preserved for legacy check: if(existing?.paid){return json({paid:true});}
+    if(existing?.paid){
+      if(existing.tier === "lifetime" || (existing.orderId && existing.orderId === String(b.razorpay_order_id))){
+        return json({
+          paid: true,
+          tier: existing.tier,
+          maxLevel: existing.maxLevel,
+          games: existing.games,
+          expiresAt: existing.expiresAt
+        });
+      }
+    }
     const payload=String(b.razorpay_order_id)+"|"+String(b.razorpay_payment_id);
     const keySecret=String(env.RAZORPAY_KEY_SECRET||"").trim();
     const sig=(await hmac(keySecret,payload)).toLowerCase(), gotSig=String(b.razorpay_signature||"").trim().toLowerCase();
@@ -743,9 +765,11 @@ async function main(req,env){
         if(tier==="starter" && amount===TIERS.starter.pricePaise){
           const existing=await getEntitlement(env,uid);
           if(!existing?.paid || existing.tier==="starter"){
-            const cfg=TIERS.starter;
-            const expiresAt=new Date(Date.now() + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString();
-            await putEntitlement(env,uid,{tier:"starter",maxLevel:cfg.maxLevel,games:cfg.games,expiresAt,orderId,paymentId:pay?.id||""});
+            if(existing?.orderId !== orderId){
+              const cfg=TIERS.starter;
+              const expiresAt=new Date(Date.now() + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString();
+              await putEntitlement(env,uid,{tier:"starter",maxLevel:cfg.maxLevel,games:cfg.games,expiresAt,orderId,paymentId:pay?.id||""});
+            }
             if(recorded){
               const orderWasCreated=String(fsVal(rf.status)||"")==="created";
               const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;

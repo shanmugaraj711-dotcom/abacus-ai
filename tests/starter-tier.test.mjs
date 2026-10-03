@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import fs from 'node:fs';
 import {
   main, firestoreGet, firestorePut,
   PRICE_LIFETIME, PRICE_STARTER, PRODUCT, hmac, eq
@@ -263,9 +264,16 @@ function setupMockFetch(options = {}) {
     if (urlStr.includes('firestore.googleapis.com')) {
       if (init.method === 'PATCH') {
         options.lastFirestoreWrite = JSON.parse(init.body || '{}');
+        if (!options.firestoreWrites) options.firestoreWrites = [];
+        options.firestoreWrites.push({ url: urlStr, body: options.lastFirestoreWrite });
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       if (options.firestoreDoc) {
+        if (typeof options.firestoreDoc === 'function') {
+          const doc = options.firestoreDoc(urlStr);
+          if (doc) return new Response(JSON.stringify(doc), { status: 200 });
+          return new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
+        }
         return new Response(JSON.stringify(options.firestoreDoc), { status: 200 });
       }
       return new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
@@ -826,6 +834,227 @@ await testAsync('23. /api/user-status returns Free fallback when Starter tier is
   } finally {
     restoreFetch();
   }
+});
+
+await testAsync('24. Active Starter user verifies a valid Lifetime order -> entitlement becomes lifetime', async () => {
+  const starterOrderId = 'order_starter_prev';
+  const lifetimeOrderId = 'order_lifetime_upgrade';
+  const lifetimePaymentId = 'pay_lifetime_upgrade';
+  const sig = await hmac(mockEnv.RAZORPAY_KEY_SECRET, `${lifetimeOrderId}|${lifetimePaymentId}`);
+  const futureDate = new Date(Date.now() + 20 * 86400000).toISOString();
+
+  const options = {
+    orderAmount: 49900,
+    paymentAmount: 49900,
+    paymentOrderId: lifetimeOrderId,
+    orderNotes: { uid: 'user_upgrade', product: PRODUCT, tier: 'lifetime' },
+    paymentStatus: 'captured',
+    firestoreDoc: (url) => {
+      if (url.includes('/documents/entitlements/user_upgrade')) {
+        return {
+          fields: {
+            paid: { booleanValue: true },
+            tier: { stringValue: 'starter' },
+            maxLevel: { integerValue: '3' },
+            games: { arrayValue: { values: [{ stringValue: 'race' }, { stringValue: 'mystery' }, { stringValue: 'match' }] } },
+            expiresAt: { stringValue: futureDate },
+            orderId: { stringValue: starterOrderId },
+            paymentId: { stringValue: 'pay_starter_prev' }
+          }
+        };
+      }
+      return null;
+    }
+  };
+  setupMockFetch(options);
+  try {
+    const req = new Request('https://abacus-buddy.com/api/verify-payment', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + createMockToken('user_upgrade'),
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        razorpay_order_id: lifetimeOrderId,
+        razorpay_payment_id: lifetimePaymentId,
+        razorpay_signature: sig
+      })
+    });
+    const res = await main(req, mockEnv);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.paid, true);
+    assert.strictEqual(data.tier, 'lifetime');
+    assert.strictEqual(data.maxLevel, 15);
+    assert.strictEqual(data.expiresAt, null);
+    assert.deepStrictEqual(data.games, ALL_GAMES);
+
+    const written = options.lastFirestoreWrite?.fields;
+    assert.ok(written, 'Firestore entitlement should be updated to lifetime');
+    assert.strictEqual(written.tier?.stringValue, 'lifetime');
+    assert.strictEqual(written.maxLevel?.integerValue, '15');
+    assert.strictEqual(written.orderId?.stringValue, lifetimeOrderId);
+    assert.strictEqual(written.paymentId?.stringValue, lifetimePaymentId);
+    assert.strictEqual(written.expiresAt?.nullValue, null);
+  } finally {
+    restoreFetch();
+  }
+});
+
+await testAsync('25. Verifying the same Starter order twice does not change expiresAt', async () => {
+  const sameOrderId = 'order_starter_same';
+  const samePaymentId = 'pay_starter_same';
+  const sig = await hmac(mockEnv.RAZORPAY_KEY_SECRET, `${sameOrderId}|${samePaymentId}`);
+  const fixedExpiresAt = '2026-11-01T12:00:00.000Z';
+
+  const options = {
+    orderAmount: 9900,
+    paymentAmount: 9900,
+    paymentOrderId: sameOrderId,
+    orderNotes: { uid: 'user_idempotent', product: PRODUCT, tier: 'starter' },
+    paymentStatus: 'captured',
+    firestoreDoc: (url) => {
+      if (url.includes('/documents/entitlements/user_idempotent')) {
+        return {
+          fields: {
+            paid: { booleanValue: true },
+            tier: { stringValue: 'starter' },
+            maxLevel: { integerValue: '3' },
+            games: { arrayValue: { values: [{ stringValue: 'race' }, { stringValue: 'mystery' }, { stringValue: 'match' }] } },
+            expiresAt: { stringValue: fixedExpiresAt },
+            orderId: { stringValue: sameOrderId },
+            paymentId: { stringValue: samePaymentId }
+          }
+        };
+      }
+      return null;
+    }
+  };
+  setupMockFetch(options);
+  try {
+    const req = new Request('https://abacus-buddy.com/api/verify-payment', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + createMockToken('user_idempotent'),
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        razorpay_order_id: sameOrderId,
+        razorpay_payment_id: samePaymentId,
+        razorpay_signature: sig
+      })
+    });
+    const res = await main(req, mockEnv);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.paid, true);
+    assert.strictEqual(data.tier, 'starter');
+    assert.strictEqual(data.expiresAt, fixedExpiresAt);
+    assert.strictEqual(data.maxLevel, 3);
+    assert.deepStrictEqual(data.games, ['race', 'mystery', 'match']);
+
+    assert.strictEqual(options.lastFirestoreWrite, undefined, 'Must not rewrite entitlement on repeat verify');
+  } finally {
+    restoreFetch();
+  }
+});
+
+await testAsync('26. Duplicate webhook for the same Starter order does not change expiresAt', async () => {
+  const sameOrderId = 'order_starter_webhook_same';
+  const samePaymentId = 'pay_starter_webhook_same';
+  const fixedExpiresAt = '2026-11-01T12:00:00.000Z';
+
+  const options = {
+    firestoreDoc: (url) => {
+      if (url.includes('/documents/entitlements/user_webhook_same')) {
+        return {
+          fields: {
+            paid: { booleanValue: true },
+            tier: { stringValue: 'starter' },
+            maxLevel: { integerValue: '3' },
+            games: { arrayValue: { values: [{ stringValue: 'race' }, { stringValue: 'mystery' }, { stringValue: 'match' }] } },
+            expiresAt: { stringValue: fixedExpiresAt },
+            orderId: { stringValue: sameOrderId },
+            paymentId: { stringValue: samePaymentId }
+          }
+        };
+      }
+      return null;
+    }
+  };
+  setupMockFetch(options);
+  try {
+    const payload = JSON.stringify({
+      event: 'payment.captured',
+      payload: {
+        payment: {
+          entity: {
+            id: samePaymentId,
+            order_id: sameOrderId,
+            amount: 9900,
+            currency: 'INR',
+            notes: { uid: 'user_webhook_same', product: PRODUCT, tier: 'starter' }
+          }
+        }
+      }
+    });
+    const sig = await hmac(mockEnv.RAZORPAY_WEBHOOK_SECRET, payload);
+    const req = new Request('https://abacus-buddy.com/api/razorpay-webhook', {
+      method: 'POST',
+      headers: {
+        'x-razorpay-signature': sig,
+        'content-type': 'application/json'
+      },
+      body: payload
+    });
+    const res = await main(req, mockEnv);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.ok, true);
+
+    const entitlementWrites = (options.firestoreWrites || []).filter(w => w.url.includes('/documents/entitlements/'));
+    assert.strictEqual(entitlementWrites.length, 0, 'Must not rewrite entitlement on duplicate webhook for same order');
+  } finally {
+    restoreFetch();
+  }
+});
+
+await testAsync('27. /api/verify-payment with no Authorization returns 401, invalid JSON returns 400', async () => {
+  setupMockFetch();
+  try {
+    // 27a. Missing Authorization header
+    const reqNoAuth = new Request('https://abacus-buddy.com/api/verify-payment', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ razorpay_order_id: 'ord_1', razorpay_payment_id: 'pay_1' })
+    });
+    const resNoAuth = await main(reqNoAuth, mockEnv);
+    assert.strictEqual(resNoAuth.status, 401);
+    const dataNoAuth = await resNoAuth.json();
+    assert.strictEqual(dataNoAuth.error, 'missing authorization');
+
+    // 27b. Invalid JSON body
+    const reqBadJson = new Request('https://abacus-buddy.com/api/verify-payment', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + createMockToken('user_test'),
+        'content-type': 'application/json'
+      },
+      body: 'invalid-non-json-body'
+    });
+    const resBadJson = await main(reqBadJson, mockEnv);
+    assert.strictEqual(resBadJson.status, 400);
+    const dataBadJson = await resBadJson.json();
+    assert.strictEqual(dataBadJson.error, 'Invalid request body');
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('28. sw.js cache name bumped to v8 and SHELL contains ./js/tiers.js', () => {
+  const swContent = fs.readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  assert.ok(swContent.includes("const CACHE = 'abacus-buddy-v8';"), 'sw.js must have CACHE abacus-buddy-v8');
+  assert.ok(swContent.includes("'./js/tiers.js'"), 'sw.js SHELL must contain ./js/tiers.js');
 });
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
