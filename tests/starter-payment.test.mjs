@@ -1104,6 +1104,94 @@ await test('20.1 payments.js preserves cached paid entitlement when user-status 
   assert.ok(paymentsCode.includes('export const isStarterEnabled = () => starterEnabled;'), 'Exports isStarterEnabled helper');
 });
 
+async function runPaymentsWithFetchMock(fetchMock, initialCache) {
+  const { readFileSync } = await import('node:fs');
+  const vm = await import('node:vm');
+  let code = readFileSync(new URL('../js/payments.js', import.meta.url), 'utf8');
+  code = code.replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']*firebase\/auth\.js["'];/, 
+    'let _u = { uid: "test-user-preservation", getIdToken: async () => "mock-token" }; const initFirebase=()=>{}; const getAuthInstance=()=>({currentUser:_u}); const onAuthChange=cb=>{cb(_u); return ()=>{}};');
+  code = code.replace(/import\s*\{[^}]*\}\s*from\s*["']\.\/store\.js["'];/, 'const pingVisit=()=>{};');
+  code = code.replace(/import\s*\{[^}]*\}\s*from\s*["']\.\/tiers\.js["'];/, `
+    const TIERS = { free: { maxLevel: 1, games: ["race"], maxLesson: 1, freePlay: false } };
+    const getTierConfig = () => ({ maxLevel: 15, games: ["race"], maxLesson: 11, freePlay: true });
+    const isFreePlayAllowedForTier = () => true;
+  `);
+  code = code.replace(/export\s+(default\s+)?/g, '');
+
+  const store = {};
+  if (initialCache) {
+    store['abacus-entitlement-v1'] = JSON.stringify(initialCache);
+  }
+  const mockLocalStorage = {
+    getItem: k => store[k] ?? null,
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: k => { delete store[k]; },
+    clear: () => { Object.keys(store).forEach(k => delete store[k]); }
+  };
+
+  const context = {
+    console: { warn: () => {}, log: () => {}, error: () => {} },
+    localStorage: mockLocalStorage,
+    setTimeout,
+    clearTimeout,
+    Date,
+    JSON,
+    Error,
+    Promise,
+    Boolean,
+    Response,
+    fetch: fetchMock
+  };
+
+  vm.createContext(context);
+  vm.runInContext(code + '\n; globalThis.refresh = refreshEntitlement; globalThis.isPaid = isPaid; globalThis.getEntitlement = getEntitlement;', context);
+  const paidResult = await context.refresh();
+  return {
+    paidResult,
+    isPaid: context.isPaid(),
+    entitlement: context.getEntitlement(),
+    cache: store['abacus-entitlement-v1'] ? JSON.parse(store['abacus-entitlement-v1']) : null
+  };
+}
+
+await test('20.2 payments.js preserves cached paid entitlement and cache unchanged on real 401 response', async () => {
+  const initialCache = {
+    uid: 'test-user-preservation',
+    paid: true,
+    tier: 'lifetime',
+    entitlement: { paid: true, tier: 'lifetime', maxLevel: 15, games: ['race'], maxLesson: 11, freePlay: true, expiresAt: null, expired: false }
+  };
+  const result = await runPaymentsWithFetchMock(
+    async () => new Response(JSON.stringify({ error: 'missing authorization' }), { status: 401, headers: { 'Content-Type': 'application/json' } }),
+    initialCache
+  );
+  assert.equal(result.paidResult, true, 'refreshEntitlement() must return true when cached user gets 401');
+  assert.equal(result.isPaid, true, 'isPaid() must remain true');
+  assert.equal(result.entitlement.paid, true, 'entitlement.paid must remain true');
+  assert.equal(result.entitlement.tier, 'lifetime', 'entitlement.tier must remain lifetime');
+  assert.equal(result.cache.paid, true, 'cache must stay paid:true');
+  assert.equal(result.cache.tier, 'lifetime', 'cache must stay lifetime');
+});
+
+await test('20.3 payments.js preserves cached paid entitlement and cache unchanged on real 500 response', async () => {
+  const initialCache = {
+    uid: 'test-user-preservation',
+    paid: true,
+    tier: 'starter',
+    entitlement: { paid: true, tier: 'starter', maxLevel: 6, games: ['race', 'mystery', 'match', 'flash'], maxLesson: 6, freePlay: true, expiresAt: '2026-11-01T00:00:00Z', expired: false }
+  };
+  const result = await runPaymentsWithFetchMock(
+    async () => new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500, headers: { 'Content-Type': 'application/json' } }),
+    initialCache
+  );
+  assert.equal(result.paidResult, true, 'refreshEntitlement() must return true when cached user gets 500');
+  assert.equal(result.isPaid, true, 'isPaid() must remain true');
+  assert.equal(result.entitlement.paid, true, 'entitlement.paid must remain true');
+  assert.equal(result.entitlement.tier, 'starter', 'entitlement.tier must remain starter');
+  assert.equal(result.cache.paid, true, 'cache must stay paid:true');
+  assert.equal(result.cache.tier, 'starter', 'cache must stay starter');
+});
+
 // ── 21. DISPLAY TEXT AUDIT: NO USER-FACING LIFETIME OR வாழ்நாள் ─────────────
 await test('21.1 No visible user-facing text uses Lifetime or வாழ்நாள்', async () => {
   const { readFileSync } = await import('node:fs');

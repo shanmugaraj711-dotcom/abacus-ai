@@ -1711,7 +1711,33 @@ await test('Correction J: Existing payment/entitlement behavior remains unchange
   const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
   assert.ok(workerSrc.includes('const PRICE = 49900;'), '₹499 fixed price preserved');
   assert.ok(workerSrc.includes('const PRODUCT = "abacus-buddy";'), 'Product name preserved');
-  assert.ok(workerSrc.includes('if(existing?.paid){return json({paid:true});}'), 'Idempotency preserved');
+
+  // Behavioural test: legacy paid:true user plus lifetime user calling verify-payment return paid without being rewritten
+  const legacyUid = 'test-j-legacy-user';
+  server.expose.entitlements[legacyUid] = { paid: true, paidAt: '2026-01-01T00:00:00Z' }; // legacy: no tier
+  const legacyAuditBefore = server.expose.auditLog.length;
+  const legacyRes = await fetch(`${BASE}/api/verify-payment`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(legacyUid), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ razorpay_order_id: 'ord_leg', razorpay_payment_id: 'pay_leg', razorpay_signature: 'any' }),
+  });
+  assert.equal(legacyRes.status, 200);
+  const legacyData = await legacyRes.json();
+  assert.equal(legacyData.paid, true);
+  assert.equal(server.expose.auditLog.length, legacyAuditBefore, 'Legacy paid user must not be rewritten in audit log');
+
+  const lifetimeUid = 'test-j-lifetime-user';
+  server.expose.entitlements[lifetimeUid] = { paid: true, tier: 'lifetime', paidAt: '2026-01-01T00:00:00Z' };
+  const lifetimeAuditBefore = server.expose.auditLog.length;
+  const lifetimeRes = await fetch(`${BASE}/api/verify-payment`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(lifetimeUid), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ razorpay_order_id: 'ord_life', razorpay_payment_id: 'pay_life', razorpay_signature: 'any' }),
+  });
+  assert.equal(lifetimeRes.status, 200);
+  const lifetimeData = await lifetimeRes.json();
+  assert.equal(lifetimeData.paid, true);
+  assert.equal(server.expose.auditLog.length, lifetimeAuditBefore, 'Lifetime user must not be rewritten in audit log');
 });
 
 // ── Test K: Existing owner authentication remains unchanged ─────────────────

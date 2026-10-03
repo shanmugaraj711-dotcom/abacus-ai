@@ -628,7 +628,7 @@ async function main(req,env){
 
     const existing=await getEntitlement(env,user.uid);
     // Short-circuit {paid:true} ONLY if:
-    // (a) existing.tier === 'lifetime' (preserves if(existing?.paid){return json({paid:true});})
+    // (a) existing.tier === 'lifetime' or legacy (!existing.tier)
     // (b) existing.orderId === String(b.razorpay_order_id)
     if(existing?.paid){
       if(existing.tier === "lifetime" || !existing.tier || (existing.orderId && existing.orderId === String(b.razorpay_order_id))){

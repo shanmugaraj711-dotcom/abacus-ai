@@ -773,12 +773,42 @@ async function runE2ESuite() {
         await page.reload();
         await page.waitForTimeout(300);
 
-        // Also take #/starter screenshot for free and starter
+        // Also take #/starter screenshot for free and starter (EN + TA)
         if (stateKey === 'free' || stateKey === 'starter') {
           await page.evaluate(() => { location.hash = '#/starter'; });
           await page.waitForTimeout(300);
           const enPath = path.join(SCREENSHOT_DIR, `${stateKey}-starter-screen-en.png`);
           await page.screenshot({ path: enPath });
+
+          // Tamil screenshot for #/starter
+          await page.evaluate(() => {
+            const raw = localStorage.getItem('abacus-kids-v3');
+            if (raw) {
+              const data = JSON.parse(raw);
+              data.profile.lang = 'ta';
+              data.profile.voiceLang = 'ta';
+              localStorage.setItem('abacus-kids-v3', JSON.stringify(data));
+            }
+            location.hash = '#/starter';
+          });
+          await page.reload();
+          await page.waitForTimeout(300);
+          const taPath = path.join(SCREENSHOT_DIR, `${stateKey}-starter-screen-ta.png`);
+          await page.screenshot({ path: taPath });
+
+          // Restore EN profile
+          await page.evaluate(() => {
+            const raw = localStorage.getItem('abacus-kids-v3');
+            if (raw) {
+              const data = JSON.parse(raw);
+              data.profile.lang = 'en';
+              data.profile.voiceLang = 'en';
+              localStorage.setItem('abacus-kids-v3', JSON.stringify(data));
+            }
+            location.hash = '#/parents';
+          });
+          await page.reload();
+          await page.waitForTimeout(300);
         }
       }
 
@@ -880,10 +910,10 @@ async function runE2ESuite() {
     await payPage.evaluate(() => { window.__mockRazorpayBehavior = 'fail'; });
 
     // Double-tap rapidly on #starter-buy-btn
-    await Promise.all([
-      payPage.click('#starter-buy-btn'),
-      payPage.click('#starter-buy-btn').catch(() => {})
-    ]);
+    await payPage.evaluate(() => {
+      const btn = document.getElementById('starter-buy-btn');
+      if (btn) { btn.click(); btn.click(); }
+    });
     await payPage.waitForTimeout(400);
 
     assert.equal(createdOrderCalls.length, 1, 'Double tap sends exactly ONE create-order call');
