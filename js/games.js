@@ -29,11 +29,7 @@ export const GAMES = [
   { id: 'ladder', flag: 'gameLadder', emoji: '🪜', name: 'Bead Ladder', desc: 'Climb as high as you can — it keeps getting harder', best: 'rungs', cls: 'ladder' },
 ];
 
-export function gameAllowed(id) {
-  const allowedGames = getGames();
-  if (!allowedGames) return false;
-  return allowedGames.includes(id);
-}
+export const gameAllowed = id => canAccessGame(id);
 
 const bestOf = (id, mode) => state.games[`${id}_${mode}`] ?? (mode === 'star' ? state.games[id] : undefined) ?? 0;
 function saveBest(id, mode, value, lower = false) {

@@ -11,17 +11,24 @@ export const ALL_GAMES = [
   "ladder"
 ];
 
+export const STARTER_GAMES = [
+  "race",
+  "mystery",
+  "match",
+  "flash"
+];
+
 export const TIERS = {
   free: {
     id: "free",
     productId: "abacus-buddy",
     name: "Free",
     offerTitle: "Free Practice",
-    description: "Level 1 and 1 bead game",
+    description: "Level 1, Lesson 1, and 1 bead game",
     pricePaise: 0,
     durationDays: null,
     maxLevel: 1,
-    maxLesson: 6,
+    maxLesson: 1,
     games: ["race"],
     freePlay: false,
   },
@@ -30,20 +37,20 @@ export const TIERS = {
     productId: "abacus-buddy",
     name: "Abacus Buddy Starter",
     offerTitle: "Abacus Buddy Starter",
-    description: "30 days access to Levels 1–3 and 3 bead games",
+    description: "30 days access to Levels 1–6, Lessons 1–6, 4 bead games, and Free Play",
     pricePaise: 9900,
     durationDays: 30,
-    maxLevel: 3,
-    maxLesson: 7,
-    games: ["race", "mystery", "match"],
+    maxLevel: 6,
+    maxLesson: 6,
+    games: STARTER_GAMES,
     freePlay: true,
   },
   lifetime: {
     id: "lifetime",
     productId: "abacus-buddy",
     name: "Abacus Buddy Lifetime",
-    offerTitle: "Unlock Levels 4–15",
-    description: "Lifetime unlock for all levels and all bead games",
+    offerTitle: "Abacus Buddy Lifetime",
+    description: "Lifetime unlock for all levels, all lessons, all bead games, and Free Play",
     pricePaise: 49900,
     durationDays: null,
     maxLevel: 15,

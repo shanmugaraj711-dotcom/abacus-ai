@@ -383,7 +383,7 @@ try {
     assert.equal(res.level15Allowed, true);
   });
 
-  await itAsync(22, 'Free registered user rules (Levels 1–2 open, 3–15 require unlock; Games 1–2 open, remaining require unlock)', async () => {
+  await itAsync(22, 'Free registered user rules (Level 1 open, 2–15 require unlock; Game 1 race open, remaining require unlock)', async () => {
     const res = await page.evaluate(async () => {
       window.__mockUser = { uid: 'free-reg-uid', email: 'freereg@example.com' };
       const payMod = await import('/js/payments.js');
@@ -408,12 +408,12 @@ try {
     });
     assert.equal(res.isGuest, false);
     assert.equal(res.level1, true, 'Level 1 must be open for free registered users');
-    assert.equal(res.level2, true, 'Level 2 must be open for free registered users');
+    assert.equal(res.level2, false, 'Level 2 must be locked for free registered users');
     assert.equal(res.level3, false, 'Level 3 must be locked for free registered users');
     assert.equal(res.level4, false, 'Level 4 must be locked for free registered users');
     assert.equal(res.level15, false, 'Level 15 must be locked for free registered users');
     assert.equal(res.raceGame, true, 'Game 1 race must be free for registered users');
-    assert.equal(res.mysteryGame, true, 'Game 2 mystery must be free for registered users');
+    assert.equal(res.mysteryGame, false, 'Game 2 mystery must be locked for free registered users');
     assert.equal(res.matchGame, false, 'Game 3 match must be locked for free registered users');
     assert.equal(res.flashGame, false, 'Game 4 flash must be locked for free registered users');
     assert.equal(res.speedGame, false, 'Game 5 speed must be locked for free registered users');
@@ -766,7 +766,7 @@ try {
       };
     });
     assert.equal(res.level1, true);
-    assert.equal(res.level2, true);
+    assert.equal(res.level2, false, 'Tampered unlocked=15 MUST NOT grant Level 2');
     assert.equal(res.level3, false, 'Tampered unlocked=15 MUST NOT grant Level 3');
     assert.equal(res.level15, false, 'Tampered unlocked=15 MUST NOT grant Level 15');
     assert.equal(res.gameMatch, false, 'Tampered unlocked=15 MUST NOT grant Bead Match');

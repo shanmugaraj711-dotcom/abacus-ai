@@ -49,13 +49,9 @@ const STICKERS = [
 ];
 const earned = () => STICKERS.filter(x => x.ok());
 export const freeMax = () => TIERS.free.maxLevel;
-export const playableMax = () => {
-  const t = getTier();
-  const cfg = getTierConfig(t);
-  return cfg.maxLevel;
-};
-export const levelAllowed = id => id >= 1 && id <= playableMax();
-export const maxLessonAllowed = () => getMaxLesson();
+export const playableMax = () => (isGuestUser() ? 1 : getMaxLevel());
+export const levelAllowed = id => id >= 1 && canAccessLevel(id);
+export const maxLessonAllowed = () => (isGuestUser() ? 1 : getMaxLesson());
 export const lessonAllowed = id => id >= 1 && id <= maxLessonAllowed();
 
 function unlock() {
@@ -70,7 +66,7 @@ function unlock() {
       <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>மட்டும்.' : '<span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>'}</p>
       <p class="muted">${isTa ? 'சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
       <ul class="muted">
-        <li>${isTa ? 'லெவல்கள் 1–2 மற்றும் அறிமுக விளையாட்டுகள் எப்போதும் இலவசம்.' : 'Levels 1–2 and starter games stay free.'}</li>
+        <li>${isTa ? 'லெவல் 1, பாடம் 1 மற்றும் 1 அறிமுக விளையாட்டு எப்போதும் இலவசம்.' : 'Level 1, Lesson 1, and 1 starter game stay free.'}</li>
         <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 3–15 மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 3–15 and all games unlock permanently for this account.'}</li>
         <li>${isTa ? 'Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்.' : 'Payment is processed securely by Razorpay.'}</li>
       </ul>

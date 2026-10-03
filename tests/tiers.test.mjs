@@ -10,6 +10,7 @@ import {
   TIERS,
   DEFAULT_TIER,
   ALL_GAMES,
+  STARTER_GAMES,
   getTierConfig,
   isLevelAllowedForTier,
   levelAllowed,
@@ -20,6 +21,8 @@ import {
   isFreePlayAllowedForTier,
   freePlayAllowed
 } from '../js/tiers.js';
+
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -43,35 +46,35 @@ console.log('=== Tier Model & Access Limits Test Suite ===\n');
 
 // ── 1. Tier Configuration Tests ──────────────────────────────────────────────
 
-test('1. Free tier config matches specification', () => {
+test('1. Free tier config matches specification (1 level, 1 lesson, 1 game, no free play)', () => {
   const cfg = TIERS.free;
   assert.equal(cfg.id, 'free');
   assert.equal(cfg.pricePaise, 0);
   assert.equal(cfg.maxLevel, 1);
+  assert.equal(cfg.maxLesson, 1);
   assert.deepEqual(cfg.games, ['race']);
-  assert.equal(cfg.maxLesson, 6);
   assert.equal(cfg.freePlay, false);
   assert.equal(cfg.durationDays, null);
 });
 
-test('2. Starter tier config matches specification', () => {
+test('2. Starter tier config matches specification (6 levels, 6 lessons, 4 games, free play, 30 days)', () => {
   const cfg = TIERS.starter;
   assert.equal(cfg.id, 'starter');
   assert.equal(cfg.pricePaise, 9900);
-  assert.equal(cfg.maxLevel, 3);
-  assert.deepEqual(cfg.games, ['race', 'mystery', 'match']);
-  assert.equal(cfg.maxLesson, 7);
+  assert.equal(cfg.maxLevel, 6);
+  assert.equal(cfg.maxLesson, 6);
+  assert.deepEqual(cfg.games, ['race', 'mystery', 'match', 'flash']);
   assert.equal(cfg.freePlay, true);
   assert.equal(cfg.durationDays, 30);
 });
 
-test('3. Lifetime tier config matches specification', () => {
+test('3. Lifetime tier config matches specification (15 levels, 11 lessons, 7 games, free play, lifetime)', () => {
   const cfg = TIERS.lifetime;
   assert.equal(cfg.id, 'lifetime');
   assert.equal(cfg.pricePaise, 49900);
   assert.equal(cfg.maxLevel, 15);
-  assert.deepEqual(cfg.games, ALL_GAMES);
   assert.equal(cfg.maxLesson, 11);
+  assert.deepEqual(cfg.games, ALL_GAMES);
   assert.equal(cfg.freePlay, true);
   assert.equal(cfg.durationDays, null);
 });
@@ -129,8 +132,8 @@ test('7. Expired starter resolves to Free access limits', () => {
 
   assert.equal(effectiveTier, 'free');
   assert.equal(cfg.maxLevel, 1);
+  assert.equal(cfg.maxLesson, 1);
   assert.deepEqual(cfg.games, ['race']);
-  assert.equal(cfg.maxLesson, 6);
   assert.equal(cfg.freePlay, false);
 
   // Level access
@@ -144,8 +147,8 @@ test('7. Expired starter resolves to Free access limits', () => {
   assert.equal(gameAllowed('match', cfg), false);
 
   // Lesson access
-  assert.equal(lessonAllowed(6, cfg), true);
-  assert.equal(lessonAllowed(7, cfg), false);
+  assert.equal(lessonAllowed(1, cfg), true);
+  assert.equal(lessonAllowed(2, cfg), false);
 
   // Free play
   assert.equal(freePlayAllowed(cfg), false);
@@ -161,12 +164,12 @@ test('8. Level gating for Free: Level 1 allowed, Levels 2..15 blocked', () => {
   }
 });
 
-test('9. Level gating for Starter: Levels 1..3 allowed, Levels 4..15 blocked', () => {
+test('9. Level gating for Starter: Levels 1..6 allowed, Levels 7..15 blocked', () => {
   const cfg = TIERS.starter;
-  assert.equal(levelAllowed(1, cfg), true);
-  assert.equal(levelAllowed(2, cfg), true);
-  assert.equal(levelAllowed(3, cfg), true);
-  for (let lv = 4; lv <= 15; lv++) {
+  for (let lv = 1; lv <= 6; lv++) {
+    assert.equal(levelAllowed(lv, cfg), true, `Level ${lv} should be allowed for starter`);
+  }
+  for (let lv = 7; lv <= 15; lv++) {
     assert.equal(levelAllowed(lv, cfg), false, `Level ${lv} should be blocked for starter`);
   }
 });
@@ -192,12 +195,12 @@ test('11. Game gating for Free: race allowed; mystery, match, and others blocked
   assert.equal(gameAllowed('ladder', cfg), false);
 });
 
-test('12. Game gating for Starter: race, mystery, match allowed; others blocked', () => {
+test('12. Game gating for Starter: race, mystery, match, flash allowed (4 games); speed, friend, ladder blocked', () => {
   const cfg = TIERS.starter;
   assert.equal(gameAllowed('race', cfg), true);
   assert.equal(gameAllowed('mystery', cfg), true);
   assert.equal(gameAllowed('match', cfg), true);
-  assert.equal(gameAllowed('flash', cfg), false);
+  assert.equal(gameAllowed('flash', cfg), true);
   assert.equal(gameAllowed('speed', cfg), false);
   assert.equal(gameAllowed('friend', cfg), false);
   assert.equal(gameAllowed('ladder', cfg), false);
@@ -212,22 +215,20 @@ test('13. Game gating for Lifetime: all 7 games allowed', () => {
 
 // ── 7. Lesson Gating Matrix ─────────────────────────────────────────────────
 
-test('14. Lesson gating for Free: Lessons 1..6 allowed, Lessons 7..11 blocked', () => {
+test('14. Lesson gating for Free: Lesson 1 allowed, Lessons 2..11 blocked', () => {
   const cfg = TIERS.free;
-  for (let l = 1; l <= 6; l++) {
-    assert.equal(lessonAllowed(l, cfg), true, `Lesson ${l} should be allowed for free`);
-  }
-  for (let l = 7; l <= 11; l++) {
+  assert.equal(lessonAllowed(1, cfg), true, 'Lesson 1 should be allowed for free');
+  for (let l = 2; l <= 11; l++) {
     assert.equal(lessonAllowed(l, cfg), false, `Lesson ${l} should be blocked for free`);
   }
 });
 
-test('15. Lesson gating for Starter: Lessons 1..7 allowed, Lessons 8..11 blocked', () => {
+test('15. Lesson gating for Starter: Lessons 1..6 allowed, Lessons 7..11 blocked', () => {
   const cfg = TIERS.starter;
-  for (let l = 1; l <= 7; l++) {
+  for (let l = 1; l <= 6; l++) {
     assert.equal(lessonAllowed(l, cfg), true, `Lesson ${l} should be allowed for starter`);
   }
-  for (let l = 8; l <= 11; l++) {
+  for (let l = 7; l <= 11; l++) {
     assert.equal(lessonAllowed(l, cfg), false, `Lesson ${l} should be blocked for starter`);
   }
 });
@@ -248,7 +249,7 @@ test('17. Free Play gating: blocked for Free, allowed for Starter and Lifetime',
   assert.equal(freePlayAllowed(TIERS.lifetime), true);
 });
 
-// ── 9. Regression Test against main ─────────────────────────────────────────
+// ── 9. Regression Test against main for Lifetime paid user ──────────────────
 
 test('18. Lifetime tier provides identical unrestricted access to current main paid users', () => {
   const cfg = TIERS.lifetime;
@@ -257,17 +258,21 @@ test('18. Lifetime tier provides identical unrestricted access to current main p
   assert.equal(cfg.freePlay, true);
   assert.equal(cfg.games.length, 7);
   ALL_GAMES.forEach(g => assert.ok(cfg.games.includes(g)));
+  for (let lv = 1; lv <= 15; lv++) assert.equal(levelAllowed(lv, cfg), true);
+  for (let l = 1; l <= 11; l++) assert.equal(lessonAllowed(l, cfg), true);
+  ALL_GAMES.forEach(g => assert.equal(gameAllowed(g, cfg), true));
 });
 
-test('19. Free tier default provides baseline level 1 access, race game, and lessons 1-6', () => {
-  const cfg = TIERS.free;
-  assert.equal(cfg.maxLevel, 1);
-  assert.equal(cfg.maxLesson, 6);
-  assert.equal(cfg.freePlay, false);
-  assert.deepEqual(cfg.games, ['race']);
+// ── 10. Single Source of Truth Alignment Check ──────────────────────────────
+
+test('19. Single source of truth: js/access.js uses tier definitions', async () => {
+  const accessSrc = readFileSync(resolve(ROOT, 'js/access.js'), 'utf8');
+  assert.ok(accessSrc.includes("import { TIERS } from './tiers.js'"), 'access.js must import TIERS');
+  assert.ok(accessSrc.includes('getMaxLevel'), 'access.js must use getMaxLevel');
+  assert.ok(accessSrc.includes('getGames'), 'access.js must use getGames');
 });
 
-// ── 10. Service Worker Cache & Shell Check ──────────────────────────────────
+// ── 11. Service Worker Cache & Shell Check ──────────────────────────────────
 
 test('20. sw.js cache name is bumped to v8 and SHELL contains ./js/tiers.js', () => {
   const swSrc = readFileSync(resolve(ROOT, 'sw.js'), 'utf8');
@@ -275,7 +280,7 @@ test('20. sw.js cache name is bumped to v8 and SHELL contains ./js/tiers.js', ()
   assert.ok(swSrc.includes("'./js/tiers.js'"), 'sw.js SHELL must include ./js/tiers.js');
 });
 
-// ── 11. Static Import Graph Integrity Check ─────────────────────────────────
+// ── 12. Static Import Graph Integrity Check ─────────────────────────────────
 
 function getNamedImports(src) {
   const imports = [];
@@ -303,8 +308,8 @@ function getExports(src) {
   return exports;
 }
 
-test('21. Static import graph integrity check: no missing exports between app, games, payments, tiers', () => {
-  const files = ['js/app.js', 'js/games.js', 'js/payments.js', 'js/tiers.js'];
+test('21. Static import graph integrity check: no missing exports between app, games, payments, tiers, access', () => {
+  const files = ['js/app.js', 'js/games.js', 'js/payments.js', 'js/tiers.js', 'js/access.js'];
   const exportsMap = new Map();
   for (const f of files) {
     exportsMap.set(f, getExports(readFileSync(resolve(ROOT, f), 'utf8')));
