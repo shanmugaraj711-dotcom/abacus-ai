@@ -1,47 +1,23 @@
 /**
  * auth/auth-state.js
- * Auth state observer and unified Google + Email authentication management.
+ * Phase 1 — Auth state observer and signed-in/signed-out UI management.
+ *
+ * Responsibilities:
+ *   - Call initFirebase() on load (catches unconfigured state gracefully).
+ *   - Watch onAuthStateChanged and update the UI accordingly.
+ *   - Show the signed-in panel when a user is authenticated.
+ *   - Show the sign-in form when no user is present.
+ *   - Wire the sign-out button.
  */
 
-import {
-  initFirebase,
-  onAuthChange,
-  signOut,
-  signInWithGoogle,
-  getGoogleRedirectResult,
-} from "../firebase/auth.js";
+import { initFirebase, onAuthChange, signOut, signInWithGoogle, getGoogleRedirectResult } from "../firebase/auth.js";
 import { isConfigured } from "../firebase/config.js";
 import { initSignIn } from "./sign-in.js";
-import { trackFunnelEvent, FUNNEL_EVENTS } from "../js/events.js";
+import { initOtpVerification } from "./otp-verification.js";
 
-export function getSafeReturnUrl() {
-  const params = new URLSearchParams(window.location.search);
-  let rawReturn = params.get("return") || "../#unlock";
-
-  try {
-    rawReturn = decodeURIComponent(rawReturn);
-  } catch {}
-
-  // If window.location.hash exists and wasn't included in return parameter, preserve it
-  if (window.location.hash && !rawReturn.includes("#")) {
-    rawReturn += window.location.hash;
-  }
-
-  // Security check: Only allow relative paths starting with / or ./ or ../
-  // Prevent protocol relative (//) or external scheme redirects
-  if (rawReturn.startsWith("//") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawReturn)) {
-    return "../#unlock";
-  }
-
-  return rawReturn;
-}
-
+/** Entry point — call this from sign-in.html's <script type="module">. */
 export function initAuthUI() {
   // ── Guard: config not filled in ─────────────────────────────────────────
-  const initialReturn = getSafeReturnUrl();
-  const earlyContBtn = document.getElementById("phase1-continue-btn");
-  if (earlyContBtn) earlyContBtn.href = initialReturn;
-
   if (!isConfigured()) {
     showConfigBlocker();
     return;
@@ -85,7 +61,7 @@ export function initAuthUI() {
         </svg>
         <span>Connecting to Google…</span>
       `;
-      const errEl = document.getElementById("phase1-auth-error");
+      const errEl = document.getElementById("phase1-phone-error");
       if (errEl) errEl.hidden = true;
 
       try {
@@ -99,7 +75,7 @@ export function initAuthUI() {
           if (err.code === "auth/popup-closed-by-user") {
             errEl.textContent = "Sign-in cancelled. Please try again.";
           } else if (err.code === "auth/popup-blocked") {
-            errEl.textContent = "Popup blocked by browser. Please allow popups or use email sign-in.";
+            errEl.textContent = "Popup blocked by browser. Please allow popups or use phone sign-in.";
           } else {
             errEl.textContent = `Google Sign-In failed: ${err.message || err.code || err}`;
           }
@@ -109,9 +85,26 @@ export function initAuthUI() {
     });
   }
 
-  // ── Initialise Email/Password form ───────────────────────────────────────
+  // ── Initialise sub-modules ───────────────────────────────────────────────
   initSignIn({
-    onSignedIn: handleSignedIn,
+    phoneInputId:      "phase1-phone",
+    countrySelectId:   "phase1-country",
+    phoneHintId:       "phase1-phone-hint",
+    sendBtnId:         "phase1-send-btn",
+    recaptchaId:       "phase1-send-btn",
+    errorId:           "phase1-phone-error",
+    resendCountdownId: "phase1-resend-countdown",
+  });
+
+  initOtpVerification({
+    otpSectionId:   "phase1-otp-section",
+    otpInputId:     "phase1-otp",
+    verifyBtnId:    "phase1-verify-btn",
+    otpErrorId:     "phase1-otp-error",
+    phoneDisplayId: "phase1-phone-display",
+    backBtnId:      "phase1-back-btn",
+    onSignedIn:     handleSignedIn,
+    onBack:         showSignInForm,
   });
 
   // ── Auth state listener ──────────────────────────────────────────────────
@@ -127,23 +120,25 @@ export function initAuthUI() {
   const signOutBtn = document.getElementById("phase1-signout-btn");
   if (signOutBtn) {
     signOutBtn.addEventListener("click", async () => {
-      signOutBtn.disabled = true;
+      signOutBtn.disabled    = true;
       signOutBtn.textContent = "Signing out…";
       try {
         await signOut();
       } catch (err) {
-        console.error("[Auth] Sign-out error:", err);
-        signOutBtn.disabled = false;
+        console.error("[Phase 1] Sign-out error:", err);
+        signOutBtn.disabled    = false;
         signOutBtn.textContent = "Sign out";
       }
     });
   }
 }
 
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+/** Called by otp-verification when Firebase confirms the credential. */
 function handleSignedIn(credential) {
   try {
     localStorage.setItem("abacus-auth-mode", "registered");
-    trackFunnelEvent(FUNNEL_EVENTS.SIGNUP, { method: credential?.user?.providerData?.[0]?.providerId || 'firebase' });
     const visitorId = localStorage.getItem("abacus-visitor-id");
     if (visitorId && credential?.user?.uid) {
       fetch("/api/visit", {
@@ -158,25 +153,30 @@ function handleSignedIn(credential) {
 
 function showSignedInPanel(user) {
   hide("phase1-signin-section");
+  hide("phase1-otp-section");
   show("phase1-signedin-section");
 
-  const dNameEl = document.getElementById("phase1-user-display-name");
-  const emailEl = document.getElementById("phase1-user-phone");
-  const uidEl = document.getElementById("phase1-user-uid");
-  const tokenEl = document.getElementById("phase1-token-status");
-  const contBtn = document.getElementById("phase1-continue-btn");
+  const dNameEl  = document.getElementById("phase1-user-display-name");
+  const nameEl   = document.getElementById("phase1-user-phone");
+  const uidEl    = document.getElementById("phase1-user-uid");
+  const tokenEl  = document.getElementById("phase1-token-status");
+  const contBtn  = document.getElementById("phase1-continue-btn");
 
-  if (dNameEl) dNameEl.textContent = user.displayName || (user.email ? user.email.split("@")[0] : "(Account)");
-  if (emailEl) emailEl.textContent = user.email || user.phoneNumber || "(no email)";
-  if (uidEl) uidEl.textContent = user.uid;
+  if (dNameEl) dNameEl.textContent = user.displayName || (user.email ? user.email.split("@")[0] : "(Google Account)");
+  if (nameEl)  nameEl.textContent  = user.email || user.phoneNumber || "(no email/phone)";
+  if (uidEl)   uidEl.textContent   = user.uid;
   if (tokenEl) tokenEl.textContent = "Signed in ✓";
 
-  const returnUrl = getSafeReturnUrl();
+  const params = new URLSearchParams(window.location.search);
+  let returnUrl = params.get("return") || "../#unlock";
+  if (window.location.hash && !returnUrl.includes("#")) {
+    returnUrl += window.location.hash;
+  }
   if (contBtn) {
     contBtn.href = returnUrl;
   }
 
-  // Retrieve ID token
+  // Retrieve the ID token and display its claim count as a smoke test
   user.getIdToken().then((token) => {
     if (tokenEl) {
       tokenEl.textContent = `ID token obtained ✓ (${token.length} chars)`;
@@ -188,9 +188,9 @@ function showSignedInPanel(user) {
 
 function showSignInForm() {
   show("phase1-signin-section");
+  hide("phase1-otp-section");
   hide("phase1-signedin-section");
   hide("phase1-config-error");
-
   const googleBtn = document.getElementById("phase1-google-btn");
   if (googleBtn) {
     googleBtn.disabled = false;
@@ -204,10 +204,15 @@ function showSignInForm() {
       <span>Sign in with Google</span>
     `;
   }
+  const phoneInput = document.getElementById("phase1-phone");
+  if (phoneInput) {
+    phoneInput.focus();
+  }
 }
 
 function showConfigBlocker(detail) {
   hide("phase1-signin-section");
+  hide("phase1-otp-section");
   hide("phase1-signedin-section");
 
   const el = document.getElementById("phase1-config-error");

@@ -255,17 +255,6 @@ html, body {
   margin-bottom: 14px;
 }
 
-.phase1-success {
-  background: var(--color-success-bg);
-  color: var(--color-success);
-  border-left: 4px solid var(--color-success);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  padding: 10px 14px;
-  font-size: .875rem;
-  font-weight: 600;
-  margin-bottom: 14px;
-}
-
 /* ── Success / signed-in panel ─────────────────────────────────────────────── */
 .phase1-success-icon {
   font-size: 3rem;
