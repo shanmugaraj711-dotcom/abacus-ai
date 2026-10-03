@@ -8,7 +8,7 @@ const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/start
 
 self.addEventListener('install', e => e.waitUntil(
   caches.open(CACHE)
-    .then(c => c.addAll(SHELL).catch(err => console.warn('[SW] Shell cache warning:', err)))
+    .then(c => c.addAll(SHELL))
     .then(() => self.skipWaiting())
 ));
 self.addEventListener('activate', e => e.waitUntil(

@@ -2,7 +2,7 @@
 // Run: node tests/tiers.test.mjs
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -425,6 +425,20 @@ test('30. Grown-ups corner never contains "Coming soon" text', () => {
   // In app.js, dashboard must not include Coming soon
   const dashboardHunk = appSrc.slice(appSrc.indexOf('function dashboard()'), appSrc.indexOf('// ---------- router ----------'));
   assert.ok(!dashboardHunk.includes('Coming soon') && !dashboardHunk.includes('விரைவில் வரும்'), 'dashboard must not contain Coming soon');
+});
+
+test('31. Every entry in sw.js SHELL array exists on disk', () => {
+  const swSrc = readFileSync(resolve(ROOT, 'sw.js'), 'utf8');
+  const match = swSrc.match(/const SHELL = (\[[\s\S]*?\]);/);
+  assert.ok(match, 'sw.js must contain SHELL array');
+  const shell = eval(match[1]);
+  assert.ok(Array.isArray(shell) && shell.length > 0, 'SHELL must be non-empty array');
+  for (const item of shell) {
+    let p = item.replace(/^\.\//, '');
+    if (p === '') p = 'index.html';
+    const fullPath = resolve(ROOT, p);
+    assert.ok(existsSync(fullPath), `SHELL entry must exist on disk: ${item} -> ${fullPath}`);
+  }
 });
 
 console.log(`\nResults: ${passed} passed, ${failed} failed`);

@@ -28,6 +28,16 @@ function createTestServer() {
     let reqPath = decodeURI(url.pathname);
 
     // Mock API endpoints for payment/entitlement flow
+    if (reqPath === '/api/visit') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ status: 'ok' }));
+    }
+
+    if (reqPath === '/api/remote-config') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({}));
+    }
+
     if (reqPath === '/api/user-status' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ paid: mockEntitled, uid: 'google_test_uid_456' }));

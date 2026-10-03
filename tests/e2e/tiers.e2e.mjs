@@ -1397,6 +1397,7 @@ async function runE2ESuite() {
       assert.ok(!lv.text.includes('Free account'), `Level ${i} (EN) must not contain "Free account"`);
     }
     passedAssertions += 16;
+    totalAssertions += 16;
     await guestPracticeContext.close();
 
     // TA Practise map
