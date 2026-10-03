@@ -205,11 +205,11 @@ test('Audio & Tamil verification suite', async (tSuite) => {
       await page.goto(`${baseUrl}/#/unlock`);
       await page.waitForSelector('.card.intro');
       const unlockText = await page.locator('.card.intro').textContent();
-      assert.match(unlockText, /அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்/, 'Unlock eyebrow in Tamil');
-      assert.match(unlockText, /லெவல்கள் 3–15/, 'Unlock display header in Tamil');
-      assert.match(unlockText, /ஒரே முறை கட்டணம் ₹499 மட்டும்/, 'Unlock lead in Tamil');
-      assert.match(unlockText, /லெவல்கள் 1–2/, 'Unlock bullet 1 in Tamil');
-      assert.match(unlockText, /இந்த கணக்கிற்கு லெவல்கள் 3–15/, 'Unlock bullet 2 in Tamil');
+      assert.match(unlockText, /அபாகஸ் பட்டி ஒரே முறை கட்டணம்/, 'Unlock eyebrow in Tamil');
+      assert.match(unlockText, /லெவல்கள் 2–15/, 'Unlock display header in Tamil');
+      assert.match(unlockText, /ஒரே முறை கட்டணம்/, 'Unlock lead in Tamil');
+      assert.match(unlockText, /லெவல் 1/, 'Unlock bullet 1 in Tamil');
+      assert.match(unlockText, /இந்த கணக்கிற்கு லெவல்கள் 2–15/, 'Unlock bullet 2 in Tamil');
       assert.match(unlockText, /Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்/, 'Unlock bullet 3 in Tamil');
       assert.match(unlockText, /தொடங்க உள்நுழையவும்/, 'Sign-in CTA button in Tamil');
       assert.match(unlockText, /இப்போது வேண்டாம்/, 'Not now button in Tamil');
@@ -219,7 +219,7 @@ test('Audio & Tamil verification suite', async (tSuite) => {
       await page.waitForSelector('.levels');
       const practiceText = await page.locator('#app').textContent();
       assert.match(practiceText, /லெவல் 1/, 'Level 1 card in Tamil');
-      assert.match(practiceText, /₹499 செலுத்தி திற/, 'Paywalled level indicator in Tamil');
+      assert.match(practiceText, /கணக்கு தொடங்கு|திட்டம் தேர்வு/, 'Paywalled level indicator in Tamil');
 
       // 5. Test Level Intro in Tamil
       await page.goto(`${baseUrl}/#/level/1`);

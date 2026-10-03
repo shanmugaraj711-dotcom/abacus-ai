@@ -48,9 +48,9 @@ export const TIERS = {
   lifetime: {
     id: "lifetime",
     productId: "abacus-buddy",
-    name: "Abacus Buddy Lifetime",
-    offerTitle: "Abacus Buddy Lifetime",
-    description: "Lifetime unlock for all levels, all lessons, all bead games, and Free Play",
+    name: "Abacus Buddy One-time payment",
+    offerTitle: "Abacus Buddy One-time payment",
+    description: "One-time payment unlock for all levels, all lessons, all bead games, and Free Play",
     pricePaise: 49900,
     durationDays: null,
     maxLevel: 15,

@@ -64,10 +64,10 @@ function unlock() {
   shell({ title: isTa ? 'லெவல்கள் 2–15 திறக்கவும்' : 'Unlock Levels 2–15', back: '#/practice', body: `
     <section class="card intro">
       ${babi('happy', 'big bob')}
-      <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்' : 'Abacus Buddy lifetime unlock'}</p>
+      <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி ஒரே முறை கட்டணம்' : 'Abacus Buddy One-time payment'}</p>
       <h2 class="display">${isTa ? 'லெவல்கள் 2–15, பாடங்கள், சுய பயிற்சி & விளையாட்டுகள்' : 'Levels 2–15, All Lessons, Free Play & All Games'}</h2>
       <p class="lead">${isTa ? 'ஒரே முறை கட்டணம் <span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>மட்டும்.' : '<span id="unlock-base-price"></span><b id="unlock-final-price">₹499</b> <span id="unlock-discount-label"></span>'}</p>
-      <p class="muted">${isTa ? 'சந்தா ஏதும் இல்லை.' : 'One-time payment. No subscription.'}</p>
+      <p class="muted">${isTa ? 'ஒரே முறை செலுத்துங்கள். அனைத்து லெவல்கள், பாடங்கள், விளையாட்டுகள் மற்றும் Free Play திறக்கப்படும். சந்தா இல்லை.' : 'Pay once. Unlocks all levels, lessons, games and Free Play. No subscription.'}</p>
       <ul class="muted">
         <li>${isTa ? 'லெவல் 1, பாடம் 1 மற்றும் 1 அறிமுக விளையாட்டு எப்போதும் இலவசம்.' : 'Level 1, Lesson 1, and 1 starter game stay free.'}</li>
         <li>${isTa ? 'இந்த கணக்கிற்கு லெவல்கள் 2–15, அனைத்து பாடங்கள், சுய பயிற்சி மற்றும் அனைத்து விளையாட்டுகளும் நிரந்தரமாக திறக்கப்படும்.' : 'Levels 2–15, all lessons, Free Play and all games unlock permanently for this account.'}</li>

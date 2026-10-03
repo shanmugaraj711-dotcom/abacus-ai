@@ -184,7 +184,7 @@ const STATE_CONFIGS = {
     mockUser: { uid: 'user-free-e2e', getIdToken: async () => 'free-token' },
     authMode: 'registered',
     entitlementCache: { paid: false, tier: 'free', uid: 'user-free-e2e' },
-    apiStatus: { paid: false, tier: 'free' },
+    apiStatus: { paid: false, tier: 'free', starterEnabled: true },
     expected: {
       maxLevel: 1,
       maxLesson: 1,
@@ -223,6 +223,7 @@ const STATE_CONFIGS = {
       games: ['race', 'mystery', 'match', 'flash'],
       freePlay: true,
       expiresAt: new Date(Date.now() + 25 * 86400000).toISOString(),
+      starterEnabled: true,
     },
     expected: {
       maxLevel: 6,
@@ -259,6 +260,7 @@ const STATE_CONFIGS = {
       tier: 'starter',
       expiresAt: new Date(Date.now() - 2 * 86400000).toISOString(),
       expired: true,
+      starterEnabled: true,
     },
     expected: {
       maxLevel: 1,
@@ -666,7 +668,7 @@ async function runE2ESuite() {
         assert.ok(lifetimeText.includes('₹499'), 'Lifetime card shows ₹499');
 
         const pageText = await page.locator('.starter-plans').textContent();
-        assert.ok(pageText.includes('Coupons apply to Lifetime only') || pageText.includes('கூப்பன்கள் வாழ்நாள் திட்டத்திற்கு மட்டுமே பொருந்தும்'), 'Coupons note shown');
+        assert.ok(pageText.includes('Coupons apply to the One-time payment only') || pageText.includes('கூப்பன்கள் ஒரே முறை கட்டணத்திற்கு மட்டுமே பொருந்தும்'), 'Coupons note shown');
 
         // Active Starter styling
         if (stateKey === 'starter') {
@@ -676,11 +678,18 @@ async function runE2ESuite() {
           assert.ok(isDeemp, 'Active starter sees Starter de-emphasized');
         }
 
-        // Enabled Starter button + label "Get Starter - Rs 99"
+        // Starter button state: enabled if starterEnabled is true, disabled with "Coming soon" otherwise
         const starterBtn = page.locator('#starter-buy-btn');
-        assert.equal(await starterBtn.getAttribute('disabled'), null, 'Starter button is enabled');
-        const btnText = await starterBtn.textContent();
-        assert.ok(btnText.includes('Get Starter - Rs 99') || btnText.includes('ஸ்டார்ட்டர் பெறுங்கள் - Rs 99'), 'Starter button says Get Starter - Rs 99');
+        const isStarterAvail = config.apiStatus?.starterEnabled === true;
+        if (isStarterAvail) {
+          assert.equal(await starterBtn.getAttribute('disabled'), null, 'Starter button is enabled when starterEnabled=true');
+          const btnText = await starterBtn.textContent();
+          assert.ok(btnText.includes('Get Starter - Rs 99') || btnText.includes('ஸ்டார்ட்டர் பெறுங்கள் - Rs 99'), 'Starter button says Get Starter - Rs 99');
+        } else {
+          assert.notEqual(await starterBtn.getAttribute('disabled'), null, 'Starter button is disabled when starterEnabled is false');
+          const btnText = await starterBtn.textContent();
+          assert.ok(btnText.includes('Coming soon') || btnText.includes('விரைவில் வரும்'), 'Starter button says Coming soon');
+        }
 
         // Lifetime button
         const lifetimeBtn = page.locator('#lifetime-buy-btn');
@@ -703,7 +712,7 @@ async function runE2ESuite() {
       }
       const planDesc = (await page.locator('#parents-user-plan').textContent()).trim();
       if (stateKey === 'lifetime' || stateKey === 'legacy') {
-        assert.equal(planDesc, 'Lifetime - never expires', `Parents plan for ${stateKey} must be Lifetime - never expires`);
+        assert.equal(planDesc, 'One-time payment - never expires', `Parents plan for ${stateKey} must be One-time payment - never expires`);
         assert.equal(await page.locator('#parents-plan-actions button, #parents-plan-actions a').count(), 0, 'Lifetime has no plan action buttons');
       } else if (stateKey === 'starter') {
         assert.ok(planDesc.includes('Starter - valid until') && planDesc.includes('days left'), `Parents plan for starter must include Starter - valid until and days left, got: ${planDesc}`);
@@ -860,7 +869,7 @@ async function runE2ESuite() {
     });
 
     // 1. Double-tap test & create-order called with { tier: 'starter' }
-    currentApiStatus = { paid: false, tier: 'free' };
+    currentApiStatus = { paid: false, tier: 'free', starterEnabled: true };
     await payPage.goto(`${baseUrl}/#/starter`);
     await payPage.waitForSelector('#starter-buy-btn');
     createdOrderCalls = [];

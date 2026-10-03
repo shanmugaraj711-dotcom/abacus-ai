@@ -16,6 +16,13 @@ const PRICE_RUPEES = 499;
 const PRICE = 49900;
 const COUPONS_ENABLED = true;
 
+function isStarterEnabledForUser(env, uid){
+  if(env.STARTER_ENABLED === "true") return true;
+  if(!uid) return false;
+  const list = String(env.STARTER_TESTER_UIDS || "").split(",").map(s => s.trim()).filter(Boolean);
+  return list.includes(uid);
+}
+
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json","access-control-allow-origin":"*","access-control-allow-headers":"content-type,authorization","access-control-allow-methods":"GET,POST,OPTIONS"}})}
 function b64u(a){return btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
 function ub64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";return Uint8Array.from(atob(s),c=>c.charCodeAt(0))}
@@ -403,7 +410,7 @@ async function putEntitlement(env,uid,data){
   if(tier === "starter"){
     try{
       const existing = await getEntitlement(env, uid);
-      if(existing?.paid && existing.tier === "lifetime"){
+      if(existing?.paid && (existing.tier === "lifetime" || !existing.tier)){
         return false;
       }
     }catch{}
@@ -518,22 +525,25 @@ async function main(req,env){
     } catch(err) {
       return json({error:"Failed to check entitlement in database"},500);
     }
-    if(existing?.paid && existing.tier === "lifetime"){
+    if(existing?.paid && (existing.tier === "lifetime" || !existing.tier)){
       await writeAudit(env,{action:"create_order_skipped",target:`entitlement/${user.uid}`,after:{paid:true,tier:"lifetime"},uid:user.uid});
-      return json({paid:true,tier:"lifetime"});
+      return json({paid:true,tier:"lifetime",maxLevel:15,games:TIERS.lifetime.games,expiresAt:null});
     }
     let body={}; try{body=await req.json();}catch{}
     const requestedTier = body?.tier || "lifetime";
     if(requestedTier !== "starter" && requestedTier !== "lifetime"){
       return json({error:"Unknown tier"},400);
     }
+    if(requestedTier === "starter" && !isStarterEnabledForUser(env, user.uid)){
+      return json({error:"Starter coming soon"},403);
+    }
     const tierConfig = TIERS[requestedTier];
 
-    // Coupons apply to lifetime only. A coupon sent with starter is rejected or ignored, never discounts.
+    // Coupons apply to the One-time payment only. A coupon sent with starter is rejected or ignored, never discounts.
     const rawCoupon = body?.couponCode;
     const couponCode = normalizeCouponCode(rawCoupon);
     if(requestedTier === "starter" && couponCode){
-      return json({error:"Coupons apply to Lifetime only"},400);
+      return json({error:"Coupons apply to the One-time payment only."},400);
     }
 
     let coupon=null, pricing=null, amount=tierConfig.pricePaise;
@@ -621,13 +631,13 @@ async function main(req,env){
     // (a) existing.tier === 'lifetime' (preserves if(existing?.paid){return json({paid:true});})
     // (b) existing.orderId === String(b.razorpay_order_id)
     if(existing?.paid){
-      if(existing.tier === "lifetime" || (existing.orderId && existing.orderId === String(b.razorpay_order_id))){
+      if(existing.tier === "lifetime" || !existing.tier || (existing.orderId && existing.orderId === String(b.razorpay_order_id))){
         return json({
           paid: true,
-          tier: existing.tier,
-          maxLevel: existing.maxLevel,
-          games: existing.games,
-          expiresAt: existing.expiresAt
+          tier: existing.tier || "lifetime",
+          maxLevel: existing.maxLevel ?? 15,
+          games: existing.games ?? TIERS.lifetime.games,
+          expiresAt: existing.expiresAt || null
         });
       }
     }
@@ -695,8 +705,8 @@ async function main(req,env){
       return json({error:"Payment is not captured or does not match the order"},400);
     }
 
-    // Never downgrade lifetime
-    if(existing?.paid && existing.tier === "lifetime"){
+    // Never downgrade lifetime or legacy user
+    if(existing?.paid && (existing.tier === "lifetime" || !existing.tier)){
       return json({
         paid: true,
         tier: "lifetime",
@@ -765,14 +775,17 @@ async function main(req,env){
     let user;
     try{
       user=await bearer(req,env);
-    }catch{
-      const freeCfg=TIERS.free;
-      return json({paid:false,tier:"free",maxLevel:freeCfg.maxLevel,games:freeCfg.games,expiresAt:null});
+    }catch(err){
+      return json({error:err.message||"missing authorization"},401);
     }
+    const starterEnabled=isStarterEnabledForUser(env,user.uid);
     const ent=await getEntitlement(env,user.uid);
-    if(ent) return json(ent);
+    if(ent) {
+      if(ent.paid && !ent.tier) ent.tier = "lifetime";
+      return json({...ent, starterEnabled});
+    }
     const freeCfg = TIERS.free;
-    return json({paid:false,tier:"free",maxLevel:freeCfg.maxLevel,games:freeCfg.games,expiresAt:null});
+    return json({paid:false,tier:"free",maxLevel:freeCfg.maxLevel,games:freeCfg.games,expiresAt:null,starterEnabled});
   }
 
   // ── /api/visit (anonymous visitor tracking; no IP, device, browser, or location tracking) ─
@@ -830,22 +843,16 @@ async function main(req,env){
     const e=JSON.parse(raw), p=e.payload?.payment?.entity, o=e.payload?.order?.entity, pay=p||null, ord=o||null;
     if(e.event==="payment.captured"||e.event==="order.paid"){
       const orderId=String(pay?.order_id||ord?.id||"");
-      let recorded=null;
-      if(orderId){
-        try{recorded=await firestoreGet(env,"orders",orderId);}catch{}
-      }
-      const rf=recorded?.fields||{};
-      const amount=Number(pay?.amount??ord?.amount), currency=pay?.currency??ord?.currency;
-      const uid=String(fsVal(rf.uid)||pay?.notes?.uid||ord?.notes?.uid||"");
-      const product=pay?.notes?.product??ord?.notes?.product;
-      const tierNote=pay?.notes?.tier??ord?.notes?.tier;
+      const recorded=orderId?await firestoreGet(env,"orders",orderId):null, rf=recorded?.fields||{};
+      const expectedAmount=Number(fsVal(rf.amount)), amount=Number(pay?.amount??ord?.amount), currency=pay?.currency??ord?.currency;
+      const uid=String(fsVal(rf.uid)||pay?.notes?.uid||ord?.notes?.uid||""), product=pay?.notes?.product??ord?.notes?.product;
       const recordedTier=fsVal(rf.tier);
-      const tier=tierNote||recordedTier||(amount===TIERS.starter.pricePaise?"starter":"lifetime");
+      const tier=recordedTier||pay?.notes?.tier||ord?.notes?.tier||"lifetime";
 
-      if(currency==="INR"&&uid&&product===PRODUCT){
+      if(recorded&&Number.isFinite(expectedAmount)&&amount===expectedAmount&&currency==="INR"&&uid&&product===PRODUCT){
         const existing=await getEntitlement(env,uid);
-        // Never downgrade lifetime
-        if(existing?.paid && existing.tier==="lifetime"){
+        // Never downgrade lifetime or legacy user
+        if(existing?.paid && (existing.tier==="lifetime" || !existing.tier)){
           return json({ok:true});
         }
         // Duplicate order skip
@@ -853,7 +860,7 @@ async function main(req,env){
           return json({ok:true});
         }
 
-        if(tier==="starter" && amount===TIERS.starter.pricePaise){
+        if(tier==="starter"){
           const cfg=TIERS.starter;
           const nowMs = Date.now();
           let baseMs = nowMs;
@@ -863,37 +870,29 @@ async function main(req,env){
           }
           const expiresAt=new Date(baseMs + cfg.durationDays * 24 * 60 * 60 * 1000).toISOString();
           await putEntitlement(env,uid,{tier:"starter",maxLevel:cfg.maxLevel,games:cfg.games,expiresAt,orderId,paymentId:pay?.id||""});
-          if(recorded){
-            const orderWasCreated=String(fsVal(rf.status)||"")==="created";
-            const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;
-            if(orderWasCreated&&orderMarkedPaid){
-              const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
-              if(couponCode){
-                const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
-                await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
-              }
+          const orderWasCreated=String(fsVal(rf.status)||"")==="created";
+          const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;
+          if(orderWasCreated&&orderMarkedPaid){
+            const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
+            if(couponCode){
+              const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
+              await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
             }
           }
           await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:existing?.paid||false},after:{paid:true,tier:"starter",orderId,paymentId:pay?.id||"",event:e.event,amount,expiresAt},uid});
         } else if(tier==="lifetime"){
-          const recordedAmount=Number(fsVal(rf.amount));
-          const expectedAmount=recorded && Number.isFinite(recordedAmount) && recordedAmount > 0 ? recordedAmount : TIERS.lifetime.pricePaise;
-          if(amount===expectedAmount){
-            const cfg=TIERS.lifetime;
-            await putEntitlement(env,uid,{tier:"lifetime",maxLevel:cfg.maxLevel,games:cfg.games,expiresAt:null,orderId,paymentId:pay?.id||""});
-            if(recorded){
-              const orderWasCreated=String(fsVal(rf.status)||"")==="created";
-              const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;
-              if(orderWasCreated&&orderMarkedPaid){
-                const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
-                if(couponCode){
-                  const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
-                  await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
-                }
-              }
+          const cfg=TIERS.lifetime;
+          await putEntitlement(env,uid,{tier:"lifetime",maxLevel:cfg.maxLevel,games:cfg.games,expiresAt:null,orderId,paymentId:pay?.id||""});
+          const orderWasCreated=String(fsVal(rf.status)||"")==="created";
+          const orderMarkedPaid=orderWasCreated ? await firestorePatchIfCurrent(env,"orders",orderId,{status:fsField("paid")},recorded.updateTime) : true;
+          if(orderWasCreated&&orderMarkedPaid){
+            const couponCode=normalizeCouponCode(fsVal(rf.couponCode));
+            if(couponCode){
+              const cdoc=await getCoupon(env,couponCode), cf=cdoc?.fields||{};
+              await firestorePatch(env,"coupons",couponCode,{redemptionCount:fsField(Number(fsVal(cf.redemptionCount)||0)+1)});
             }
-            await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:existing?.paid||false},after:{paid:true,tier:"lifetime",orderId,paymentId:pay?.id||"",event:e.event,amount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid});
           }
+          await writeAudit(env,{action:"webhook_payment_recorded",target:`entitlement/${uid}`,before:{paid:existing?.paid||false},after:{paid:true,tier:"lifetime",orderId,paymentId:pay?.id||"",event:e.event,amount,couponCode:normalizeCouponCode(fsVal(rf.couponCode))||null},uid});
         }
       }
     }
@@ -1188,5 +1187,6 @@ export {
   normalizeCouponCode,
   couponFinalPrice,
   validateCouponDoc,
+  isStarterEnabledForUser,
 };
 export default {fetch(req,env){return main(req,env).catch(e=>json({error:e.message||"Server error"},500))}};

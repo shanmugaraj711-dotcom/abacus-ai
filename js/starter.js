@@ -1,6 +1,6 @@
 // #/starter plans screen (Starter ₹99 / Lifetime ₹499)
 import { TIERS } from './tiers.js';
-import { getTier, getEntitlement, isPaid, startCheckout } from './payments.js';
+import { getTier, getEntitlement, isPaid, startCheckout, isStarterEnabled } from './payments.js';
 import { shell, lang, go, esc } from './ui.js';
 import { babi } from './babi.js';
 
@@ -19,7 +19,7 @@ export function getPlanDescription(isTa = false) {
   const ent = getEntitlement();
   const tier = getTier();
   if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
-    return isTa ? 'வாழ்நாள் - எப்போதும் காலாவதியாகாது' : 'Lifetime - never expires';
+    return isTa ? 'ஒரே முறை கட்டணம் - எப்போதும் காலாவதியாகாது' : 'One-time payment - never expires';
   }
   if (tier === 'starter' && !ent.expired) {
     let days = 30;
@@ -51,7 +51,7 @@ export function getPlanActionsHtml(isTa = false) {
   if (tier === 'starter' && !ent.expired) {
     return `
       <button type="button" class="btn small" id="renew-starter-btn">${isTa ? 'ஸ்டார்ட்டரைப் புதுப்பிக்கவும் (Rs 99)' : 'Renew Starter (Rs 99)'}</button>
-      <a class="btn primary small" href="#/unlock" id="upgrade-lifetime-btn">${isTa ? 'வாழ்நாள் திட்டத்திற்கு மேம்படுத்து (Rs 499)' : 'Upgrade to Lifetime (Rs 499)'}</a>
+      <a class="btn primary small" href="#/unlock" id="upgrade-lifetime-btn">${isTa ? 'ஒரே முறை கட்டணத்திற்கு மேம்படுத்து (Rs 499)' : 'Upgrade to One-time payment (Rs 499)'}</a>
     `;
   }
   if (ent.expired || (ent.expiresAt && tier === 'free')) {
@@ -80,7 +80,10 @@ export function starterScreen() {
   const starterPrice = Math.round(TIERS.starter.pricePaise / 100);
   const lifetimePrice = Math.round(TIERS.lifetime.pricePaise / 100);
 
-  const starterBtnLabel = isTa ? 'ஸ்டார்ட்டர் பெறுங்கள் - Rs 99' : 'Get Starter - Rs 99';
+  const starterAvailable = isStarterEnabled();
+  const starterBtnLabel = starterAvailable
+    ? (isTa ? 'ஸ்டார்ட்டர் பெறுங்கள் - Rs 99' : 'Get Starter - Rs 99')
+    : (isTa ? 'விரைவில் வரும்' : 'Coming soon');
 
   shell({
     title: isTa ? 'திட்டங்கள்' : 'Plans',
@@ -117,27 +120,29 @@ export function starterScreen() {
                 aria-label="${starterBtnLabel}"
                 data-plan="starter"
                 id="starter-buy-btn"
+                ${starterAvailable ? '' : 'disabled'}
               >${starterBtnLabel}</button>
             </div>
             <p id="starter-error-msg" class="auth-error center tiny" style="margin-top:8px;display:none;" role="alert"></p>
           </div>
 
-          <!-- LIFETIME PLAN CARD -->
+          <!-- ONE-TIME PAYMENT PLAN CARD -->
           <div class="plan-card ${isStarterActive ? 'highlight' : ''}" data-plan-card="lifetime">
             <div class="plan-card-header">
-              <span class="plan-badge highlight-badge">${isStarterActive ? (isTa ? 'பரிந்துரைக்கப்படும் மேம்படுத்தல்' : 'Recommended Upgrade') : (isTa ? 'வாழ்நாள் முழுமைக்கும்' : 'Best Value')}</span>
-              <h3 class="plan-title">${isTa ? 'வாழ்நாள் திட்டம்' : 'Lifetime'}</h3>
+              <span class="plan-badge highlight-badge">${isStarterActive ? (isTa ? 'பரிந்துரைக்கப்படும் மேம்படுத்தல்' : 'Recommended Upgrade') : (isTa ? 'ஒரே முறை கட்டணம்' : 'Best Value')}</span>
+              <h3 class="plan-title">${isTa ? 'ஒரே முறை கட்டணம்' : 'One-time payment'}</h3>
               <div class="plan-price">
                 <b>₹${lifetimePrice}</b>
                 <small>/ ${isTa ? 'ஒரே முறை' : 'one-time'}</small>
               </div>
+              <p class="plan-subtitle muted tiny" style="margin-top:6px;line-height:1.4;">${isTa ? 'ஒரே முறை செலுத்துங்கள். அனைத்து லெவல்கள், பாடங்கள், விளையாட்டுகள் மற்றும் Free Play திறக்கப்படும். சந்தா இல்லை.' : 'Pay once. Unlocks all levels, lessons, games and Free Play. No subscription.'}</p>
             </div>
             <ul class="plan-features">
               <li>✓ ${isTa ? 'லெவல்கள் 1–15 (அனைத்து லெவல்கள்)' : 'Levels 1–15 (All levels)'}</li>
               <li>✓ ${isTa ? 'பாடங்கள் 1–11 (அனைத்து பாடங்கள்)' : 'Lessons 1–11 (All lessons)'}</li>
               <li>✓ ${isTa ? 'அனைத்து 7 விளையாட்டுகள்' : 'All 7 bead games'}</li>
               <li>✓ ${isTa ? 'சுய பயிற்சி (Free Play)' : 'Free Play'}</li>
-              <li>♾ ${isTa ? 'வாழ்நாள் முழுமைக்கும் · சந்தா இல்லை' : 'Lifetime access · No subscription'}</li>
+              <li>♾ ${isTa ? 'ஒரே முறை செலுத்துங்கள் · சந்தா இல்லை' : 'Pay once · No subscription'}</li>
             </ul>
             <div class="plan-action">
               <a
@@ -150,7 +155,7 @@ export function starterScreen() {
           </div>
         </div>
 
-        <p class="plan-note muted tiny">${isTa ? 'கூப்பன்கள் வாழ்நாள் திட்டத்திற்கு மட்டுமே பொருந்தும்.' : 'Coupons apply to Lifetime only.'}</p>
+        <p class="plan-note muted tiny">${isTa ? 'கூப்பன்கள் ஒரே முறை கட்டணத்திற்கு மட்டுமே பொருந்தும்.' : 'Coupons apply to the One-time payment only.'}</p>
         <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
       </section>
     `
@@ -160,6 +165,7 @@ export function starterScreen() {
   const errorEl = document.getElementById('starter-error-msg');
   if (starterBtn) {
     starterBtn.onclick = async () => {
+      if (!isStarterEnabled()) return;
       starterBtn.disabled = true;
       if (errorEl) {
         errorEl.textContent = '';

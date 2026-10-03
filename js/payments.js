@@ -28,6 +28,7 @@ let entitlement = {
 };
 let checked = false;
 let currentUid = null;
+let starterEnabled = false;
 
 function readCache() {
   try {
@@ -78,6 +79,7 @@ export const getMaxLevel = () => entitlement.maxLevel;
 export const getGames = () => (entitlement.games || getTierConfig(entitlement.tier).games);
 export const getMaxLesson = () => getTierConfig(entitlement.tier).maxLesson;
 export const canAccessFreePlay = () => isFreePlayAllowedForTier(getTierConfig(entitlement.tier));
+export const isStarterEnabled = () => starterEnabled;
 
 // Continuously listen to auth state changes to enforce entitlement isolation:
 // If the user signs out or a different user signs in, invalidate cached entitlement immediately.
@@ -223,6 +225,7 @@ export async function refreshEntitlement() {
     });
     if (!res.ok) throw new Error(`Unable to check purchase status (${res.status})`);
     const data = await res.json();
+    starterEnabled = Boolean(data.starterEnabled);
     if (data.paid === true) {
       const tier = data.tier || 'lifetime';
       const cfg = getTierConfig(tier);
@@ -304,7 +307,7 @@ export async function refreshEntitlement() {
       } else if (c.entitlement) {
         entitlement = c.entitlement;
       }
-    } else {
+    } else if (c && c.uid !== user.uid) {
       clearCache();
     }
   }
@@ -378,7 +381,7 @@ export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess,
     return await new Promise((resolve, reject) => {
       const description = tier === 'starter'
         ? "Abacus Buddy Starter — Levels 1–6 (30 days)"
-        : "Lifetime unlock — Levels 2–15";
+        : "One-time payment unlock — Levels 2–15";
 
       const checkout = new window.Razorpay({
         key: order.keyId,
@@ -505,7 +508,7 @@ export async function startCheckout(tier = 'starter') {
 
     const description = tier === 'starter'
       ? "Abacus Buddy Starter — Levels 1–6 (30 days)"
-      : "Lifetime unlock — Levels 2–15";
+      : "One-time payment unlock — Levels 2–15";
 
     const paymentSuccess = await new Promise((resolve, reject) => {
       let settled = false;

@@ -59,7 +59,8 @@ const ENV = {
   RAZORPAY_KEY_SECRET,
   RAZORPAY_WEBHOOK_SECRET,
   OWNER_UID,
-  _googleToken: 'mock-google-token'
+  _googleToken: 'mock-google-token',
+  STARTER_ENABLED: 'true'
 };
 
 function fsField(val) {
@@ -611,7 +612,7 @@ await test('10.1 coupon code sent with starter order is rejected with 400', () =
   const res = await workerMain(req, ENV);
   assert.equal(res.status, 400);
   const data = await res.json();
-  assert.match(data.error, /Coupons apply to Lifetime only/i);
+  assert.match(data.error, /Coupons apply to (the One-time payment|Lifetime) only/i);
 }));
 
 // ── 11. IDEMPOTENCY: DUPLICATE VERIFY AND DUPLICATE WEBHOOK ─────────────────
@@ -656,6 +657,14 @@ await test('11.1 duplicate verify-payment call is idempotent', () => runWithBack
 }));
 
 await test('11.2 duplicate webhook event does not re-write or corrupt entitlement', () => runWithBackend(async (b) => {
+  b.setDoc('orders', 'order_hook_1', {
+    uid: fsField('user_hook'),
+    tier: fsField('starter'),
+    amount: fsField(9900),
+    currency: fsField('INR'),
+    status: fsField('created'),
+    product: fsField(PRODUCT),
+  });
   const webhookPayload = JSON.stringify({
     event: 'payment.captured',
     payload: {
@@ -813,6 +822,312 @@ await test('15.1 lifetime purchase and verification flow works end-to-end', () =
   assert.equal(statusData.tier, 'lifetime');
   assert.equal(statusData.maxLevel, 15);
 }));
+
+// ── 16. KILL SWITCH (DEFAULT OFF) ──────────────────────────────────────────
+await test('16.1 kill switch off rejects starter create-order with 403 Starter coming soon', () => runWithBackend(async () => {
+  const envOff = { ...ENV, STARTER_ENABLED: 'false', STARTER_TESTER_UIDS: '' };
+  delete envOff.STARTER_ENABLED; // test default omitted as well
+  const req = new Request('https://test.local/api/create-order', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-user_random', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: 'starter' })
+  });
+  const res = await workerMain(req, envOff);
+  assert.equal(res.status, 403);
+  const data = await res.json();
+  assert.match(data.error, /Starter coming soon/i);
+}));
+
+await test('16.2 kill switch allows tester UID even when STARTER_ENABLED is false', () => runWithBackend(async () => {
+  const envTester = { ...ENV, STARTER_ENABLED: 'false', STARTER_TESTER_UIDS: 'tester-123, user_tester' };
+  const reqTester = new Request('https://test.local/api/create-order', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-user_tester', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: 'starter' })
+  });
+  const resTester = await workerMain(reqTester, envTester);
+  assert.equal(resTester.status, 200);
+
+  const reqNonTester = new Request('https://test.local/api/create-order', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-user_other', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: 'starter' })
+  });
+  const resNonTester = await workerMain(reqNonTester, envTester);
+  assert.equal(resNonTester.status, 403);
+}));
+
+await test('16.3 kill switch on allows any user', () => runWithBackend(async () => {
+  const envOn = { ...ENV, STARTER_ENABLED: 'true' };
+  const req = new Request('https://test.local/api/create-order', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-user_any', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: 'starter' })
+  });
+  const res = await workerMain(req, envOn);
+  assert.equal(res.status, 200);
+}));
+
+await test('16.4 lifetime flow unaffected by kill switch', () => runWithBackend(async () => {
+  const envOff = { ...ENV, STARTER_ENABLED: 'false', STARTER_TESTER_UIDS: '' };
+  const req = new Request('https://test.local/api/create-order', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-user_lt', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: 'lifetime' })
+  });
+  const res = await workerMain(req, envOff);
+  assert.equal(res.status, 200);
+}));
+
+// ── 17. USER-STATUS AUTHENTICATION & KILL SWITCH STATUS ──────────────────────
+await test('17.1 user-status without authorization returns 401', () => runWithBackend(async () => {
+  const req = new Request('https://test.local/api/user-status', { method: 'GET' });
+  const res = await workerMain(req, ENV);
+  assert.equal(res.status, 401);
+  const data = await res.json();
+  assert.match(data.error, /missing authorization/i);
+}));
+
+await test('17.2 user-status with invalid token returns 401', () => runWithBackend(async () => {
+  const req = new Request('https://test.local/api/user-status', {
+    method: 'GET',
+    headers: { Authorization: 'Basic invalid-token' }
+  });
+  const res = await workerMain(req, ENV);
+  assert.equal(res.status, 401);
+}));
+
+await test('17.3 user-status returns starterEnabled boolean reflecting permissions', () => runWithBackend(async () => {
+  const envOff = { ...ENV, STARTER_ENABLED: 'false', STARTER_TESTER_UIDS: 'tester-uid' };
+  const req1 = new Request('https://test.local/api/user-status', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer token-user_regular' }
+  });
+  const res1 = await workerMain(req1, envOff);
+  assert.equal(res1.status, 200);
+  const data1 = await res1.json();
+  assert.equal(data1.starterEnabled, false);
+
+  const req2 = new Request('https://test.local/api/user-status', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer token-tester-uid' }
+  });
+  const res2 = await workerMain(req2, envOff);
+  assert.equal(res2.status, 200);
+  const data2 = await res2.json();
+  assert.equal(data2.starterEnabled, true);
+
+  const envOn = { ...ENV, STARTER_ENABLED: 'true' };
+  const res3 = await workerMain(req1, envOn);
+  assert.equal(res3.status, 200);
+  const data3 = await res3.json();
+  assert.equal(data3.starterEnabled, true);
+}));
+
+// ── 18. LEGACY ENTITLEMENT INTEGRITY & PROTECTION ────────────────────────────
+await test('18.1 legacy user (paid:true, no tier) attempting starter create-order returns lifetime', () => runWithBackend(async (b) => {
+  b.setDoc('entitlements', 'legacy_user_1', {
+    paid: fsField(true),
+    orderId: fsField('old_order_999'),
+    paidAt: fsField('2025-01-01T00:00:00Z')
+  });
+
+  const req = new Request('https://test.local/api/create-order', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-legacy_user_1', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier: 'starter' })
+  });
+  const res = await workerMain(req, ENV);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.paid, true);
+  assert.equal(data.tier, 'lifetime');
+  assert.equal(data.maxLevel, 15);
+  assert.equal(data.expiresAt, null);
+}));
+
+await test('18.2 verify-payment and webhook never overwrite or downgrade legacy user', () => runWithBackend(async (b) => {
+  b.setDoc('entitlements', 'legacy_user_2', {
+    paid: fsField(true),
+    orderId: fsField('old_order_888'),
+    paidAt: fsField('2025-01-01T00:00:00Z')
+  });
+
+  // Verify-payment attempt for starter
+  b.setDoc('orders', 'order_legacy_starter', {
+    uid: fsField('legacy_user_2'),
+    tier: fsField('starter'),
+    amount: fsField(9900),
+    status: fsField('created'),
+    product: fsField(PRODUCT)
+  });
+  const payment = b.createRazorPayment('order_legacy_starter', 9900);
+  const sig = await b.computeHmac(RAZORPAY_KEY_SECRET, `order_legacy_starter|${payment.id}`);
+
+  const verifyReq = new Request('https://test.local/api/verify-payment', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-legacy_user_2', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      razorpay_order_id: 'order_legacy_starter',
+      razorpay_payment_id: payment.id,
+      razorpay_signature: sig
+    })
+  });
+  const verifyRes = await workerMain(verifyReq, ENV);
+  assert.equal(verifyRes.status, 200);
+  const verifyData = await verifyRes.json();
+  assert.equal(verifyData.tier, 'lifetime');
+
+  const entAfterVerify = b.getDoc('entitlements', 'legacy_user_2');
+  assert.notEqual(fsVal(entAfterVerify.fields.tier), 'starter', 'Firestore must not be downgraded to starter');
+
+  // Webhook attempt for starter
+  const webhookPayload = JSON.stringify({
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_hook_legacy',
+          order_id: 'order_legacy_starter',
+          amount: 9900,
+          currency: 'INR',
+          notes: { uid: 'legacy_user_2', product: PRODUCT, tier: 'starter' }
+        }
+      }
+    }
+  });
+  const hookSig = await b.computeHmac(RAZORPAY_WEBHOOK_SECRET, webhookPayload);
+  const hookReq = new Request('https://test.local/api/razorpay-webhook', {
+    method: 'POST',
+    headers: { 'x-razorpay-signature': hookSig, 'Content-Type': 'application/json' },
+    body: webhookPayload
+  });
+  const hookRes = await workerMain(hookReq, ENV);
+  assert.equal(hookRes.status, 200);
+
+  const entAfterHook = b.getDoc('entitlements', 'legacy_user_2');
+  assert.notEqual(fsVal(entAfterHook.fields.tier), 'starter', 'Webhook must never downgrade legacy user to starter');
+}));
+
+// ── 19. WEBHOOK FAIL-CLOSED RULES RESTORED ──────────────────────────────────
+await test('19.1 webhook fails closed if order is unrecorded in Firestore', () => runWithBackend(async (b) => {
+  const webhookPayload = JSON.stringify({
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_unrec',
+          order_id: 'order_unrecorded_999',
+          amount: 9900,
+          currency: 'INR',
+          notes: { uid: 'user_unrec', product: PRODUCT, tier: 'starter' }
+        }
+      }
+    }
+  });
+  const hookSig = await b.computeHmac(RAZORPAY_WEBHOOK_SECRET, webhookPayload);
+  const hookReq = new Request('https://test.local/api/razorpay-webhook', {
+    method: 'POST',
+    headers: { 'x-razorpay-signature': hookSig, 'Content-Type': 'application/json' },
+    body: webhookPayload
+  });
+  const hookRes = await workerMain(hookReq, ENV);
+  assert.equal(hookRes.status, 200);
+  assert.equal(b.getDoc('entitlements', 'user_unrec'), null, 'Unrecorded order must never grant entitlement');
+}));
+
+await test('19.2 webhook fails closed if amount does not match recorded order amount', () => runWithBackend(async (b) => {
+  b.setDoc('orders', 'order_wrong_amt', {
+    uid: fsField('user_wrong_amt'),
+    tier: fsField('starter'),
+    amount: fsField(9900),
+    status: fsField('created'),
+    product: fsField(PRODUCT)
+  });
+  const webhookPayload = JSON.stringify({
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_wrong_amt',
+          order_id: 'order_wrong_amt',
+          amount: 5000,
+          currency: 'INR',
+          notes: { uid: 'user_wrong_amt', product: PRODUCT, tier: 'starter' }
+        }
+      }
+    }
+  });
+  const hookSig = await b.computeHmac(RAZORPAY_WEBHOOK_SECRET, webhookPayload);
+  const hookReq = new Request('https://test.local/api/razorpay-webhook', {
+    method: 'POST',
+    headers: { 'x-razorpay-signature': hookSig, 'Content-Type': 'application/json' },
+    body: webhookPayload
+  });
+  const hookRes = await workerMain(hookReq, ENV);
+  assert.equal(hookRes.status, 200);
+  assert.equal(b.getDoc('entitlements', 'user_wrong_amt'), null, 'Amount mismatch must never grant entitlement');
+}));
+
+await test('19.3 webhook propagates database error so Razorpay retries (returns 5xx)', () => runWithBackend(async (b) => {
+  b.failFirestore = true;
+  const webhookPayload = JSON.stringify({
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_err',
+          order_id: 'order_err',
+          amount: 9900,
+          currency: 'INR',
+          notes: { uid: 'user_err', product: PRODUCT, tier: 'starter' }
+        }
+      }
+    }
+  });
+  const hookSig = await b.computeHmac(RAZORPAY_WEBHOOK_SECRET, webhookPayload);
+  const hookReq = new Request('https://test.local/api/razorpay-webhook', {
+    method: 'POST',
+    headers: { 'x-razorpay-signature': hookSig, 'Content-Type': 'application/json' },
+    body: webhookPayload
+  });
+  const hookRes = await workerMain(hookReq, ENV).catch(e => new Response(JSON.stringify({ error: e.message }), { status: 500 }));
+  assert.ok(hookRes.status >= 500, `Expected 5xx on database error, got ${hookRes.status}`);
+}));
+
+// ── 20. CLIENT ENTITLEMENT PRESERVATION ON NON-OK RESPONSE ───────────────────
+await test('20.1 payments.js preserves cached paid entitlement when user-status returns non-OK or throws', async () => {
+  const { readFileSync } = await import('node:fs');
+  const paymentsCode = readFileSync(new URL('../js/payments.js', import.meta.url), 'utf8');
+  assert.ok(paymentsCode.includes('starterEnabled = Boolean(data.starterEnabled);'), 'Captures starterEnabled from user-status');
+  assert.ok(!paymentsCode.includes('catch (err) {\n    clearCache();'), 'Never blindly clears cache on error');
+  assert.ok(paymentsCode.includes('export const isStarterEnabled = () => starterEnabled;'), 'Exports isStarterEnabled helper');
+});
+
+// ── 21. DISPLAY TEXT AUDIT: NO USER-FACING LIFETIME OR வாழ்நாள் ─────────────
+await test('21.1 No visible user-facing text uses Lifetime or வாழ்நாள்', async () => {
+  const { readFileSync } = await import('node:fs');
+  const starterCode = readFileSync(new URL('../js/starter.js', import.meta.url), 'utf8');
+  const appCode = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+
+  // Check starter.js visible strings
+  assert.ok(!starterCode.includes("'Lifetime - never expires'"), 'Plan description renamed in starter.js');
+  assert.ok(!starterCode.includes("'வாழ்நாள் - எப்போதும் காலாவதியாகாது'"), 'Tamil plan description renamed in starter.js');
+  assert.ok(!starterCode.includes("'Upgrade to Lifetime"), 'Upgrade button renamed in starter.js');
+  assert.ok(!starterCode.includes("'வாழ்நாள் திட்டத்திற்கு மேம்படுத்து"), 'Tamil upgrade button renamed in starter.js');
+  assert.ok(!starterCode.includes("'Lifetime'</h3>"), 'Plan card title renamed in starter.js');
+  assert.ok(!starterCode.includes("'வாழ்நாள் திட்டம்'</h3>"), 'Tamil plan card title renamed in starter.js');
+  assert.ok(!starterCode.includes("'Coupons apply to Lifetime only.'"), 'Coupons note renamed in starter.js');
+  assert.ok(!starterCode.includes("'கூப்பன்கள் வாழ்நாள்"), 'Tamil coupons note renamed in starter.js');
+  assert.ok(starterCode.includes('One-time payment - never expires'), 'Has One-time payment in starter.js');
+  assert.ok(starterCode.includes('ஒரே முறை கட்டணம் - எப்போதும் காலாவதியாகாது'), 'Has Tamil One-time payment in starter.js');
+
+  // Check app.js visible strings
+  assert.ok(!appCode.includes("'Abacus Buddy lifetime unlock'"), 'App unlock eyebrow renamed');
+  assert.ok(!appCode.includes("'அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்'"), 'Tamil app unlock eyebrow renamed');
+  assert.ok(appCode.includes("'Abacus Buddy One-time payment'"), 'Has One-time payment eyebrow in app.js');
+  assert.ok(appCode.includes("'அபாகஸ் பட்டி ஒரே முறை கட்டணம்'"), 'Has Tamil One-time payment eyebrow in app.js');
+});
 
 console.log(`\nStarter Payment Test Summary: ${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);
