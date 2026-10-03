@@ -503,3 +503,110 @@ h3.sec { font: 800 20px var(--display); margin: 20px 0 8px; }
 .guest-home-banner { background: #FFF8E7; border: 2px dashed #E5C384; border-radius: 16px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .guest-home-banner span { font-size: 13px; font-weight: 700; color: #855A00; }
 .guest-home-banner button { min-height: 36px; padding: 4px 12px; font-size: 13px; border-radius: 10px; flex: none; }
+
+/* ---- Starter & Lifetime Plan Cards (#/starter) ---- */
+.starter-plans { text-align: center; }
+.plan-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 18px 0;
+  width: 100%;
+}
+.plan-card {
+  position: relative;
+  background: var(--card);
+  border: 3px solid #EAD5AE;
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: left;
+  box-shadow: 0 4px 0 #E4CFA8;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.plan-card.highlight {
+  border-color: var(--sun);
+  background: #FFFDF5;
+  box-shadow: 0 6px 0 #E5A817, 0 8px 24px rgba(255, 197, 61, 0.25);
+  transform: translateY(-2px);
+}
+.plan-card.de-emphasized {
+  opacity: 0.65;
+  filter: grayscale(0.2);
+}
+.plan-card-header {
+  margin-bottom: 12px;
+}
+.plan-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+.plan-badge.highlight-badge {
+  background: var(--sun);
+  color: var(--ink);
+  font-weight: 900;
+}
+.plan-title {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  margin: 2px 0 6px;
+  color: var(--ink);
+}
+.plan-price {
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.plan-price small {
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.plan-features {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-features li {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.35;
+}
+.plan-action {
+  margin-top: auto;
+}
+.plan-action button[disabled], .plan-action .btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.plan-note {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin: 10px 0 16px;
+  text-align: center;
+}

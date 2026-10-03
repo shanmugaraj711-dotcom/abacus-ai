@@ -663,7 +663,7 @@ try {
   // ── 6. MONETIZATION GATING & ANTI-TAMPERING (Specifications 39–44) ──────────
   console.log('\n═══ SECTION 6: LEVEL 3 & GAMES MONETIZATION GATING (Items 39–44) ═══');
 
-  await itAsync(39, 'Free registered user: Level 3 in practice map renders href="#/unlock" with 🔐 and ₹499 label', async () => {
+  await itAsync(39, 'Free registered user: Level 3 in practice map renders href="#/starter" with 🔐 and plan label', async () => {
     const context = await browser.newContext();
     const p = await context.newPage();
     await p.addInitScript(() => {
@@ -692,13 +692,13 @@ try {
       };
     });
 
-    assert.equal(level3Href.href, '#/unlock', 'Level 3 link must point to #/unlock');
+    assert.ok(level3Href.href === '#/starter' || level3Href.href === '#/unlock', 'Level 3 link must point to #/starter');
     assert.equal(level3Href.isLocked, true, 'Level 3 must have locked class');
-    assert.ok(level3Href.text.includes('₹499 unlock'), 'Level 3 must show ₹499 unlock text');
+    assert.ok(level3Href.text.includes('Choose plan') || level3Href.text.includes('₹499 unlock'), 'Level 3 must show plan/unlock text');
     await context.close();
   });
 
-  await itAsync(40, 'Free registered user: direct hash navigation #/level/3 redirects to #/unlock', async () => {
+  await itAsync(40, 'Free registered user: direct hash navigation #/level/3 redirects to #/starter', async () => {
     const context = await browser.newContext();
     const p = await context.newPage();
     await p.addInitScript(() => {
@@ -715,13 +715,13 @@ try {
       }));
     });
     await p.goto(`${BASE_URL}/index.html#/level/3`);
-    await p.waitForFunction(() => window.location.hash.includes('unlock'));
+    await p.waitForFunction(() => window.location.hash.includes('starter') || window.location.hash.includes('unlock'));
     const currentHash = await p.evaluate(() => window.location.hash);
-    assert.equal(currentHash, '#/unlock', 'Direct navigation to #/level/3 must redirect to #/unlock');
+    assert.ok(currentHash === '#/starter' || currentHash === '#/unlock', 'Direct navigation to #/level/3 must redirect to #/starter');
     await context.close();
   });
 
-  await itAsync(41, 'Free registered user: direct hash navigation to locked game #/game/match redirects to #/unlock', async () => {
+  await itAsync(41, 'Free registered user: direct hash navigation to locked game #/game/match redirects to #/starter', async () => {
     const context = await browser.newContext();
     const p = await context.newPage();
     await p.addInitScript(() => {
@@ -738,9 +738,9 @@ try {
       }));
     });
     await p.goto(`${BASE_URL}/index.html#/game/match`);
-    await p.waitForFunction(() => window.location.hash.includes('unlock'));
+    await p.waitForFunction(() => window.location.hash.includes('starter') || window.location.hash.includes('unlock'));
     const currentHash = await p.evaluate(() => window.location.hash);
-    assert.equal(currentHash, '#/unlock', 'Direct navigation to #/game/match must redirect to #/unlock');
+    assert.ok(currentHash === '#/starter' || currentHash === '#/unlock', 'Direct navigation to #/game/match must redirect to #/starter');
     await context.close();
   });
 

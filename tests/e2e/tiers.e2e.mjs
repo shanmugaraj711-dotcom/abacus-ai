@@ -393,11 +393,14 @@ async function runE2ESuite() {
       if (config.expected.freePlay) {
         assert.equal(currentHashAfterFree, '#/free', `Free play should open for ${stateKey}`);
       } else {
-        assert.equal(currentHashAfterFree, '#/unlock', `Free play should redirect to #/unlock for ${stateKey}`);
-        if (stateKey === 'free') {
-          const p = path.join(SCREENSHOT_DIR, 'free-unlock.png');
-          await page.screenshot({ path: p });
-          console.log(`  📸 Saved free unlock screenshot: ${p}`);
+        if (stateKey === 'guest') {
+          const guestBlocked = currentHashAfterFree === '#/home' || (await page.locator('#abacusConversionModal').count()) > 0;
+          assert.ok(guestBlocked, 'Guest free play access must be blocked');
+          if ((await page.locator('#modalGuestBtn').count()) > 0) {
+            await page.click('#modalGuestBtn');
+          }
+        } else {
+          assert.equal(currentHashAfterFree, '#/starter', `Free play should redirect to #/starter for ${stateKey}`);
         }
       }
       passedAssertions++;
@@ -416,14 +419,18 @@ async function runE2ESuite() {
           assert.equal(hash, `#/level/${lvl}`, `Level ${lvl} should be playable for ${stateKey}`);
           playableLevels++;
         } else {
-          // Blocked level redirects to #/unlock (or shows modal / #/practice)
-          const blocked = hash === '#/unlock' || hash === '#/practice' || (await page.locator('#abacusConversionModal').count()) > 0;
-          assert.ok(blocked, `Level ${lvl} must be blocked for ${stateKey} (hash=${hash})`);
-          blockedLevels++;
-          // Close modal if appeared for guests
-          if ((await page.locator('#modalGuestBtn').count()) > 0) {
-            await page.click('#modalGuestBtn');
+          if (stateKey === 'guest') {
+            const blocked = hash === '#/practice' || (await page.locator('#abacusConversionModal').count()) > 0;
+            assert.ok(blocked, `Level ${lvl} must be blocked for guest (hash=${hash})`);
+            if ((await page.locator('#modalGuestBtn').count()) > 0) {
+              await page.click('#modalGuestBtn');
+            }
+          } else if (stateKey === 'lifetime' || stateKey === 'legacy') {
+            assert.equal(hash, '#/home', `Level ${lvl} must redirect to #/home for paid user (${stateKey})`);
+          } else {
+            assert.equal(hash, '#/starter', `Level ${lvl} must redirect to #/starter for ${stateKey}`);
           }
+          blockedLevels++;
         }
         passedAssertions++;
         totalAssertions++;
@@ -441,7 +448,17 @@ async function runE2ESuite() {
           assert.equal(hash, `#/lesson/${lsn}`, `Lesson ${lsn} should be playable for ${stateKey}`);
           playableLessons++;
         } else {
-          assert.equal(hash, '#/unlock', `Lesson ${lsn} must redirect to #/unlock for ${stateKey}`);
+          if (stateKey === 'guest') {
+            const blocked = hash === '#/learn' || (await page.locator('#abacusConversionModal').count()) > 0;
+            assert.ok(blocked, `Lesson ${lsn} must be blocked for guest`);
+            if ((await page.locator('#modalGuestBtn').count()) > 0) {
+              await page.click('#modalGuestBtn');
+            }
+          } else if (stateKey === 'lifetime' || stateKey === 'legacy') {
+            assert.equal(hash, '#/home', `Lesson ${lsn} must redirect to #/home for paid user (${stateKey})`);
+          } else {
+            assert.equal(hash, '#/starter', `Lesson ${lsn} must redirect to #/starter for ${stateKey}`);
+          }
           blockedLessons++;
         }
         passedAssertions++;
@@ -466,7 +483,7 @@ async function runE2ESuite() {
             assert.ok(modalOpen || hash !== `#/game/${gid}`, `Guest must be blocked from game ${gid}`);
             if (modalOpen) await page.click('#modalGuestBtn');
           } else {
-            assert.equal(hash, '#/unlock', `Game ${gid} must redirect to #/unlock for ${stateKey}`);
+            assert.equal(hash, '#/starter', `Game ${gid} must redirect to #/starter for ${stateKey}`);
           }
           blockedGames.push(gid);
         }
@@ -540,32 +557,158 @@ async function runE2ESuite() {
         await page.evaluate((l) => { location.hash = `#/lesson/${l}`; }, lockedLesson);
         await page.waitForTimeout(150);
         const lessonTamperedHash = await page.evaluate(() => location.hash);
-        assert.equal(lessonTamperedHash, '#/unlock', `Tampered locked Lesson ${lockedLesson} must redirect to #/unlock for ${stateKey}`);
+        assert.equal(lessonTamperedHash, '#/starter', `Tampered locked Lesson ${lockedLesson} must redirect to #/starter for ${stateKey}`);
 
         // 2. Direct URL hash navigation to locked level
         await page.evaluate((l) => { location.hash = `#/level/${l}`; }, lockedLevel);
         await page.waitForTimeout(150);
         const levelTamperedHash = await page.evaluate(() => location.hash);
-        assert.equal(levelTamperedHash, '#/unlock', `Tampered locked Level ${lockedLevel} must redirect to #/unlock for ${stateKey}`);
+        assert.equal(levelTamperedHash, '#/starter', `Tampered locked Level ${lockedLevel} must redirect to #/starter for ${stateKey}`);
 
         // 3. Direct URL hash navigation to locked game
         await page.evaluate((g) => { location.hash = `#/game/${g}`; }, lockedGame);
         await page.waitForTimeout(150);
         const gameTamperedHash = await page.evaluate(() => location.hash);
-        assert.equal(gameTamperedHash, '#/unlock', `Tampered locked Game ${lockedGame} must redirect to #/unlock for ${stateKey}`);
+        assert.equal(gameTamperedHash, '#/starter', `Tampered locked Game ${lockedGame} must redirect to #/starter for ${stateKey}`);
 
         // 4. Direct URL hash navigation to Level 15
         await page.evaluate(() => { location.hash = '#/level/15'; });
         await page.waitForTimeout(150);
         const lvl15TamperedHash = await page.evaluate(() => location.hash);
-        assert.equal(lvl15TamperedHash, '#/unlock', `Tampered Level 15 must redirect to #/unlock for ${stateKey}`);
+        assert.equal(lvl15TamperedHash, '#/starter', `Tampered Level 15 must redirect to #/starter for ${stateKey}`);
 
         passedAssertions += 4;
         totalAssertions += 4;
         console.log(`  ✓ Tampering defense: locked lesson ${lockedLesson} -> ${lessonTamperedHash}, level ${lockedLevel} -> ${levelTamperedHash}, game ${lockedGame} -> ${gameTamperedHash}, level 15 -> ${lvl15TamperedHash}`);
       }
 
-      // 10. Console errors, page errors, and failed own-JS requests assertion
+      // 10. Direct visit to #/starter screen
+      await page.evaluate(() => { location.hash = '#/starter'; });
+      await page.waitForTimeout(300);
+      const afterStarterHash = await page.evaluate(() => location.hash);
+
+      if (stateKey === 'lifetime' || stateKey === 'legacy') {
+        assert.equal(afterStarterHash, '#/home', `Paid state ${stateKey} navigating to #/starter must redirect to #/home`);
+        passedAssertions++;
+        totalAssertions++;
+        console.log(`  ✓ Paid redirect: ${stateKey} redirected to #/home from #/starter`);
+      } else {
+        assert.equal(afterStarterHash, '#/starter', `State ${stateKey} must stay on #/starter`);
+        const starterCard = page.locator('[data-plan-card="starter"]');
+        const lifetimeCard = page.locator('[data-plan-card="lifetime"]');
+        assert.equal(await starterCard.count(), 1, 'Starter card exists');
+        assert.equal(await lifetimeCard.count(), 1, 'Lifetime card exists');
+
+        const starterText = await starterCard.textContent();
+        assert.ok(starterText.includes('₹99'), 'Starter card shows ₹99');
+        assert.ok(starterText.includes('30 days') || starterText.includes('30 நாட்கள்'), 'Starter card shows 30 days');
+
+        const lifetimeText = await lifetimeCard.textContent();
+        assert.ok(lifetimeText.includes('₹499'), 'Lifetime card shows ₹499');
+
+        const pageText = await page.locator('.starter-plans').textContent();
+        assert.ok(pageText.includes('Coupons apply to Lifetime only') || pageText.includes('கூப்பன்கள் வாழ்நாள் திட்டத்திற்கு மட்டுமே பொருந்தும்'), 'Coupons note shown');
+
+        // Active Starter styling
+        if (stateKey === 'starter') {
+          const isHighlight = await lifetimeCard.evaluate(el => el.classList.contains('highlight'));
+          const isDeemp = await starterCard.evaluate(el => el.classList.contains('de-emphasized'));
+          assert.ok(isHighlight, 'Active starter sees Lifetime highlighted');
+          assert.ok(isDeemp, 'Active starter sees Starter de-emphasized');
+        }
+
+        // Disabled Starter button + zero network calls
+        const starterBtn = page.locator('#starter-buy-btn');
+        assert.equal(await starterBtn.getAttribute('disabled'), '', 'Starter button is disabled');
+        const btnText = await starterBtn.textContent();
+        assert.ok(btnText.includes('Coming soon') || btnText.includes('விரைவில் வரும்'), 'Starter button says Coming soon');
+
+        let apiCalls = 0;
+        const apiFilter = req => { if (req.url().includes('/api/')) apiCalls++; };
+        page.on('request', apiFilter);
+        await starterBtn.click({ force: true }).catch(() => {});
+        await page.waitForTimeout(100);
+        page.off('request', apiFilter);
+        assert.equal(apiCalls, 0, 'Clicking disabled Starter button triggered 0 API calls');
+
+        // Lifetime button
+        const lifetimeBtn = page.locator('#lifetime-buy-btn');
+        assert.equal(await lifetimeBtn.getAttribute('href'), '#/unlock', 'Lifetime button links to #/unlock');
+
+        passedAssertions += 8;
+        totalAssertions += 8;
+        console.log(`  ✓ #/starter verified for ${stateKey}: cards, pricing, disabled button (0 API calls), lifetime link`);
+      }
+
+      // 11. Grown-ups corner plan line (#/parents)
+      await page.evaluate(() => { location.hash = '#/parents'; });
+      await page.waitForTimeout(300);
+      const leadText = await page.locator('.lead').textContent().catch(() => '');
+      const nums = (leadText || '').match(/\d+/g);
+      if (nums && nums.length >= 2) {
+        const ans = Number(nums[0]) * Number(nums[1]);
+        await page.click(`[data-gate="${ans}"]`);
+        await page.waitForTimeout(300);
+      }
+      const planDesc = (await page.locator('#parents-user-plan').textContent()).trim();
+      if (stateKey === 'lifetime' || stateKey === 'legacy') {
+        assert.equal(planDesc, 'Lifetime', `Parents plan for ${stateKey} must be Lifetime`);
+      } else if (stateKey === 'starter') {
+        assert.ok(planDesc.includes('Starter') && planDesc.includes('days left'), `Parents plan for starter must include Starter and days left, got: ${planDesc}`);
+      } else {
+        assert.equal(planDesc, 'Free', `Parents plan for ${stateKey} must be Free`);
+      }
+      passedAssertions++;
+      totalAssertions++;
+      console.log(`  ✓ Grown-ups plan line: "${planDesc}" for ${stateKey}`);
+
+      // 12. Save Screenshots (EN and TA)
+      if (stateKey === 'free' || stateKey === 'starter' || stateKey === 'lifetime') {
+        // EN screenshot
+        await page.evaluate(() => { location.hash = '#/starter'; });
+        await page.waitForTimeout(300);
+        const enScreenshotName = stateKey === 'free' ? 'free-starter-screen-en.png'
+          : stateKey === 'starter' ? 'starter-user-screen-en.png'
+          : 'lifetime-user-redirect-en.png';
+        const enPath = path.join(SCREENSHOT_DIR, enScreenshotName);
+        await page.screenshot({ path: enPath });
+        console.log(`  📸 Saved screenshot: ${enPath}`);
+
+        // TA screenshot
+        await page.evaluate(() => {
+          const raw = localStorage.getItem('abacus-kids-v3');
+          if (raw) {
+            const data = JSON.parse(raw);
+            data.profile.lang = 'ta';
+            data.profile.voiceLang = 'ta';
+            localStorage.setItem('abacus-kids-v3', JSON.stringify(data));
+          }
+          location.hash = '#/starter';
+        });
+        await page.reload();
+        await page.waitForTimeout(400);
+        const taScreenshotName = stateKey === 'free' ? 'free-starter-screen-ta.png'
+          : stateKey === 'starter' ? 'starter-user-screen-ta.png'
+          : 'lifetime-user-redirect-ta.png';
+        const taPath = path.join(SCREENSHOT_DIR, taScreenshotName);
+        await page.screenshot({ path: taPath });
+        console.log(`  📸 Saved screenshot: ${taPath}`);
+
+        // Restore EN profile
+        await page.evaluate(() => {
+          const raw = localStorage.getItem('abacus-kids-v3');
+          if (raw) {
+            const data = JSON.parse(raw);
+            data.profile.lang = 'en';
+            data.profile.voiceLang = 'en';
+            localStorage.setItem('abacus-kids-v3', JSON.stringify(data));
+          }
+        });
+        await page.reload();
+        await page.waitForTimeout(300);
+      }
+
+      // 13. Console errors, page errors, and failed own-JS requests assertion
       assert.equal(consoleErrors.length, 0, `Zero console errors for ${stateKey}: ${consoleErrors.join('; ')}`);
       assert.equal(pageErrors.length, 0, `Zero page errors for ${stateKey}: ${pageErrors.join('; ')}`);
       assert.equal(failedJsRequests.length, 0, `Zero failed JS requests for ${stateKey}: ${JSON.stringify(failedJsRequests)}`);

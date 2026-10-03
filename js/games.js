@@ -52,7 +52,7 @@ export function playRoom() {
       if (isGuestUser()) {
         return `<button type="button" class="game ${g.cls} locked" data-locked-guest-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>Create free account to play</em></button>`;
       }
-      return `<a class="game ${g.cls} locked" href="#/unlock" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>₹499 to unlock all games</em></a>`;
+      return `<a class="game ${g.cls} locked" href="#/starter" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>${lang() === 'ta' ? 'திட்டம் தேர்வு' : 'Choose plan'}</em></a>`;
     }).join('')}</div>
     ${games.length ? '' : '<p class="muted center">Games are switched off right now.</p>'}` });
   $$('[data-locked-guest-game]').forEach(b => {
@@ -378,7 +378,7 @@ export function openGame(id) {
     return playRoom();
   }
   if (!gameAllowed(id)) {
-    return go('#/unlock');
+    return go('#/starter');
   }
   RUNNERS[id]();
 }

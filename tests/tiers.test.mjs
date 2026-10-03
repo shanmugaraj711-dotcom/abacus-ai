@@ -308,8 +308,8 @@ function getExports(src) {
   return exports;
 }
 
-test('21. Static import graph integrity check: no missing exports between app, games, payments, tiers, access', () => {
-  const files = ['js/app.js', 'js/games.js', 'js/payments.js', 'js/tiers.js', 'js/access.js'];
+test('21. Static import graph integrity check: no missing exports between app, games, payments, tiers, access, starter', () => {
+  const files = ['js/app.js', 'js/games.js', 'js/payments.js', 'js/tiers.js', 'js/access.js', 'js/starter.js'];
   const exportsMap = new Map();
   for (const f of files) {
     exportsMap.set(f, getExports(readFileSync(resolve(ROOT, f), 'utf8')));
@@ -381,6 +381,29 @@ test('25. lessonAllowed delegates directly to canAccessLesson', () => {
   assert.ok(appSrc.includes('export const lessonAllowed = id => canAccessLesson(id);'), 'lessonAllowed must delegate to canAccessLesson(id)');
 });
 
+// ── 14. Piece 2: #/starter Screen & Grown-ups Corner ─────────────────────────
+
+test('26. js/starter.js exports starterScreen and getPlanDescription', () => {
+  const starterSrc = readFileSync(resolve(ROOT, 'js/starter.js'), 'utf8');
+  const exports = getExports(starterSrc);
+  assert.ok(exports.has('starterScreen'), 'starter.js must export starterScreen');
+  assert.ok(exports.has('getPlanDescription'), 'starter.js must export getPlanDescription');
+});
+
+test('27. Router and parents dashboard incorporate #/starter and Your plan line', () => {
+  const appSrc = readFileSync(resolve(ROOT, 'js/app.js'), 'utf8');
+  assert.ok(appSrc.includes('starter: starterScreen'), 'Router must route starter to starterScreen');
+  assert.ok(appSrc.includes('Your plan') && appSrc.includes('உங்கள் திட்டம்'), 'Dashboard must include Your plan in EN and TA');
+  assert.ok(appSrc.includes('getPlanDescription'), 'Dashboard must call getPlanDescription');
+});
+
+test('28. Service worker bumps cache to v9 and caches ./js/starter.js', () => {
+  const swSrc = readFileSync(resolve(ROOT, 'sw.js'), 'utf8');
+  assert.ok(swSrc.includes("const CACHE = 'abacus-buddy-v9';"), 'sw.js cache must be abacus-buddy-v9');
+  assert.ok(swSrc.includes("'./js/starter.js'"), 'sw.js SHELL must include ./js/starter.js');
+});
+
 console.log(`\nResults: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
+
 

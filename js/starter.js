@@ -1,0 +1,116 @@
+// #/starter plans screen (Starter ₹99 / Lifetime ₹499)
+import { TIERS } from './tiers.js';
+import { getTier, getEntitlement, isPaid } from './payments.js';
+import { shell, lang, go, esc } from './ui.js';
+import { babi } from './babi.js';
+
+export function getPlanDescription(isTa = false) {
+  const ent = getEntitlement();
+  const tier = getTier();
+  if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
+    return isTa ? 'வாழ்நாள்' : 'Lifetime';
+  }
+  if (tier === 'starter' && !ent.expired) {
+    let days = 30;
+    if (ent.expiresAt) {
+      const ms = new Date(ent.expiresAt).getTime() - Date.now();
+      days = Math.max(1, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+    }
+    return isTa
+      ? `ஸ்டார்ட்டர் (${days} ${days === 1 ? 'நாள்' : 'நாட்கள்'} உள்ளன)`
+      : `Starter (${days} ${days === 1 ? 'day' : 'days'} left)`;
+  }
+  return isTa ? 'இலவசம்' : 'Free';
+}
+
+export function starterScreen() {
+  const tier = getTier();
+  const ent = getEntitlement();
+
+  // Lifetime and legacy paid users never see #/starter (redirect to #/home)
+  if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
+    go('#/home');
+    return;
+  }
+
+  const isTa = lang() === 'ta';
+  const isStarterActive = tier === 'starter' && !ent.expired;
+
+  const starterPrice = Math.round(TIERS.starter.pricePaise / 100);
+  const lifetimePrice = Math.round(TIERS.lifetime.pricePaise / 100);
+
+  shell({
+    title: isTa ? 'திட்டங்கள்' : 'Plans',
+    back: '#/home',
+    body: `
+      <section class="card intro starter-plans">
+        ${babi('happy', 'big bob')}
+        <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி திட்டங்கள்' : 'Abacus Buddy Plans'}</p>
+        <h2 class="display">${isTa ? 'உங்கள் கற்றல் திட்டத்தை தேர்வு செய்க' : 'Choose Your Plan'}</h2>
+        <p class="lead">${isTa ? 'குழந்தைகளுக்கான எளிய கணிதப் பயிற்சி' : 'Everything you need to master the abacus'}</p>
+
+        <div class="plan-cards">
+          <!-- STARTER PLAN CARD -->
+          <div class="plan-card ${isStarterActive ? 'de-emphasized' : ''}" data-plan-card="starter">
+            <div class="plan-card-header">
+              <span class="plan-badge">${isStarterActive ? (isTa ? 'தற்போதைய திட்டம்' : 'Current Plan') : (isTa ? 'ஸ்டார்ட்டர்' : 'Starter')}</span>
+              <h3 class="plan-title">${isTa ? 'ஸ்டார்ட்டர் திட்டம்' : 'Starter'}</h3>
+              <div class="plan-price">
+                <b>₹${starterPrice}</b>
+                <small>/ ${TIERS.starter.durationDays} ${isTa ? 'நாட்கள்' : 'days'}</small>
+              </div>
+            </div>
+            <ul class="plan-features">
+              <li>✓ ${isTa ? 'லெவல்கள் 1–6 (பயிற்சி)' : 'Levels 1–6 (Practice)'}</li>
+              <li>✓ ${isTa ? 'பாடங்கள் 1–6 (கற்றல்)' : 'Lessons 1–6 (Learn)'}</li>
+              <li>✓ ${isTa ? '4 விளையாட்டுகள் (பந்தயம், புதிர் எண், பொருத்து, ஃபிளாஷ்)' : '4 bead games (Race, Mystery, Match, Flash)'}</li>
+              <li>✓ ${isTa ? 'சுய பயிற்சி (Free Play)' : 'Free Play'}</li>
+              <li>⏱ ${isTa ? '30 நாட்கள் அணுகல்' : '30 days access'}</li>
+            </ul>
+            <div class="plan-action">
+              <button
+                type="button"
+                class="btn wide disabled"
+                disabled
+                aria-disabled="true"
+                aria-label="${isTa ? 'ஸ்டார்ட்டர் திட்டம் (விரைவில் வரும்)' : 'Get Starter'}"
+                data-plan="starter"
+                id="starter-buy-btn"
+              >${isTa ? 'விரைவில் வரும்' : 'Coming soon'}</button>
+            </div>
+          </div>
+
+          <!-- LIFETIME PLAN CARD -->
+          <div class="plan-card ${isStarterActive ? 'highlight' : ''}" data-plan-card="lifetime">
+            <div class="plan-card-header">
+              <span class="plan-badge highlight-badge">${isStarterActive ? (isTa ? 'பரிந்துரைக்கப்படும் மேம்படுத்தல்' : 'Recommended Upgrade') : (isTa ? 'வாழ்நாள் முழுமைக்கும்' : 'Best Value')}</span>
+              <h3 class="plan-title">${isTa ? 'வாழ்நாள் திட்டம்' : 'Lifetime'}</h3>
+              <div class="plan-price">
+                <b>₹${lifetimePrice}</b>
+                <small>/ ${isTa ? 'ஒரே முறை' : 'one-time'}</small>
+              </div>
+            </div>
+            <ul class="plan-features">
+              <li>✓ ${isTa ? 'லெவல்கள் 1–15 (அனைத்து லெவல்கள்)' : 'Levels 1–15 (All levels)'}</li>
+              <li>✓ ${isTa ? 'பாடங்கள் 1–11 (அனைத்து பாடங்கள்)' : 'Lessons 1–11 (All lessons)'}</li>
+              <li>✓ ${isTa ? 'அனைத்து 7 விளையாட்டுகள்' : 'All 7 bead games'}</li>
+              <li>✓ ${isTa ? 'சுய பயிற்சி (Free Play)' : 'Free Play'}</li>
+              <li>♾ ${isTa ? 'வாழ்நாள் முழுமைக்கும் · சந்தா இல்லை' : 'Lifetime access · No subscription'}</li>
+            </ul>
+            <div class="plan-action">
+              <a
+                class="btn primary wide"
+                href="#/unlock"
+                id="lifetime-buy-btn"
+                data-plan="lifetime"
+              >${isTa ? `₹${lifetimePrice} செலுத்தி திறக்கவும்` : `Pay ₹${lifetimePrice} & Unlock`}</a>
+            </div>
+          </div>
+        </div>
+
+        <p class="plan-note muted tiny">${isTa ? 'கூப்பன்கள் வாழ்நாள் திட்டத்திற்கு மட்டுமே பொருந்தும்.' : 'Coupons apply to Lifetime only.'}</p>
+        <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
+      </section>
+    `
+  });
+}

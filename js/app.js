@@ -8,6 +8,7 @@ import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
 import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay, getGames } from './payments.js';
 import { TIERS, getTierConfig } from './tiers.js';
+import { starterScreen, getPlanDescription } from './starter.js';
 import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
 import {
   isGuestUser,
@@ -84,6 +85,7 @@ function unlock() {
         <div class="stack"><a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a></div>`}
       <p class="muted tiny center" id="coupon-status"></p>
       <p class="muted tiny center" id="pay-status"></p>
+      <a class="btn ghost wide" href="#/starter">${isTa ? '← அனைத்து திட்டங்களையும் காண்க' : '← View all plans'}</a>
       <a class="btn ghost wide" href="#/home">${isTa ? 'இப்போது வேண்டாம்' : 'Not now'}</a>
     </section>` });
 
@@ -325,7 +327,7 @@ function nextMission() {
   if (state.unlocked > playableMax() && !isPaid()) {
     const nextLv = playableMax() + 1;
     return {
-      href: '#/unlock',
+      href: isGuestUser() ? '#/practice' : '#/starter',
       emoji: '🔐',
       label: lang() === 'ta' ? `லெவல் ${nextLv} திற` : `Unlock Level ${nextLv}–${MAX_LEVEL}`,
       say: lang() === 'ta' ? `லெவல் ${nextLv} திறக்கலாம்!` : `Ready to unlock Level ${nextLv}?`,
@@ -414,6 +416,7 @@ function free() {
 function learnMap() {
   const isTa = lang() === 'ta';
   const known = state.profile.experience === 'known';
+  const guest = isGuestUser();
   shell({ title: isTa ? 'கற்றல்' : 'Learn', back: '#/home', body: `
     ${bubble(T('pickLesson'), 'happy')}
     <ol class="path">${LESSONS.map((l, i) => {
@@ -421,19 +424,30 @@ function learnMap() {
       const done = lessonDone(l.id);
       const open = allowed && (known || i === 0 || lessonDone(LESSONS[i - 1].id));
       const next = open && !done;
+      const guestLocked = guest && l.id > 1;
       return `<li class="stone ${done ? 'done' : ''} ${next ? 'next' : ''} ${open ? '' : 'locked'}">
-        <a ${open ? `href="#/lesson/${l.id}"` : 'href="#/unlock"'}>
+        <a ${open ? `href="#/lesson/${l.id}"` : guestLocked ? `data-guest-locked-lesson="${l.id}" href="javascript:void(0)"` : 'href="#/starter"'}>
           <span class="stone-emoji">${open ? l.emoji : '🔒'}</span>
           <span><small>${isTa ? `பாடம் ${l.id}` : `Lesson ${l.id}`}</small><b>${esc(lessonTitle(l))}</b></span>
           <span class="stone-end">${done ? '✅' : next ? '▶' : ''}</span>
         </a></li>`;
     }).join('')}</ol>` });
 
+  $$('[data-guest-locked-lesson]').forEach(el => {
+    el.onclick = (e) => {
+      e.preventDefault();
+      showConversionPrompt({ onContinueGuest: () => go('#/learn'), onSuccessAuth: () => route() });
+    };
+  });
 }
 
 function lesson(id) {
   const L = LESSONS.find(l => l.id === id); if (!L) return go('#/learn');
-  if (!lessonAllowed(id)) return go('#/unlock');
+  if (isGuestUser() && id > 1) {
+    showConversionPrompt({ onContinueGuest: () => go('#/learn'), onSuccessAuth: () => route() });
+    return;
+  }
+  if (!lessonAllowed(id)) return go('#/starter');
   let i = 0; const t = currentToken();
   shell({ title: lessonTitle(L), back: '#/learn', body: `<div class="progress"><i style="width:0"></i></div><div data-step></div>`, cls: 'lesson' });
 
@@ -592,11 +606,11 @@ function practiceMap() {
       return `<a class="level ${open ? '' : 'locked'} ${L.id === state.unlocked ? 'current' : ''}" ${
         open ? `href="#/level/${L.id}"` :
         guestLocked ? `data-guest-locked-level="${L.id}" href="javascript:void(0)"` :
-        paywall ? 'href="#/unlock"' : 'aria-disabled="true"'
+        paywall ? 'href="#/starter"' : 'aria-disabled="true"'
       }>
         <span class="lv-emoji">${open ? L.emoji : guestLocked || paywall ? '🔐' : '🔒'}</span>
         <span class="lv-body"><small>${isTa ? `லெவல் ${L.id}` : `Level ${L.id}`}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
-        ${guestLocked ? `<strong>${isTa ? 'கணக்கு தொடங்கு' : 'Free account'}</strong>` : paywall ? `<strong>${isTa ? '₹499 செலுத்தி திற' : '₹499 unlock'}</strong>` : stars(rec?.stars || 0)}
+        ${guestLocked ? `<strong>${isTa ? 'கணக்கு தொடங்கு' : 'Free account'}</strong>` : paywall ? `<strong>${isTa ? 'திட்டம் தேர்வு' : 'Choose plan'}</strong>` : stars(rec?.stars || 0)}
       </a>`;
     }).join('')}</div>` });
 
@@ -615,7 +629,7 @@ function levelIntro(id) {
     showConversionPrompt({ onContinueGuest: () => go('#/practice'), onSuccessAuth: () => route() });
     return;
   }
-  if (!levelAllowed(id)) return go('#/unlock');
+  if (!levelAllowed(id)) return go('#/starter'); // backward compat: if (!levelAllowed(id)) return go('#/unlock')
   const needLesson = LESSON_FOR_LEVEL[id], lessonNeeded = needLesson && !lessonDone(needLesson);
   const LL = LESSONS.find(l => l.id === needLesson);
   shell({ title: isTa ? `லெவல் ${id}` : `Level ${id}`, back: '#/practice', body: `
@@ -799,6 +813,7 @@ function parents() {
 }
 
 function dashboard() {
+  const isTa = lang() === 'ta';
   const st = state.stats;
   const acc = st.answered ? Math.round((st.firstTry / st.answered) * 100) : 0;
   const ruleName = { direct: 'Simple beads', small: 'Little Friends (5)', big: 'Big Friends (10)' };
@@ -859,9 +874,10 @@ function dashboard() {
       <div class="row"><button class="btn" id="unlockAll">Unlock all levels</button><button class="btn danger" id="reset">Reset all progress</button></div>
     </section>
     <section class="card auth-status">
-      <h3>${isGuestUser() ? '🎮 Guest Mode' : '👤 Account Status'}</h3>
-      <p class="muted tiny">${isGuestUser() ? 'You are exploring Abacus as a guest. Create a free account or sign in to save your child’s progress across devices and unlock more levels & games.' : 'Logged in with linked progress.'}</p>
-      ${isGuestUser() ? `<button type="button" class="btn primary small" id="parentsAccountBtn">Create Account / Sign In</button>` : ''}
+      <h3>${isGuestUser() ? (isTa ? '🎮 விருந்தினர் பயன்முறை' : '🎮 Guest Mode') : (isTa ? '👤 கணக்கு நிலை' : '👤 Account Status')}</h3>
+      <p class="plan-line" style="margin:6px 0 10px;font-size:15px;"><b>${isTa ? 'உங்கள் திட்டம்' : 'Your plan'}:</b> <span id="parents-user-plan">${getPlanDescription(isTa)}</span></p>
+      <p class="muted tiny">${isGuestUser() ? (isTa ? 'நீங்கள் விருந்தினராக பயன்படுத்துகிறீர்கள். குழந்தையின் முன்னேற்றத்தை சேமிக்க கணக்கை தொடங்குங்கள்.' : 'You are exploring Abacus as a guest. Create a free account or sign in to save your child’s progress across devices and unlock more levels & games.') : (isTa ? 'முன்னேற்றம் இணைக்கப்பட்ட கணக்கில் உள்நுழைந்துள்ளீர்கள்.' : 'Logged in with linked progress.')}</p>
+      ${isGuestUser() ? `<button type="button" class="btn primary small" id="parentsAccountBtn">${isTa ? 'கணக்கு தொடங்கு / உள்நுழை' : 'Create Account / Sign In'}</button>` : ''}
     </section>
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
   const parentsBtn = $('#parentsAccountBtn');
@@ -897,9 +913,16 @@ function route() {
   const n = Number(arg);
   const pages = {
     '': home, home, stickers, parents, check,
+    starter: starterScreen,
     free: () => {
       if (!isOn('freePlay')) return home();
-      if (!canAccessFreePlay()) return go('#/unlock');
+      if (!canAccessFreePlay()) {
+        if (isGuestUser()) {
+          showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() });
+          return;
+        }
+        return go('#/starter'); // legacy: if (!canAccessFreePlay()) return go('#/unlock');
+      }
       return free();
     },
     learn: () => (isOn('learn') ? learnMap() : home()),
@@ -907,7 +930,13 @@ function route() {
     unlock,
     play: () => (isOn('play') ? playRoom() : home()),
     lesson: () => {
-      if (isNaN(n) || !lessonAllowed(n)) return go('#/unlock');
+      if (isNaN(n) || !lessonAllowed(n)) {
+        if (isGuestUser() && n > 1) {
+          showConversionPrompt({ onContinueGuest: () => go('#/learn'), onSuccessAuth: () => route() });
+          return;
+        }
+        return go('#/starter');
+      }
       return lesson(n);
     },
     level: () => {
@@ -916,7 +945,7 @@ function route() {
           showConversionPrompt({ onContinueGuest: () => go('#/practice'), onSuccessAuth: () => route() });
           return;
         }
-        return go('#/unlock');
+        return go('#/starter');
       }
       return levelIntro(n);
     },
