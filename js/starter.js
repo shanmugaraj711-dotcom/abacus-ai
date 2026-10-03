@@ -1,26 +1,67 @@
 // #/starter plans screen (Starter ₹99 / Lifetime ₹499)
 import { TIERS } from './tiers.js';
-import { getTier, getEntitlement, isPaid } from './payments.js';
+import { getTier, getEntitlement, isPaid, startCheckout } from './payments.js';
 import { shell, lang, go, esc } from './ui.js';
 import { babi } from './babi.js';
+
+export function formatPlanDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const day = String(d.getDate()).padStart(2, '0');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const mmm = months[d.getMonth()];
+  const yyyy = d.getFullYear();
+  return `${day} ${mmm} ${yyyy}`;
+}
 
 export function getPlanDescription(isTa = false) {
   const ent = getEntitlement();
   const tier = getTier();
   if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
-    return isTa ? 'வாழ்நாள்' : 'Lifetime';
+    return isTa ? 'வாழ்நாள் - எப்போதும் காலாவதியாகாது' : 'Lifetime - never expires';
   }
   if (tier === 'starter' && !ent.expired) {
     let days = 30;
+    let dateStr = '';
     if (ent.expiresAt) {
+      dateStr = formatPlanDate(ent.expiresAt);
       const ms = new Date(ent.expiresAt).getTime() - Date.now();
-      days = Math.max(1, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+      days = Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
     }
     return isTa
-      ? `ஸ்டார்ட்டர் (${days} ${days === 1 ? 'நாள்' : 'நாட்கள்'} உள்ளன)`
-      : `Starter (${days} ${days === 1 ? 'day' : 'days'} left)`;
+      ? `ஸ்டார்ட்டர் - ${dateStr} வரை செல்லுபடியாகும் (${days} ${days === 1 ? 'நாள்' : 'நாட்கள்'} உள்ளன)`
+      : `Starter - valid until ${dateStr} (${days} ${days === 1 ? 'day' : 'days'} left)`;
   }
-  return isTa ? 'இலவசம்' : 'Free';
+  if (ent.expired || (ent.expiresAt && tier === 'free')) {
+    const dateStr = formatPlanDate(ent.expiresAt);
+    return isTa
+      ? `ஸ்டார்ட்டர் ${dateStr} அன்று காலாவதியானது. நீங்கள் இலவச திட்டத்தில் உள்ளீர்கள்.`
+      : `Starter expired on ${dateStr}. You are on the Free plan.`;
+  }
+  return isTa ? 'இலவச திட்டம்' : 'Free plan';
+}
+
+export function getPlanActionsHtml(isTa = false) {
+  const ent = getEntitlement();
+  const tier = getTier();
+  if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
+    return '';
+  }
+  if (tier === 'starter' && !ent.expired) {
+    return `
+      <button type="button" class="btn small" id="renew-starter-btn">${isTa ? 'ஸ்டார்ட்டரைப் புதுப்பிக்கவும் (Rs 99)' : 'Renew Starter (Rs 99)'}</button>
+      <a class="btn primary small" href="#/unlock" id="upgrade-lifetime-btn">${isTa ? 'வாழ்நாள் திட்டத்திற்கு மேம்படுத்து (Rs 499)' : 'Upgrade to Lifetime (Rs 499)'}</a>
+    `;
+  }
+  if (ent.expired || (ent.expiresAt && tier === 'free')) {
+    return `
+      <button type="button" class="btn primary small" id="renew-expired-btn">${isTa ? 'ஸ்டார்ட்டரைப் புதுப்பிக்கவும் (Rs 99)' : 'Renew Starter (Rs 99)'}</button>
+    `;
+  }
+  return `
+    <a class="btn small" href="#/starter" id="see-plans-btn">${isTa ? 'திட்டங்களைக் காண்க' : 'See plans'}</a>
+  `;
 }
 
 export function starterScreen() {
@@ -38,6 +79,8 @@ export function starterScreen() {
 
   const starterPrice = Math.round(TIERS.starter.pricePaise / 100);
   const lifetimePrice = Math.round(TIERS.lifetime.pricePaise / 100);
+
+  const starterBtnLabel = isTa ? 'ஸ்டார்ட்டர் பெறுங்கள் - Rs 99' : 'Get Starter - Rs 99';
 
   shell({
     title: isTa ? 'திட்டங்கள்' : 'Plans',
@@ -70,14 +113,13 @@ export function starterScreen() {
             <div class="plan-action">
               <button
                 type="button"
-                class="btn wide disabled"
-                disabled
-                aria-disabled="true"
-                aria-label="${isTa ? 'ஸ்டார்ட்டர் திட்டம் (விரைவில் வரும்)' : 'Get Starter'}"
+                class="btn primary wide"
+                aria-label="${starterBtnLabel}"
                 data-plan="starter"
                 id="starter-buy-btn"
-              >${isTa ? 'விரைவில் வரும்' : 'Coming soon'}</button>
+              >${starterBtnLabel}</button>
             </div>
+            <p id="starter-error-msg" class="auth-error center tiny" style="margin-top:8px;display:none;" role="alert"></p>
           </div>
 
           <!-- LIFETIME PLAN CARD -->
@@ -113,4 +155,26 @@ export function starterScreen() {
       </section>
     `
   });
+
+  const starterBtn = document.getElementById('starter-buy-btn');
+  const errorEl = document.getElementById('starter-error-msg');
+  if (starterBtn) {
+    starterBtn.onclick = async () => {
+      starterBtn.disabled = true;
+      if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.style.display = 'none';
+      }
+      try {
+        await startCheckout('starter');
+      } catch (err) {
+        if (errorEl) {
+          errorEl.textContent = err.message || 'Payment failed';
+          errorEl.style.display = 'block';
+        }
+      } finally {
+        starterBtn.disabled = false;
+      }
+    };
+  }
 }

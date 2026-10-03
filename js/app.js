@@ -6,9 +6,9 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay, getGames } from './payments.js';
+import { refreshEntitlement, isPaid, buyUnlock, startCheckout, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay, getGames } from './payments.js';
 import { TIERS, getTierConfig } from './tiers.js';
-import { starterScreen, getPlanDescription } from './starter.js';
+import { starterScreen, getPlanDescription, getPlanActionsHtml } from './starter.js';
 import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
 import {
   isGuestUser,
@@ -876,12 +876,17 @@ function dashboard() {
     <section class="card auth-status">
       <h3>${isGuestUser() ? (isTa ? '🎮 விருந்தினர் பயன்முறை' : '🎮 Guest Mode') : (isTa ? '👤 கணக்கு நிலை' : '👤 Account Status')}</h3>
       <p class="plan-line" style="margin:6px 0 10px;font-size:15px;"><b>${isTa ? 'உங்கள் திட்டம்' : 'Your plan'}:</b> <span id="parents-user-plan">${getPlanDescription(isTa)}</span></p>
+      <div id="parents-plan-actions" style="margin:6px 0 12px;display:flex;gap:8px;flex-wrap:wrap;">${getPlanActionsHtml(isTa)}</div>
       <p class="muted tiny">${isGuestUser() ? (isTa ? 'நீங்கள் விருந்தினராக பயன்படுத்துகிறீர்கள். குழந்தையின் முன்னேற்றத்தை சேமிக்க கணக்கை தொடங்குங்கள்.' : 'You are exploring Abacus as a guest. Create a free account or sign in to save your child’s progress across devices and unlock more levels & games.') : (isTa ? 'முன்னேற்றம் இணைக்கப்பட்ட கணக்கில் உள்நுழைந்துள்ளீர்கள்.' : 'Logged in with linked progress.')}</p>
       ${isGuestUser() ? `<button type="button" class="btn primary small" id="parentsAccountBtn">${isTa ? 'கணக்கு தொடங்கு / உள்நுழை' : 'Create Account / Sign In'}</button>` : ''}
     </section>
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
   const parentsBtn = $('#parentsAccountBtn');
   if (parentsBtn) parentsBtn.onclick = () => showConversionPrompt({ onSuccessAuth: () => dashboard() });
+  const renewStarter = $('#renew-starter-btn');
+  if (renewStarter) renewStarter.onclick = () => startCheckout('starter');
+  const renewExpired = $('#renew-expired-btn');
+  if (renewExpired) renewExpired.onclick = () => startCheckout('starter');
   $('#setSound').onchange = e => { state.settings.sound = e.target.checked; save(); };
   $('#setVoice').onchange = e => { state.settings.voice = e.target.checked; if (!e.target.checked) stopTalking(); save(); };
   $$('[data-setvoice-lang]').forEach(b => b.onclick = () => {
