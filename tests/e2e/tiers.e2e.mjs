@@ -1287,6 +1287,42 @@ async function runE2ESuite() {
     totalAssertions += 3;
     console.log('  ✓ [E2E] One-time payment button navigates to #/pay and stays stable verified');
 
+    // (b.1) Verify that #/pay for a one-time-payment user goes home
+    currentApiStatus = { paid: true, tier: 'lifetime', starterEnabled: true };
+    const paidContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const paidPage = await paidContext.newPage();
+    await paidPage.addInitScript(() => {
+      window.__mockUser = { uid: 'user-lifetime-e2e', getIdToken: async () => 'tok' };
+      localStorage.setItem('abacus-auth-mode', 'registered');
+      localStorage.setItem('abacus-entitlement-v1', JSON.stringify({
+        paid: true,
+        tier: 'lifetime',
+        uid: 'user-lifetime-e2e',
+        entitlement: { paid: true, tier: 'lifetime', maxLevel: 15, games: ['race','mystery','match','flash','speed','friend','ladder'], maxLesson: 11, freePlay: true, expiresAt: null, expired: false },
+      }));
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'Aarya', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [1],
+        levels: { 1: { stars: 3 } },
+        unlocked: 15,
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: [],
+      }));
+    });
+    await paidPage.goto(`${baseUrl}/#/home`);
+    await paidPage.waitForSelector('.hello');
+    await paidPage.evaluate(() => { location.hash = '#/pay'; });
+    await paidPage.waitForFunction(() => location.hash === '#/home', null, { timeout: 5000 });
+    const postPayHash = await paidPage.evaluate(() => location.hash);
+    assert.equal(postPayHash, '#/home', '#/pay for a one-time-payment user redirects to #/home');
+    passedAssertions += 1;
+    totalAssertions += 1;
+    console.log('  ✓ [E2E] #/pay for a one-time-payment user redirects to #/home verified');
+    await paidContext.close();
+    currentApiStatus = { paid: false, tier: 'free' };
+
     // (c) Sign-in "continue" link lands on a stable plans screen
     await f2Page.goto(`${baseUrl}/auth-ui/sign-in.html?return=${encodeURIComponent('../#/starter')}`);
     await f2Page.waitForSelector('#phase1-signin-section:not([hidden])');

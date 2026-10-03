@@ -826,3 +826,4 @@ try {
 console.log('\n=============================================================');
 console.log(`AUTH & GUEST VERIFICATION COMPLETE: ${passedCount}/${totalCount} TESTS PASSED`);
 console.log('=============================================================\n');
+process.exit(passedCount === totalCount ? 0 : 1);

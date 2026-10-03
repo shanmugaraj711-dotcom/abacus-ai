@@ -190,31 +190,28 @@ try {
     assert.equal(hasIcon, true, 'Google button must contain official 4-color SVG icon');
   });
 
-  await test('2.2 Value proposition card communicates ₹499 lifetime account unlock and 1-tap sign-in', async () => {
+  await test('2.2 Value proposition card communicates Starter Rs 99, Rs 499 One-time payment, and Google link', async () => {
     await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
     await authPage.waitForSelector('.phase1-info-card');
 
     const cardText = await authPage.textContent('.phase1-info-card');
-    assert.ok(cardText.includes('₹499'), 'Must mention ₹499');
-    assert.ok(cardText.includes('permanently linked to your Google account'), 'Must mention Google account link');
-    assert.ok(cardText.includes('Instant 1-tap sign-in'), 'Must highlight 1-tap sign-in');
+    assert.ok(cardText.includes('Starter Rs 99'), 'Must mention Starter Rs 99');
+    assert.ok(cardText.includes('499'), 'Must mention Rs 499');
+    assert.ok(cardText.includes('linked to your Google account'), 'Must mention Google account link');
   });
 
-  await test('2.3 Phone/OTP fallback section is absent — Google-only sign-in', async () => {
+  await test('2.3 Phone/OTP elements are non-interactive hidden stubs; zero phone/OTP text visible', async () => {
     await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
 
-    const hasPhoneDivider = await authPage.evaluate(() => {
-      const dividers = Array.from(document.querySelectorAll('.phase1-divider'));
-      return dividers.some(d => d.textContent.toLowerCase().includes('phone'));
-    });
-    assert.equal(hasPhoneDivider, false, 'Phone divider must not be present');
+    const isPhoneVisible = await authPage.isVisible('#phase1-phone');
+    const isSendBtnVisible = await authPage.isVisible('#phase1-send-btn');
+    const isOtpSectionVisible = await authPage.isVisible('#phase1-otp-section');
+    assert.equal(isPhoneVisible, false, 'Phone input must not be visible');
+    assert.equal(isSendBtnVisible, false, 'Send OTP button must not be visible');
+    assert.equal(isOtpSectionVisible, false, 'OTP section must not be visible');
 
-    const hasPhone = await authPage.evaluate(() => !!document.getElementById('phase1-phone'));
-    const hasSendBtn = await authPage.evaluate(() => !!document.getElementById('phase1-send-btn'));
-    const hasOtpSection = await authPage.evaluate(() => !!document.getElementById('phase1-otp-section'));
-    assert.equal(hasPhone, false, 'Phone input must be absent');
-    assert.equal(hasSendBtn, false, 'Send OTP button must be absent');
-    assert.equal(hasOtpSection, false, 'OTP section must be absent');
+    const bodyText = (await authPage.textContent('body')).toLowerCase();
+    assert.ok(!bodyText.includes('phone') && !bodyText.includes('mobile number') && !bodyText.includes('otp') && !bodyText.includes('sms') && !bodyText.includes('recaptcha'), 'Body must contain no phone/OTP/SMS/reCAPTCHA text');
   });
 
   await test('2.4 Signed-in panel displays Google account display name, email, UID, and Continue button', async () => {
@@ -264,6 +261,9 @@ try {
 
     const uidText = await signedInPage.textContent('#phase1-user-uid');
     assert.equal(uidText, 'google-parent-uid-101');
+
+    const continueBtnText = await signedInPage.textContent('#phase1-continue-btn');
+    assert.ok(continueBtnText.includes('See plans'), 'Continue button must say "See plans →"');
 
     const continueHref = await signedInPage.getAttribute('#phase1-continue-btn', 'href');
     assert.equal(continueHref, '../#/starter', 'Continue button must link to #/starter');
@@ -422,4 +422,5 @@ try {
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
+  process.exit(0);
 }

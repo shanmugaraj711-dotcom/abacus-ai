@@ -30,7 +30,7 @@
     <div class="phase1-header">
       <div class="phase1-badge">Parent Access</div>
       <h1 class="phase1-title">Sign in to choose a plan</h1>
-      <p class="phase1-subtitle">Sign in to choose a plan</p>
+      <p class="phase1-subtitle">Continue with Google</p>
     </div>
 
     <!-- ── Config blocker (shown when firebase/config.js is unconfigured) ── -->
@@ -68,10 +68,25 @@
       </div>
 
       <div class="phase1-info-card">
-        <ul>
-          <li>One-time purchase of ₹499 permanently linked to your Google account</li>
-          <li>Instant 1-tap sign-in with Google</li>
-        </ul>
+        <p>Starter Rs 99 (30 days) or One-time payment Rs 499, linked to your Google account</p>
+      </div>
+
+      <!-- Non-interactive hidden stubs to satisfy auth module bindings without errors or visible UI -->
+      <div id="phase1-hidden-stubs" hidden style="display:none;" aria-hidden="true">
+        <select id="phase1-country" tabindex="-1"></select>
+        <input id="phase1-phone" type="hidden" tabindex="-1">
+        <span id="phase1-phone-hint"></span>
+        <button id="phase1-send-btn" type="button" tabindex="-1"></button>
+        <p id="phase1-phone-error"></p>
+        <span id="phase1-resend-countdown"></span>
+        <div id="phase1-recaptcha"></div>
+        <div id="phase1-otp-section" hidden>
+          <span id="phase1-phone-display"></span>
+          <input id="phase1-otp" type="hidden" tabindex="-1">
+          <p id="phase1-otp-error"></p>
+          <button id="phase1-verify-btn" type="button" tabindex="-1"></button>
+          <button id="phase1-back-btn" type="button" tabindex="-1"></button>
+        </div>
       </div>
 
     </section>
@@ -94,7 +109,7 @@
             class="phase1-btn phase1-btn-primary"
             href="../#/starter"
           >
-            Continue to Unlock Levels 2–15 →
+            See plans →
           </a>
           <button
             id="phase1-signout-btn"
