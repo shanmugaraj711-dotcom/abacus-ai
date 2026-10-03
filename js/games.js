@@ -7,6 +7,7 @@ import { createAbacus, miniAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { isOn } from './config.js';
 import { canAccessGame, isGuestUser } from './access.js';
+import { getTier, getGames } from './payments.js';
 import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, voiceLang, go } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
@@ -28,6 +29,12 @@ export const GAMES = [
   { id: 'ladder', flag: 'gameLadder', emoji: '🪜', name: 'Bead Ladder', desc: 'Climb as high as you can — it keeps getting harder', best: 'rungs', cls: 'ladder' },
 ];
 
+export function gameAllowed(id) {
+  const allowedGames = getGames();
+  if (!allowedGames) return false;
+  return allowedGames.includes(id);
+}
+
 const bestOf = (id, mode) => state.games[`${id}_${mode}`] ?? (mode === 'star' ? state.games[id] : undefined) ?? 0;
 function saveBest(id, mode, value, lower = false) {
   const key = `${id}_${mode}`, old = state.games[key];
@@ -42,7 +49,7 @@ export function playRoom() {
   shell({ title: 'Play', back: '#/home', body: `
     ${bubble(T('pickGame'), 'happy')}
     <div class="games">${games.map(g => {
-      const allowed = canAccessGame(g.id);
+      const allowed = gameAllowed(g.id);
       if (allowed) {
         return `<a class="game ${g.cls}" href="#/game/${g.id}"><span>${g.emoji}</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>Best: ${bestOf(g.id, 'star') || '—'} ${g.best}</em></a>`;
       }
@@ -374,7 +381,7 @@ export function openGame(id) {
     window.dispatchEvent(new CustomEvent('abacus:guest-locked', { detail: { type: 'game', id } }));
     return playRoom();
   }
-  if (!canAccessGame(id)) {
+  if (!gameAllowed(id)) {
     return go('#/unlock');
   }
   RUNNERS[id]();

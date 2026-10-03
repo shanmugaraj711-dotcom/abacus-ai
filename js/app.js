@@ -6,7 +6,8 @@ import { createAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { LESSONS, LESSON_FOR_LEVEL } from './lessons.js';
 import { loadConfig, cfg, isOn, brand } from './config.js';
-import { refreshEntitlement, isPaid, buyUnlock } from './payments.js';
+import { refreshEntitlement, isPaid, buyUnlock, getTier, getMaxLevel, getEntitlement, getMaxLesson, canAccessFreePlay } from './payments.js';
+import { TIERS, getTierConfig } from './tiers.js';
 import { getAuthInstance, signInWithGoogle, signOut } from '../firebase/auth.js';
 import {
   isGuestUser,
@@ -47,9 +48,15 @@ const STICKERS = [
   { id: 'exam', e: '📝', name: 'Test Passed', how: 'Pass any test or exam', ok: () => state.exams.some(r => r.passed) },
 ];
 const earned = () => STICKERS.filter(x => x.ok());
-const freeMax = () => Math.min(MAX_LEVEL, Number(cfg().freeLevels ?? 2));
-const playableMax = () => isPaid() ? MAX_LEVEL : freeMax();
-const levelAllowed = id => id >= 1 && canAccessLevel(id);
+export const freeMax = () => TIERS.free.maxLevel;
+export const playableMax = () => {
+  const t = getTier();
+  const cfg = getTierConfig(t);
+  return cfg.maxLevel;
+};
+export const levelAllowed = id => id >= 1 && id <= playableMax();
+export const maxLessonAllowed = () => getMaxLesson();
+export const lessonAllowed = id => id >= 1 && id <= maxLessonAllowed();
 
 function unlock() {
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
@@ -332,8 +339,8 @@ const testLine = () => {
 };
 
 function nextMission() {
-  if (state.unlocked > freeMax() && !isPaid()) {
-    const nextLv = freeMax() + 1;
+  if (state.unlocked > playableMax() && !isPaid()) {
+    const nextLv = playableMax() + 1;
     return {
       href: '#/unlock',
       emoji: '🔐',
@@ -423,10 +430,12 @@ function learnMap() {
   shell({ title: isTa ? 'கற்றல்' : 'Learn', back: '#/home', body: `
     ${bubble(T('pickLesson'), 'happy')}
     <ol class="path">${LESSONS.map((l, i) => {
-      const done = lessonDone(l.id), open = known || i === 0 || lessonDone(LESSONS[i - 1].id);
+      const allowed = lessonAllowed(l.id);
+      const done = lessonDone(l.id);
+      const open = allowed && (known || i === 0 || lessonDone(LESSONS[i - 1].id));
       const next = open && !done;
       return `<li class="stone ${done ? 'done' : ''} ${next ? 'next' : ''} ${open ? '' : 'locked'}">
-        <a ${open ? `href="#/lesson/${l.id}"` : 'aria-disabled="true"'}>
+        <a ${open ? `href="#/lesson/${l.id}"` : 'href="#/unlock"'}>
           <span class="stone-emoji">${open ? l.emoji : '🔒'}</span>
           <span><small>${isTa ? `பாடம் ${l.id}` : `Lesson ${l.id}`}</small><b>${esc(lessonTitle(l))}</b></span>
           <span class="stone-end">${done ? '✅' : next ? '▶' : ''}</span>
@@ -437,6 +446,7 @@ function learnMap() {
 
 function lesson(id) {
   const L = LESSONS.find(l => l.id === id); if (!L) return go('#/learn');
+  if (!lessonAllowed(id)) return go('#/unlock');
   let i = 0; const t = currentToken();
   shell({ title: lessonTitle(L), back: '#/learn', body: `<div class="progress"><i style="width:0"></i></div><div data-step></div>`, cls: 'lesson' });
 
@@ -446,8 +456,10 @@ function lesson(id) {
     const first = !lessonDone(id);
     if (first) { state.lessonsDone.push(id); L.unlocks.forEach(lv => { state.unlocked = Math.max(state.unlocked, lv); }); markDay(); save(); }
     sfx.star(); confetti();
-    const nextL = LESSONS.find(l => l.id === id + 1);
+    const maxLsn = maxLessonAllowed();
+    const nextL = LESSONS.find(l => l.id === id + 1 && l.id <= maxLsn);
     const lv = L.unlocks[0];
+    const canNextLv = lv && levelAllowed(lv);
     $('.progress i').style.width = '100%';
     $('[data-step]').innerHTML = `
       <section class="done-card">
@@ -456,8 +468,8 @@ function lesson(id) {
         <p class="lead">${isTa ? `<b>${esc(lessonTitle(L))}</b> கற்றுக்கொண்டீர்கள். ${first ? 'ஒரு நட்சத்திரம் கிடைத்தது ★' : ''}` : `You learned <b>${esc(lessonTitle(L))}</b>. ${first ? 'You earned a star ★' : ''}`}</p>
         ${lv ? `<p class="unlock">${isTa ? `🎯 பயிற்சி லெவல் ${lv} திறக்கப்பட்டது!` : `🎯 Practice Level ${lv} is open!`}</p>` : ''}
         <div class="stack">
-          ${lv ? `<a class="btn primary wide" href="#/level/${lv}">${isTa ? 'இப்போதே பயிற்சி செய் →' : 'Practise it now →'}</a>` : ''}
-          ${nextL ? `<a class="btn ${lv ? '' : 'primary'} wide" href="#/lesson/${nextL.id}">${isTa ? 'அடுத்த பாடம்:' : 'Next lesson:'} ${esc(lessonTitle(nextL))}</a>` : ''}
+          ${canNextLv ? `<a class="btn primary wide" href="#/level/${lv}">${isTa ? 'இப்போதே பயிற்சி செய் →' : 'Practise it now →'}</a>` : ''}
+          ${nextL ? `<a class="btn ${canNextLv ? '' : 'primary'} wide" href="#/lesson/${nextL.id}">${isTa ? 'அடுத்த பாடம்:' : 'Next lesson:'} ${esc(lessonTitle(nextL))}</a>` : ''}
           <a class="btn ghost wide" href="#/home">${isTa ? 'முகப்பு' : 'Home'}</a>
         </div>
       </section>`;
@@ -766,11 +778,13 @@ function check() {
     if (ok && !failed) passedUntil = qs[idx].l; else failed = true;
     idx++;
     if (idx < qs.length && !failed) return show();
-    const lvl = Math.max(1, Math.min(MAX_LEVEL, passedUntil ? passedUntil + 1 : 1));
+    const maxLvl = playableMax();
+    const maxLsn = maxLessonAllowed();
+    const lvl = Math.max(1, Math.min(maxLvl, passedUntil ? passedUntil + 1 : 1));
     state.unlocked = Math.max(state.unlocked, lvl);
     // lessons before that level count as known
-    LESSONS.forEach(l => { if (l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
-    if (lvl > 1) [1, 2, 3, 4, 5].forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
+    LESSONS.forEach(l => { if (l.id <= maxLsn && l.unlocks.length && Math.max(...l.unlocks) < lvl + 0 && !lessonDone(l.id)) state.lessonsDone.push(l.id); });
+    if (lvl > 1) [1, 2, 3, 4, 5, 6].filter(k => k <= maxLsn).forEach(k => { if (!lessonDone(k)) state.lessonsDone.push(k); });
     markDay(); saveNow(); sfx.star(); confetti();
     const isTa = lang() === 'ta';
     $('.view').innerHTML = `<section class="done-card">${babi('cheer', 'big bob')}<h2 class="display">${isTa ? `அருமை, ${kidName()}!` : `Nice, ${kidName()}!`}</h2>
@@ -897,12 +911,19 @@ function route() {
   const n = Number(arg);
   const pages = {
     '': home, home, stickers, parents, check,
-    free: () => (isOn('freePlay') ? free() : home()),
+    free: () => {
+      if (!isOn('freePlay')) return home();
+      if (!canAccessFreePlay()) return go('#/unlock');
+      return free();
+    },
     learn: () => (isOn('learn') ? learnMap() : home()),
     practice: () => (isOn('practice') ? practiceMap() : home()),
     unlock,
     play: () => (isOn('play') ? playRoom() : home()),
-    lesson: () => lesson(n),
+    lesson: () => {
+      if (isNaN(n) || !lessonAllowed(n)) return go('#/unlock');
+      return lesson(n);
+    },
     level: () => levelIntro(n),
     game: () => (isOn('play') ? openGame(arg) : home()),
     tests: () => (isGuestUser() ? showConversionPrompt({ onContinueGuest: () => go('#/home'), onSuccessAuth: () => route() }) : (examsOpen() ? testCentre() : home())),
