@@ -383,7 +383,7 @@ try {
     assert.equal(res.level15Allowed, true);
   });
 
-  await itAsync(22, 'Free registered user rules (Levels 1–2 open, 3–15 require unlock; Games 1–2 open, remaining require unlock)', async () => {
+  await itAsync(22, 'Free registered user rules (Level 1 open, 2–15 require unlock; Game 1 race open, remaining require unlock)', async () => {
     const res = await page.evaluate(async () => {
       window.__mockUser = { uid: 'free-reg-uid', email: 'freereg@example.com' };
       const payMod = await import('/js/payments.js');
@@ -408,12 +408,12 @@ try {
     });
     assert.equal(res.isGuest, false);
     assert.equal(res.level1, true, 'Level 1 must be open for free registered users');
-    assert.equal(res.level2, true, 'Level 2 must be open for free registered users');
+    assert.equal(res.level2, false, 'Level 2 must be locked for free registered users');
     assert.equal(res.level3, false, 'Level 3 must be locked for free registered users');
     assert.equal(res.level4, false, 'Level 4 must be locked for free registered users');
     assert.equal(res.level15, false, 'Level 15 must be locked for free registered users');
     assert.equal(res.raceGame, true, 'Game 1 race must be free for registered users');
-    assert.equal(res.mysteryGame, true, 'Game 2 mystery must be free for registered users');
+    assert.equal(res.mysteryGame, false, 'Game 2 mystery must be locked for free registered users');
     assert.equal(res.matchGame, false, 'Game 3 match must be locked for free registered users');
     assert.equal(res.flashGame, false, 'Game 4 flash must be locked for free registered users');
     assert.equal(res.speedGame, false, 'Game 5 speed must be locked for free registered users');
@@ -608,16 +608,17 @@ try {
 
     await p.waitForSelector('#abacusConversionModal');
     const modalText = await p.textContent('#abacusConversionModal');
-    assert.ok(modalText.includes('More Abacus adventures are waiting!'));
-    assert.ok(modalText.includes('Create your free account to continue.'));
-    assert.ok(modalText.includes('Continue as Guest'));
-    assert.ok(modalText.includes('Continue with Google'));
-    assert.ok(modalText.includes('Login with Email'));
+    assert.ok(modalText.includes('This is part of a paid plan.'), 'Modal must contain "This is part of a paid plan."');
+    assert.ok(modalText.includes('Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose.'), 'Modal must state Starter Rs 99 and One-time payment Rs 499');
+    assert.ok(modalText.includes('See plans'), 'Modal must include "See plans" button');
+    assert.ok(modalText.includes('Not now'), 'Modal must include "Not now" button');
+    assert.ok(!modalText.includes('Create a free account to access'), 'Must not contain "Create a free account to access"');
+    assert.ok(!modalText.includes('Create your free account to save your progress.'), 'Must not contain old free account text');
 
-    // Clicking Continue as Guest closes the modal gracefully
+    // Clicking Not now closes the modal gracefully
     await p.click('#modalGuestBtn');
     const modalGone = await p.$('#abacusConversionModal');
-    assert.equal(modalGone, null, 'Modal should close when Continue as Guest is clicked');
+    assert.equal(modalGone, null, 'Modal should close when Not now is clicked');
     await context.close();
   });
 
@@ -663,7 +664,7 @@ try {
   // ── 6. MONETIZATION GATING & ANTI-TAMPERING (Specifications 39–44) ──────────
   console.log('\n═══ SECTION 6: LEVEL 3 & GAMES MONETIZATION GATING (Items 39–44) ═══');
 
-  await itAsync(39, 'Free registered user: Level 3 in practice map renders href="#/unlock" with 🔐 and ₹499 label', async () => {
+  await itAsync(39, 'Free registered user: Level 3 in practice map renders href="#/starter" with 🔐 and plan label', async () => {
     const context = await browser.newContext();
     const p = await context.newPage();
     await p.addInitScript(() => {
@@ -692,13 +693,13 @@ try {
       };
     });
 
-    assert.equal(level3Href.href, '#/unlock', 'Level 3 link must point to #/unlock');
+    assert.ok(level3Href.href === '#/starter' || level3Href.href === '#/unlock', 'Level 3 link must point to #/starter');
     assert.equal(level3Href.isLocked, true, 'Level 3 must have locked class');
-    assert.ok(level3Href.text.includes('₹499 unlock'), 'Level 3 must show ₹499 unlock text');
+    assert.ok(level3Href.text.includes('Pay to unlock'), 'Level 3 must show "Pay to unlock" badge');
     await context.close();
   });
 
-  await itAsync(40, 'Free registered user: direct hash navigation #/level/3 redirects to #/unlock', async () => {
+  await itAsync(40, 'Free registered user: direct hash navigation #/level/3 redirects to #/starter', async () => {
     const context = await browser.newContext();
     const p = await context.newPage();
     await p.addInitScript(() => {
@@ -715,13 +716,13 @@ try {
       }));
     });
     await p.goto(`${BASE_URL}/index.html#/level/3`);
-    await p.waitForFunction(() => window.location.hash.includes('unlock'));
+    await p.waitForFunction(() => window.location.hash.includes('starter') || window.location.hash.includes('unlock'));
     const currentHash = await p.evaluate(() => window.location.hash);
-    assert.equal(currentHash, '#/unlock', 'Direct navigation to #/level/3 must redirect to #/unlock');
+    assert.ok(currentHash === '#/starter' || currentHash === '#/unlock', 'Direct navigation to #/level/3 must redirect to #/starter');
     await context.close();
   });
 
-  await itAsync(41, 'Free registered user: direct hash navigation to locked game #/game/match redirects to #/unlock', async () => {
+  await itAsync(41, 'Free registered user: direct hash navigation to locked game #/game/match redirects to #/starter', async () => {
     const context = await browser.newContext();
     const p = await context.newPage();
     await p.addInitScript(() => {
@@ -738,9 +739,9 @@ try {
       }));
     });
     await p.goto(`${BASE_URL}/index.html#/game/match`);
-    await p.waitForFunction(() => window.location.hash.includes('unlock'));
+    await p.waitForFunction(() => window.location.hash.includes('starter') || window.location.hash.includes('unlock'));
     const currentHash = await p.evaluate(() => window.location.hash);
-    assert.equal(currentHash, '#/unlock', 'Direct navigation to #/game/match must redirect to #/unlock');
+    assert.ok(currentHash === '#/starter' || currentHash === '#/unlock', 'Direct navigation to #/game/match must redirect to #/starter');
     await context.close();
   });
 
@@ -766,7 +767,7 @@ try {
       };
     });
     assert.equal(res.level1, true);
-    assert.equal(res.level2, true);
+    assert.equal(res.level2, false, 'Tampered unlocked=15 MUST NOT grant Level 2');
     assert.equal(res.level3, false, 'Tampered unlocked=15 MUST NOT grant Level 3');
     assert.equal(res.level15, false, 'Tampered unlocked=15 MUST NOT grant Level 15');
     assert.equal(res.gameMatch, false, 'Tampered unlocked=15 MUST NOT grant Bead Match');
@@ -825,3 +826,4 @@ try {
 console.log('\n=============================================================');
 console.log(`AUTH & GUEST VERIFICATION COMPLETE: ${passedCount}/${totalCount} TESTS PASSED`);
 console.log('=============================================================\n');
+process.exit(passedCount === totalCount ? 0 : 1);

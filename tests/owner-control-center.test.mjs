@@ -10,7 +10,7 @@
  *  5. Remote configuration and 3-layer offline fallback
  *  6. Game visibility by level and direct-route protection
  *  7. Feature switches affect the child app
- *  8. Free Levels 1-3 and paid Levels 4-15
+ *  8. Tiered level access (Free 1, Starter 1-6, One-time payment 1-15)
  *  9. Razorpay ₹499 flow not broken
  * 10. Order-based payment amount validation
  * 11. Payment/webhook idempotency
@@ -776,13 +776,11 @@ await test('worker.js accesses Firestore only via service account (not client SD
 // ──────────────────────────────────────────────────────────────────────────────────────
 
 // ──────────────────────────────────────────────────────────────────────────────────────
-// SECTION 8: Free Levels 1-3 and paid Levels 4-15
+// SECTION 8: Tiered level access (Free 1, Starter 1-6, One-time payment 1-15)
 // ──────────────────────────────────────────────────────────────────────────────────────
-console.log('\n═══ Item 8: Free 1-3 / Paid 4-15 (browser) ═══');
+console.log('\n═══ Item 8: Tiered level access (Free 1, Starter 1-6, One-time payment 1-15) (browser) ═══');
 
-await test('Level gating: freeLevels defaults to 2, MAX_LEVEL is 15', async () => {
-  const src = fs.readFileSync(path.join(ROOT_DIR, 'js/config.js'), 'utf8');
-  assert.ok(src.includes('freeLevels: 2'), 'Default freeLevels must be 2');
+await test('Level gating: MAX_LEVEL is 15', async () => {
   const engSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/engine.js'), 'utf8');
   assert.ok(engSrc.includes('MAX_LEVEL'), 'MAX_LEVEL must be exported from engine.js');
   // MAX_LEVEL = LEVELS.length - 1; verify LEVELS array has 16 entries (index 0 unused + 1-15)
@@ -791,7 +789,7 @@ await test('Level gating: freeLevels defaults to 2, MAX_LEVEL is 15', async () =
   assert.equal(MAX_LEVEL, 15, `MAX_LEVEL must be 15, got ${MAX_LEVEL}`);
 });
 
-await test('app.js gates levels using isPaid() and freeLevels config', async () => {
+await test('app.js gates levels using isPaid() and tiered access limits', async () => {
   const src = fs.readFileSync(path.join(ROOT_DIR, 'js/app.js'), 'utf8');
   assert.ok(src.includes('isPaid()'), 'app.js must check isPaid()');
   assert.ok(src.includes('freeMax()'), 'app.js must use freeMax()');
@@ -1711,7 +1709,33 @@ await test('Correction J: Existing payment/entitlement behavior remains unchange
   const workerSrc = fs.readFileSync(path.join(ROOT_DIR, 'worker.js'), 'utf8');
   assert.ok(workerSrc.includes('const PRICE = 49900;'), '₹499 fixed price preserved');
   assert.ok(workerSrc.includes('const PRODUCT = "abacus-buddy";'), 'Product name preserved');
-  assert.ok(workerSrc.includes('if(existing?.paid){return json({paid:true});}'), 'Idempotency preserved');
+
+  // Behavioural test: legacy paid:true user plus lifetime user calling verify-payment return paid without being rewritten
+  const legacyUid = 'test-j-legacy-user';
+  server.expose.entitlements[legacyUid] = { paid: true, paidAt: '2026-01-01T00:00:00Z' }; // legacy: no tier
+  const legacyAuditBefore = server.expose.auditLog.length;
+  const legacyRes = await fetch(`${BASE}/api/verify-payment`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(legacyUid), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ razorpay_order_id: 'ord_leg', razorpay_payment_id: 'pay_leg', razorpay_signature: 'any' }),
+  });
+  assert.equal(legacyRes.status, 200);
+  const legacyData = await legacyRes.json();
+  assert.equal(legacyData.paid, true);
+  assert.equal(server.expose.auditLog.length, legacyAuditBefore, 'Legacy paid user must not be rewritten in audit log');
+
+  const lifetimeUid = 'test-j-lifetime-user';
+  server.expose.entitlements[lifetimeUid] = { paid: true, tier: 'lifetime', paidAt: '2026-01-01T00:00:00Z' };
+  const lifetimeAuditBefore = server.expose.auditLog.length;
+  const lifetimeRes = await fetch(`${BASE}/api/verify-payment`, {
+    method: 'POST',
+    headers: { Authorization: mockAuth(lifetimeUid), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ razorpay_order_id: 'ord_life', razorpay_payment_id: 'pay_life', razorpay_signature: 'any' }),
+  });
+  assert.equal(lifetimeRes.status, 200);
+  const lifetimeData = await lifetimeRes.json();
+  assert.equal(lifetimeData.paid, true);
+  assert.equal(server.expose.auditLog.length, lifetimeAuditBefore, 'Lifetime user must not be rewritten in audit log');
 });
 
 // ── Test K: Existing owner authentication remains unchanged ─────────────────

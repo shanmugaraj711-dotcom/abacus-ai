@@ -17,7 +17,7 @@
 // Authorization: /owner.html requires Firebase Google sign-in as the owner account.
 // There is NO PIN. The ownerPin field is removed.
 //
-// Price model: Levels 1-2 free, Levels 3-15 at ₹499. freeLevels is fixed at 2.
+// Price model: Levels 1-2 free, Levels 3-15 at ₹499.
 // The server strips freeLevels from any remote config push to prevent misuse.
 //
 // Nothing here can break the app: unknown keys are ignored and missing files
@@ -26,7 +26,6 @@
 const DEFAULTS = {
   appName: 'Abacus Buddy',
   centreName: '',          // shown on certificates, e.g. "Sunshine Abacus Academy"
-  freeLevels: 2,           // FIXED: levels 1-2 free, 3-15 paid at ₹499. Do not change.
   couponsEnabled: true,    // Server-authoritative coupon discounts are enabled.
   features: {
     learn: true, practice: true, play: true, freePlay: true, stickers: true,
@@ -64,8 +63,6 @@ let current = deepMerge(DEFAULTS, localOverrides);
 /** Rebuild current from all layers */
 function rebuild() {
   const merged = deepMerge(deepMerge(deepMerge(DEFAULTS, _siteConfig), _remoteConfig), localOverrides);
-  // freeLevels is always 2 — enforce fixed price model
-  merged.freeLevels = 2;
   // ownerPin is never exposed in current config (auth is Firebase, not PIN)
   delete merged.ownerPin;
   current = merged;
@@ -110,8 +107,8 @@ export const isOn = key => current.features?.[key] !== false;
 export const brand = () => ({ appName: current.appName || DEFAULTS.appName, centreName: current.centreName || '' });
 
 export function setOverrides(patch) {
-  // Never allow overriding freeLevels or ownerPin from local overrides
-  const { freeLevels: _fl, ownerPin: _pin, ...safePatch } = patch;
+  // Never allow overriding ownerPin from local overrides
+  const { ownerPin: _pin, ...safePatch } = patch;
   localOverrides = deepMerge(localOverrides, safePatch);
   rebuild();
   try { localStorage.setItem(LOCAL_KEY, JSON.stringify(localOverrides)); } catch {}
@@ -127,6 +124,6 @@ export const overrides = () => localOverrides;
 export const defaults = () => DEFAULTS;
 /** The file to put next to index.html so everyone gets these settings (no ownerPin). */
 export const exportJson = () => {
-  const { ownerPin: _pin, freeLevels: _fl, ...exportable } = current;
+  const { ownerPin: _pin, ...exportable } = current;
   return JSON.stringify(exportable, null, 2);
 };

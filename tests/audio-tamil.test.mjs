@@ -201,32 +201,32 @@ test('Audio & Tamil verification suite', async (tSuite) => {
       assert.match(homeText, /சுய பயிற்சி/, 'Free play tile label');
       assert.match(homeText, /பெற்றோருக்கான பகுதி/, 'Grown-ups corner link in Tamil');
 
-      // 3. Test Unlock Screen in Tamil
-      await page.goto(`${baseUrl}/#/unlock`);
+      // 3. Test Unlock / Pay Screen in Tamil
+      await page.goto(`${baseUrl}/#/pay`);
       await page.waitForSelector('.card.intro');
       const unlockText = await page.locator('.card.intro').textContent();
-      assert.match(unlockText, /அபாகஸ் பட்டி வாழ்நாள் முழுமைக்கும்/, 'Unlock eyebrow in Tamil');
-      assert.match(unlockText, /லெவல்கள் 3–15/, 'Unlock display header in Tamil');
-      assert.match(unlockText, /ஒரே முறை கட்டணம் ₹499 மட்டும்/, 'Unlock lead in Tamil');
-      assert.match(unlockText, /லெவல்கள் 1–2/, 'Unlock bullet 1 in Tamil');
-      assert.match(unlockText, /இந்த கணக்கிற்கு லெவல்கள் 3–15/, 'Unlock bullet 2 in Tamil');
+      assert.match(unlockText, /அபாகஸ் பட்டி ஒரே முறை கட்டணம்/, 'Unlock eyebrow in Tamil');
+      assert.match(unlockText, /லெவல்கள் 2–15/, 'Unlock display header in Tamil');
+      assert.match(unlockText, /ஒரே முறை கட்டணம்/, 'Unlock lead in Tamil');
+      assert.match(unlockText, /லெவல் 1, பாடம் 1 மற்றும் 1 அறிமுக விளையாட்டு எப்போதும் இலவசம்/, 'Unlock bullet 1 in Tamil');
+      assert.match(unlockText, /இந்த கணக்கிற்கு லெவல்கள் 2–15/, 'Unlock bullet 2 in Tamil');
       assert.match(unlockText, /Razorpay மூலம் பாதுகாப்பாக பணம் செலுத்தலாம்/, 'Unlock bullet 3 in Tamil');
-      assert.match(unlockText, /தொடங்க உள்நுழையவும்/, 'Sign-in CTA button in Tamil');
+      assert.match(unlockText, /Google மூலம் தொடங்க உள்நுழையவும்/, 'Sign-in CTA button in Tamil');
       assert.match(unlockText, /இப்போது வேண்டாம்/, 'Not now button in Tamil');
 
       // 4. Test Practice Map in Tamil
       await page.goto(`${baseUrl}/#/practice`);
       await page.waitForSelector('.levels');
       const practiceText = await page.locator('#app').textContent();
-      assert.match(practiceText, /லெவல் 1/, 'Level 1 card in Tamil');
-      assert.match(practiceText, /₹499 செலுத்தி திற/, 'Paywalled level indicator in Tamil');
+      assert.match(practiceText, /லெவல் 1\s*சின்ன மணி கூட்டல்/, 'Level 1 card with exact title in Tamil');
+      assert.match(practiceText, /செலுத்தி திற/, 'Paywalled level indicator in Tamil');
 
       // 5. Test Level Intro in Tamil
       await page.goto(`${baseUrl}/#/level/1`);
       await page.waitForSelector('.intro.card');
       const levelIntroText = await page.locator('.intro.card').textContent();
       assert.match(levelIntroText, /8 கணக்குகள் · மணிகளால் பதிலை உருவாக்கவும்/, '8 sums muted note in Tamil');
-      assert.match(levelIntroText, /தயார் — ஆரம்பிக்கலாம்|ஆரம்பி ▶/, 'Start button in Tamil');
+      assert.match(levelIntroText, /தயார் — ஆரம்பிக்கலாம்/, 'Start button in Tamil');
       assert.match(levelIntroText, /முதலில் வித்தையை கற்றுக்கொள்/, 'Learn trick button in Tamil');
 
       // 6. Test Practice Screen Controls in Tamil

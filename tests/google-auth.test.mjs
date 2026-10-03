@@ -190,32 +190,33 @@ try {
     assert.equal(hasIcon, true, 'Google button must contain official 4-color SVG icon');
   });
 
-  await test('2.2 Value proposition card communicates ₹499 lifetime account unlock and 1-tap sign-in', async () => {
+  await test('2.2 Value proposition card communicates Starter Rs 99, Rs 499 One-time payment, and Google link', async () => {
     await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
     await authPage.waitForSelector('.phase1-info-card');
 
     const cardText = await authPage.textContent('.phase1-info-card');
-    assert.ok(cardText.includes('₹499'), 'Must mention ₹499');
-    assert.ok(cardText.includes('permanently linked to your Google account'), 'Must mention Google account link');
-    assert.ok(cardText.includes('Instant 1-tap sign-in'), 'Must highlight 1-tap sign-in');
+    assert.ok(cardText.includes('Starter Rs 99'), 'Must mention Starter Rs 99');
+    assert.ok(cardText.includes('499'), 'Must mention Rs 499');
+    assert.ok(cardText.includes('linked to your Google account'), 'Must mention Google account link');
   });
 
-  await test('2.3 Phone fallback section and divider are preserved below Google button', async () => {
+  await test('2.3 Phone/OTP elements are non-interactive hidden stubs; zero phone/OTP text visible', async () => {
     await authPage.goto(`${BASE_URL}/auth-ui/sign-in.html`);
-    await authPage.waitForSelector('.phase1-divider');
 
-    const dividerText = await authPage.textContent('.phase1-divider');
-    assert.ok(dividerText.toLowerCase().includes('phone'), 'Divider must separate phone sign-in');
+    const isPhoneVisible = await authPage.isVisible('#phase1-phone');
+    const isSendBtnVisible = await authPage.isVisible('#phase1-send-btn');
+    const isOtpSectionVisible = await authPage.isVisible('#phase1-otp-section');
+    assert.equal(isPhoneVisible, false, 'Phone input must not be visible');
+    assert.equal(isSendBtnVisible, false, 'Send OTP button must not be visible');
+    assert.equal(isOtpSectionVisible, false, 'OTP section must not be visible');
 
-    const hasPhone = await authPage.isVisible('#phase1-phone');
-    const hasSendBtn = await authPage.isVisible('#phase1-send-btn');
-    assert.ok(hasPhone, 'Phone input must be present as fallback');
-    assert.ok(hasSendBtn, 'Send OTP button must be present as fallback');
+    const bodyText = (await authPage.textContent('body')).toLowerCase();
+    assert.ok(!bodyText.includes('phone') && !bodyText.includes('mobile number') && !bodyText.includes('otp') && !bodyText.includes('sms') && !bodyText.includes('recaptcha'), 'Body must contain no phone/OTP/SMS/reCAPTCHA text');
   });
 
   await test('2.4 Signed-in panel displays Google account display name, email, UID, and Continue button', async () => {
     const signedInPage = await browser.newPage();
-    await signedInPage.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#unlock`);
+    await signedInPage.goto(`${BASE_URL}/auth-ui/sign-in.html?return=../#/starter`);
     await signedInPage.waitForSelector('#phase1-signin-section:not([hidden])');
 
     await signedInPage.evaluate(() => {
@@ -238,7 +239,7 @@ try {
       if (uidEl) uidEl.textContent = mockGoogleUser.uid;
       if (contBtn) {
         const params = new URLSearchParams(window.location.search);
-        let ret = params.get('return') || '../#unlock';
+        let ret = params.get('return') || '../#/starter';
         if (window.location.hash && !ret.includes('#')) {
           ret += window.location.hash;
         }
@@ -261,19 +262,22 @@ try {
     const uidText = await signedInPage.textContent('#phase1-user-uid');
     assert.equal(uidText, 'google-parent-uid-101');
 
+    const continueBtnText = await signedInPage.textContent('#phase1-continue-btn');
+    assert.ok(continueBtnText.includes('See plans'), 'Continue button must say "See plans →"');
+
     const continueHref = await signedInPage.getAttribute('#phase1-continue-btn', 'href');
-    assert.equal(continueHref, '../#unlock', 'Continue button must link to #unlock');
+    assert.equal(continueHref, '../#/starter', 'Continue button must link to #/starter');
     await signedInPage.close();
   });
 
   await authPage.close();
 
-  // ── GROUP 3: In-App #/unlock Google Sign-In & Purchase Journey ────────────
-  console.log('\n--- GROUP 3: In-App #/unlock Google Sign-In & Purchase Journey ---');
+  // ── GROUP 3: In-App #/pay Google Sign-In & Purchase Journey ────────────
+  console.log('\n--- GROUP 3: In-App #/pay Google Sign-In & Purchase Journey ---');
 
-  await test('3.1 Unauthenticated #/unlock screen displays "Sign in to unlock with Google"', async () => {
+  await test('3.1 Unauthenticated #/pay screen displays "Sign in to unlock with Google"', async () => {
     const appPage = await setupAppPage(browser);
-    await appPage.goto(`${BASE_URL}/#/unlock`);
+    await appPage.goto(`${BASE_URL}/#/pay`);
     await appPage.waitForSelector('.card.intro');
 
     const signinBtn = appPage.locator('.card.intro .stack a#signin-btn');
@@ -283,18 +287,18 @@ try {
     assert.ok(signinText.includes('Sign in to unlock with Google'), 'CTA text must be "Sign in to unlock with Google"');
 
     const href = await signinBtn.getAttribute('href');
-    assert.ok(href.includes('sign-in.html?return=../#unlock'), 'Must link to sign-in page with return URL');
+    assert.ok(href.includes('sign-in.html?return=../#/pay'), 'Must link to sign-in page with return URL');
     await appPage.close();
   });
 
-  await test('3.2 In Tamil mode, #/unlock screen displays "Google மூலம் தொடங்க உள்நுழையவும்"', async () => {
+  await test('3.2 In Tamil mode, #/pay screen displays "Google மூலம் தொடங்க உள்நுழையவும்"', async () => {
     const appPage = await setupAppPage(browser, {
       profileState: {
         profile: { name: 'கவின்', avatar: '🦁', lang: 'ta', voiceLang: 'ta' },
       },
     });
 
-    await appPage.goto(`${BASE_URL}/#/unlock`);
+    await appPage.goto(`${BASE_URL}/#/pay`);
     await appPage.waitForSelector('.card.intro');
 
     const signinBtn = appPage.locator('.card.intro .stack a#signin-btn');
@@ -303,7 +307,7 @@ try {
     await appPage.close();
   });
 
-  await test('3.3 Authenticated Google user on #/unlock screen displays "Unlock for ₹499"', async () => {
+  await test('3.3 Authenticated Google user on #/pay screen displays "Unlock for ₹499"', async () => {
     const mockUser = {
       uid: 'google_parent_auth_888',
       displayName: 'Sundar P',
@@ -313,11 +317,11 @@ try {
     };
 
     const appPage = await setupAppPage(browser, { mockUser });
-    await appPage.goto(`${BASE_URL}/#/unlock`);
+    await appPage.goto(`${BASE_URL}/#/pay`);
     await appPage.waitForSelector('#buy');
 
     const buyText = await appPage.textContent('#buy');
-    assert.ok(buyText.includes('Unlock for ₹499'), 'Authenticated user sees "Unlock for ₹499"');
+    assert.ok(buyText.includes('Pay ₹499 & Unlock') || buyText.includes('Unlock for ₹499'), 'Authenticated user sees Pay ₹499 button');
     await appPage.close();
   });
 
@@ -348,7 +352,7 @@ try {
     appPage.on('console', msg => console.log('PAGE LOG:', msg.text()));
     appPage.on('pageerror', err => console.error('PAGE ERROR:', err));
 
-    await appPage.goto(`${BASE_URL}/#/unlock`);
+    await appPage.goto(`${BASE_URL}/#/pay`);
     await appPage.waitForSelector('#buy');
 
     const buyBtn = appPage.locator('#buy');
@@ -418,4 +422,5 @@ try {
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
+  process.exit(0);
 }

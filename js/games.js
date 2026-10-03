@@ -7,6 +7,7 @@ import { createAbacus, miniAbacus } from './abacusView.js';
 import { babi } from './babi.js';
 import { isOn } from './config.js';
 import { canAccessGame, isGuestUser } from './access.js';
+import { getTier, getGames } from './payments.js';
 import { $, $$, shell, bubble, setBubble, confetti, say, T, V, wait, alive, currentToken, newToken, every, clearTimers, esc, lang, voiceLang, go } from './ui.js';
 
 const rnd = n => Math.floor(Math.random() * n);
@@ -28,6 +29,8 @@ export const GAMES = [
   { id: 'ladder', flag: 'gameLadder', emoji: '🪜', name: 'Bead Ladder', desc: 'Climb as high as you can — it keeps getting harder', best: 'rungs', cls: 'ladder' },
 ];
 
+export const gameAllowed = id => canAccessGame(id);
+
 const bestOf = (id, mode) => state.games[`${id}_${mode}`] ?? (mode === 'star' ? state.games[id] : undefined) ?? 0;
 function saveBest(id, mode, value, lower = false) {
   const key = `${id}_${mode}`, old = state.games[key];
@@ -42,14 +45,14 @@ export function playRoom() {
   shell({ title: 'Play', back: '#/home', body: `
     ${bubble(T('pickGame'), 'happy')}
     <div class="games">${games.map(g => {
-      const allowed = canAccessGame(g.id);
+      const allowed = gameAllowed(g.id);
       if (allowed) {
         return `<a class="game ${g.cls}" href="#/game/${g.id}"><span>${g.emoji}</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>Best: ${bestOf(g.id, 'star') || '—'} ${g.best}</em></a>`;
       }
       if (isGuestUser()) {
-        return `<button type="button" class="game ${g.cls} locked" data-locked-guest-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>Create free account to play</em></button>`;
+        return `<button type="button" class="game ${g.cls} locked" data-locked-guest-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>${lang() === 'ta' ? 'செலுத்தி திற' : 'Pay to unlock'}</em></button>`;
       }
-      return `<a class="game ${g.cls} locked" href="#/unlock" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>₹499 to unlock all games</em></a>`;
+      return `<a class="game ${g.cls} locked" href="#/starter" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>${lang() === 'ta' ? 'செலுத்தி திற' : 'Pay to unlock'}</em></a>`;
     }).join('')}</div>
     ${games.length ? '' : '<p class="muted center">Games are switched off right now.</p>'}` });
   $$('[data-locked-guest-game]').forEach(b => {
@@ -62,7 +65,7 @@ function modePicker(game, start) {
   shell({ title: game.name, back: '#/play', body: `
     ${bubble(`${game.desc}. How hard do you want it?`, 'happy')}
     <div class="modes">${MODES.map(m => `<button class="mode" data-mode="${m.id}"><span>${m.emoji}</span><b>${modeName(m)}</b><em>Best: ${bestOf(game.id, m.id) || '—'}</em></button>`).join('')}</div>` });
-  $$('[data-mode]').forEach(b => b.onclick = () => { sfx.tap(); start(b.dataset.mode); });
+  $$('[data-mode]').forEach(b => b.onclick = (e) => { e.currentTarget.disabled = true; sfx.tap(); start(b.dataset.mode); });
 }
 
 function gameOver({ game, mode, title, line, best, again }) {
@@ -374,8 +377,8 @@ export function openGame(id) {
     window.dispatchEvent(new CustomEvent('abacus:guest-locked', { detail: { type: 'game', id } }));
     return playRoom();
   }
-  if (!canAccessGame(id)) {
-    return go('#/unlock');
+  if (!gameAllowed(id)) {
+    return go('#/starter', { replace: true });
   }
   RUNNERS[id]();
 }

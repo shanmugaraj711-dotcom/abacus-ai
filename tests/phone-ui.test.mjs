@@ -268,7 +268,7 @@ try {
     assert.equal(badgeText.trim(), 'Parent Access');
     assert.ok(!badgeText.includes('Phase 1') && !badgeText.includes('Test'));
 
-    assert.equal(subtitleText.trim(), 'Enter your mobile number to unlock Levels 4–15');
+    assert.equal(subtitleText.trim(), 'Enter your mobile number to unlock Levels 2–15');
     assert.ok(!subtitleText.includes('test surface') && !subtitleText.includes('isolated'));
 
     assert.ok(!footerText.includes('Test Surface') && !footerText.includes('Phase 1'));

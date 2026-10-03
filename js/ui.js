@@ -25,7 +25,11 @@ export function clearTimers() { timers.forEach(clearInterval); timers.clear(); }
 
 let router = () => {};
 export const setRouter = fn => { router = fn; };
-export const go = hash => { if (location.hash === hash) router(); else location.hash = hash; };
+export const go = (hash, { replace = false } = {}) => {
+  if (location.hash === hash) router();
+  else if (replace) { location.replace(hash); router(); }
+  else location.hash = hash;
+};
 
 // Language: Babi's words come from js/i18n.js, so bubble text and voice always match.
 export const lang = () => (state.profile?.lang === 'ta' ? 'ta' : 'en');

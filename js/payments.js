@@ -12,12 +12,23 @@
 
 import { initFirebase, getAuthInstance, onAuthChange } from "../firebase/auth.js";
 import { pingVisit } from "./store.js";
+import { TIERS, getTierConfig, isFreePlayAllowedForTier } from "./tiers.js";
 
 const CACHE_KEY = 'abacus-entitlement-v1';
 
-let paid = false;
+let entitlement = {
+  paid: false,
+  tier: 'free',
+  maxLevel: TIERS.free.maxLevel,
+  games: TIERS.free.games,
+  maxLesson: TIERS.free.maxLesson,
+  freePlay: TIERS.free.freePlay,
+  expiresAt: null,
+  expired: false,
+};
 let checked = false;
 let currentUid = null;
+let starterEnabled = false;
 
 function readCache() {
   try {
@@ -28,22 +39,103 @@ function readCache() {
   } catch { return null; }
 }
 
-function writeCache(uid, paidValue) {
+function writeCache(uid, entOrPaid) {
   try {
     if (!uid) return;
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ paid: paidValue, uid, cachedAt: new Date().toISOString() }));
+    const isPaidVal = typeof entOrPaid === 'object' && entOrPaid !== null ? entOrPaid.paid === true : entOrPaid === true;
+    const tierVal = typeof entOrPaid === 'object' && entOrPaid !== null ? (entOrPaid.tier || (isPaidVal ? 'lifetime' : 'free')) : (isPaidVal ? 'lifetime' : 'free');
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      paid: isPaidVal,
+      tier: tierVal,
+      entitlement: typeof entOrPaid === 'object' && entOrPaid !== null ? entOrPaid : null,
+      uid,
+      cachedAt: new Date().toISOString()
+    }));
   } catch {}
 }
 
 export function clearCache() {
-  paid = false;
+  const freeCfg = TIERS.free;
+  entitlement = {
+    paid: false,
+    tier: 'free',
+    maxLevel: freeCfg.maxLevel,
+    games: freeCfg.games,
+    maxLesson: freeCfg.maxLesson,
+    freePlay: freeCfg.freePlay,
+    expiresAt: null,
+    expired: false
+  };
   try {
     localStorage.removeItem(CACHE_KEY);
   } catch {}
 }
 
-export const isPaid = () => paid;
+export const isPaid = () => entitlement.paid === true;
 export const entitlementChecked = () => checked;
+export const getEntitlement = () => ({ ...entitlement });
+export const getTier = () => entitlement.tier;
+export const getMaxLevel = () => entitlement.maxLevel;
+export const getGames = () => (entitlement.games || getTierConfig(entitlement.tier).games);
+export const getMaxLesson = () => getTierConfig(entitlement.tier).maxLesson;
+export const canAccessFreePlay = () => isFreePlayAllowedForTier(getTierConfig(entitlement.tier));
+export const isStarterEnabled = () => starterEnabled;
+
+function applyCachedEntitlement(c) {
+  if (!c) return;
+  const rawEnt = c.entitlement;
+  const tier = rawEnt?.tier || c.tier || (c.paid ? 'lifetime' : 'free');
+  if (tier === 'starter') {
+    const expiresAt = rawEnt?.expiresAt || c.expiresAt;
+    const isExpired = expiresAt ? (Date.parse(expiresAt) <= Date.now()) : false;
+    if (isExpired) {
+      const freeCfg = TIERS.free;
+      entitlement = {
+        paid: false,
+        tier: 'free',
+        maxLevel: freeCfg.maxLevel,
+        games: freeCfg.games,
+        maxLesson: freeCfg.maxLesson,
+        freePlay: freeCfg.freePlay,
+        expiresAt: expiresAt || null,
+        expired: true
+      };
+      return;
+    }
+  }
+
+  if (c.paid === true) {
+    if (rawEnt) {
+      entitlement = { ...rawEnt };
+    } else {
+      const cfg = getTierConfig(tier);
+      entitlement = {
+        paid: true,
+        tier,
+        maxLevel: cfg.maxLevel,
+        games: cfg.games,
+        maxLesson: cfg.maxLesson,
+        freePlay: cfg.freePlay,
+        expiresAt: rawEnt?.expiresAt || c.expiresAt || null,
+        expired: false
+      };
+    }
+  } else if (rawEnt) {
+    entitlement = { ...rawEnt };
+  } else {
+    const freeCfg = TIERS.free;
+    entitlement = {
+      paid: false,
+      tier: 'free',
+      maxLevel: freeCfg.maxLevel,
+      games: freeCfg.games,
+      maxLesson: freeCfg.maxLesson,
+      freePlay: freeCfg.freePlay,
+      expiresAt: null,
+      expired: false
+    };
+  }
+}
 
 // Continuously listen to auth state changes to enforce entitlement isolation:
 // If the user signs out or a different user signs in, invalidate cached entitlement immediately.
@@ -59,7 +151,6 @@ try {
       const cache = readCache();
       if (!newUid) {
         // Signed out: immediately revoke paid state and clear cache
-        paid = false;
         clearCache();
         try {
           if (localStorage.getItem('abacus-auth-mode') === 'registered') {
@@ -71,12 +162,10 @@ try {
           localStorage.setItem('abacus-auth-mode', 'registered');
         } catch {}
         pingVisit(newUid).catch(() => {});
-        if (cache && cache.uid === newUid && cache.paid === true) {
-          // Same user matching cache: keep paid
-          paid = true;
+        if (cache && cache.uid === newUid) {
+          applyCachedEntitlement(cache);
         } else {
           // User changed: never use another user's cached entitlement
-          paid = false;
           clearCache();
         }
       }
@@ -101,13 +190,17 @@ export async function refreshEntitlement() {
       user = await new Promise(resolve => {
         let settled = false;
         let unsubscribe = () => {};
-        unsubscribe = onAuthChange(u => {
-          if (!settled) {
-            settled = true;
-            try { unsubscribe(); } catch {}
-            resolve(u);
-          }
-        });
+        try {
+          unsubscribe = onAuthChange(u => {
+            if (!settled) {
+              settled = true;
+              try { unsubscribe(); } catch {}
+              resolve(u);
+            }
+          });
+        } catch {
+          resolve(null);
+        }
         setTimeout(() => {
           if (!settled) {
             settled = true;
@@ -125,7 +218,6 @@ export async function refreshEntitlement() {
 
   // 2. If no user is authenticated, unauthenticated access is never entitled
   if (!user || !user.uid) {
-    paid = false;
     clearCache();
     checked = true;
     return false;
@@ -133,15 +225,12 @@ export async function refreshEntitlement() {
 
   // 3. User is authenticated. Check cache ONLY for this specific user UID
   const cache = readCache();
-  if (cache && cache.uid === user.uid && cache.paid === true) {
-    // Only trust cache when cached.uid === current authenticated UID
-    paid = true;
+  if (cache && cache.uid === user.uid) {
+    applyCachedEntitlement(cache);
   } else {
-    // Never use another user's cached entitlement
     if (cache && cache.uid !== user.uid) {
       clearCache();
     }
-    paid = false;
   }
 
   // 4. Verify against backend API over network
@@ -153,21 +242,76 @@ export async function refreshEntitlement() {
     });
     if (!res.ok) throw new Error(`Unable to check purchase status (${res.status})`);
     const data = await res.json();
-    paid = data.paid === true;
-    writeCache(user.uid, paid);
+    starterEnabled = Boolean(data.starterEnabled);
+    if (data.paid === true) {
+      const tier = data.tier || 'lifetime';
+      const cfg = getTierConfig(tier);
+      if (tier === 'starter') {
+        const isExpired = data.expiresAt ? (Date.parse(data.expiresAt) <= Date.now()) : false;
+        if (isExpired) {
+          const freeCfg = TIERS.free;
+          entitlement = {
+            paid: false,
+            tier: 'free',
+            maxLevel: freeCfg.maxLevel,
+            games: freeCfg.games,
+            maxLesson: freeCfg.maxLesson,
+            freePlay: freeCfg.freePlay,
+            expiresAt: data.expiresAt,
+            expired: true
+          };
+        } else {
+          entitlement = {
+            paid: true,
+            tier: 'starter',
+            maxLevel: data.maxLevel ?? cfg.maxLevel,
+            games: data.games ?? cfg.games,
+            maxLesson: cfg.maxLesson,
+            freePlay: cfg.freePlay,
+            expiresAt: data.expiresAt,
+            expired: false
+          };
+        }
+      } else {
+        // legacy paid:true without tier -> lifetime
+        entitlement = {
+          paid: true,
+          tier: 'lifetime',
+          maxLevel: data.maxLevel ?? cfg.maxLevel,
+          games: data.games ?? cfg.games,
+          maxLesson: cfg.maxLesson,
+          freePlay: cfg.freePlay,
+          expiresAt: null,
+          expired: false
+        };
+      }
+    } else {
+      const freeCfg = TIERS.free;
+      entitlement = {
+        paid: false,
+        tier: 'free',
+        maxLevel: freeCfg.maxLevel,
+        games: freeCfg.games,
+        maxLesson: freeCfg.maxLesson,
+        freePlay: freeCfg.freePlay,
+        expiresAt: data.expiresAt || null,
+        expired: !!data.expired || (data.expiresAt ? Date.parse(data.expiresAt) <= Date.now() : false)
+      };
+    }
+    writeCache(user.uid, entitlement);
   } catch (err) {
     console.warn("[Abacus payment] entitlement check skipped:", err);
     // Offline fallback: ONLY trust cached value if cached.uid strictly matches current user
     const c = readCache();
-    if (c && c.uid === user.uid && c.paid === true) {
-      paid = true;
-    } else {
-      paid = false;
+    if (c && c.uid === user.uid) {
+      applyCachedEntitlement(c);
+    } else if (c && c.uid !== user.uid) {
+      clearCache();
     }
   }
 
   checked = true;
-  return paid;
+  return isPaid();
 }
 
 async function loadRazorpay() {
@@ -196,7 +340,7 @@ export async function validateCoupon(couponCode) {
   return data;
 }
 
-export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
+export async function buyUnlock({ tier = 'lifetime', couponCode = "", onSuccess, onError } = {}) {
   try {
     initFirebase();
     const user = getAuthInstance().currentUser;
@@ -205,26 +349,44 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
     const orderRes = await fetch("/api/create-order", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ couponCode: String(couponCode || "").trim().toUpperCase() }),
+      body: JSON.stringify({
+        tier,
+        ...(tier === 'lifetime' && couponCode ? { couponCode: String(couponCode).trim().toUpperCase() } : {})
+      }),
     });
     const order = await orderRes.json();
     if (!orderRes.ok) throw new Error(order.error || "Could not create payment order.");
     if (order.paid) {
-      paid = true;
+      const cfg = getTierConfig(tier);
+      entitlement = {
+        paid: true,
+        tier: order.tier || tier,
+        maxLevel: cfg.maxLevel,
+        games: cfg.games,
+        maxLesson: cfg.maxLesson,
+        freePlay: cfg.freePlay,
+        expiresAt: order.expiresAt || null,
+        expired: false
+      };
       currentUid = user.uid;
-      writeCache(user.uid, true);
+      writeCache(user.uid, entitlement);
       onSuccess?.();
       return true;
     }
 
     await loadRazorpay();
+    const cfg = getTierConfig(tier);
     return await new Promise((resolve, reject) => {
+      const description = tier === 'starter'
+        ? "Abacus Buddy Starter — Levels 1–6 (30 days)"
+        : "One-time payment unlock — Levels 2–15";
+
       const checkout = new window.Razorpay({
         key: order.keyId,
         amount: order.amount,
         currency: order.currency,
         name: "Abacus Buddy",
-        description: "Lifetime unlock — Levels 4–15",
+        description,
         order_id: order.orderId,
         prefill: {
           contact: user.phoneNumber || "",
@@ -244,9 +406,18 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
             });
             const verify = await verifyRes.json();
             if (!verifyRes.ok || verify.paid !== true) throw new Error(verify.error || "Payment verification failed.");
-            paid = true;
+            entitlement = {
+              paid: true,
+              tier: verify.tier || tier,
+              maxLevel: verify.maxLevel ?? cfg.maxLevel,
+              games: verify.games ?? cfg.games,
+              maxLesson: cfg.maxLesson,
+              freePlay: cfg.freePlay,
+              expiresAt: verify.expiresAt || null,
+              expired: false
+            };
             currentUid = user.uid;
-            writeCache(user.uid, true);
+            writeCache(user.uid, entitlement);
             onSuccess?.();
             resolve(true);
           } catch (err) {
@@ -268,3 +439,141 @@ export async function buyUnlock({ couponCode = "", onSuccess, onError } = {}) {
     throw err;
   }
 }
+
+let checkoutInProgress = false;
+
+export async function startCheckout(tier = 'starter') {
+  if (checkoutInProgress) {
+    return false;
+  }
+  checkoutInProgress = true;
+  try {
+    initFirebase();
+    const user = getAuthInstance()?.currentUser;
+    if (!user) {
+      const { showConversionPrompt } = await import('./access.js');
+      const { go } = await import('./ui.js');
+      showConversionPrompt({
+        onContinueGuest: () => { go('#/home'); },
+        onSuccessAuth: () => { go('#/starter'); }
+      });
+      return false;
+    }
+    const { isGuestUser, showConversionPrompt } = await import('./access.js');
+    const { go } = await import('./ui.js');
+    if (isGuestUser()) {
+      showConversionPrompt({
+        onContinueGuest: () => { go('#/home'); },
+        onSuccessAuth: () => { go('#/starter'); }
+      });
+      return false;
+    }
+
+    const token = await user.getIdToken(true);
+    const orderRes = await fetch("/api/create-order", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tier }),
+    });
+    const order = await orderRes.json();
+    if (!orderRes.ok) {
+      throw new Error(order.error || "Could not create payment order.");
+    }
+
+    const cfg = getTierConfig(tier);
+    if (order.paid) {
+      entitlement = {
+        paid: true,
+        tier: order.tier || tier,
+        maxLevel: cfg.maxLevel,
+        games: cfg.games,
+        maxLesson: cfg.maxLesson,
+        freePlay: cfg.freePlay,
+        expiresAt: order.expiresAt || null,
+        expired: false,
+      };
+      currentUid = user.uid;
+      writeCache(user.uid, entitlement);
+      await refreshEntitlement();
+      go('#/home');
+      return true;
+    }
+
+    await loadRazorpay();
+
+    const description = tier === 'starter'
+      ? "Abacus Buddy Starter — Levels 1–6 (30 days)"
+      : "One-time payment unlock — Levels 2–15";
+
+    const paymentSuccess = await new Promise((resolve, reject) => {
+      let settled = false;
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "Abacus Buddy",
+        description,
+        order_id: order.orderId,
+        prefill: {
+          contact: user.phoneNumber || "",
+          email: user.email || "",
+          name: user.displayName || "",
+        },
+        theme: { color: "#FFC53D" },
+        handler: async (response) => {
+          settled = true;
+          try {
+            const verifyRes = await fetch("/api/verify-payment", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(response),
+            });
+            const verify = await verifyRes.json();
+            if (!verifyRes.ok || verify.paid !== true) {
+              throw new Error(verify.error || "Payment verification failed.");
+            }
+            entitlement = {
+              paid: true,
+              tier: verify.tier || tier,
+              maxLevel: verify.maxLevel ?? cfg.maxLevel,
+              games: verify.games ?? cfg.games,
+              maxLesson: cfg.maxLesson,
+              freePlay: cfg.freePlay,
+              expiresAt: verify.expiresAt || null,
+              expired: false,
+            };
+            currentUid = user.uid;
+            writeCache(user.uid, entitlement);
+            await refreshEntitlement();
+            go('#/home');
+            resolve(true);
+          } catch (err) {
+            reject(err);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            if (!settled) resolve(false);
+          },
+        },
+      });
+      checkout.on("payment.failed", (response) => {
+        settled = true;
+        const msg = response?.error?.description || "Payment failed. No unlock was applied.";
+        reject(new Error(msg));
+      });
+      checkout.open();
+    });
+
+    return paymentSuccess;
+  } finally {
+    checkoutInProgress = false;
+  }
+}
+

@@ -4,8 +4,9 @@
  *
  * Rules:
  *   - Guest: Level 1 allowed; Mystery Number ('mystery') allowed; all others locked
- *   - Free registered: Levels 1-2 allowed; Games 'race' & 'mystery' allowed; all others locked (require ₹499)
- *   - Paid registered: Levels 1-15 allowed; all games allowed; ₹499 lifetime unlock
+ *   - Free registered: Level 1 allowed; Game 'race' allowed; Lesson 1 allowed; Free Play locked
+ *   - Starter registered: Levels 1-6 allowed; 4 games allowed; Lessons 1-6 allowed; Free Play open (₹99/30d)
+ *   - Paid registered: Levels 1-15 allowed; all games allowed; all lessons allowed; Free Play open (₹499 lifetime unlock)
  */
 
 import {
@@ -15,12 +16,13 @@ import {
   signUpWithEmail,
   resetPassword,
 } from '../firebase/auth.js';
-import { isPaid } from './payments.js';
+import { isPaid, getMaxLevel, getGames, getMaxLesson, canAccessFreePlay } from './payments.js';
 import { pingVisit } from './store.js';
+import { TIERS } from './tiers.js';
 
 export const GUEST_GAME_ID = 'mystery'; // Mystery Number — introductory bead reading game
-export const FREE_LEVELS = [1, 2];
-export const FREE_GAMES = ['race', 'mystery']; // Game 1: Bead Race ('race'), Game 2: Mystery Number ('mystery')
+export const FREE_LEVELS = [TIERS.free.maxLevel];
+export const FREE_GAMES = TIERS.free.games;
 export const AUTH_MODE_KEY = 'abacus-auth-mode';
 
 const GOOGLE_SVG = `<svg style="width:20px;height:20px;margin-right:6px;vertical-align:middle;" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>`;
@@ -66,15 +68,14 @@ export function isGuestUser() {
 
 /**
  * Authoritative level access check:
- * - Paid: Levels 1..15 are allowed
  * - Guest: only Level 1 is allowed
- * - Free registered: only Levels 1-2 are allowed; Level 3+ locked (requires ₹499)
+ * - Tiered user: bounded by getMaxLevel() (Free: 1, Starter: 6, Lifetime: 15)
  */
 export function canAccessLevel(level) {
   const n = Number(level);
-  if (isPaid()) return n >= 1 && n <= 15;
+  if (isNaN(n) || n < 1) return false;
   if (isGuestUser()) return n === 1;
-  return FREE_LEVELS.includes(n);
+  return n <= getMaxLevel();
 }
 
 /**
@@ -86,16 +87,15 @@ export function canGuestAccessLevel(level) {
 
 /**
  * Authoritative game access check:
- * - Paid: all games allowed
  * - Guest: only GUEST_GAME_ID ('mystery') allowed
- * - Free registered: only FREE_GAMES (['race', 'mystery']) allowed; all others locked (require ₹499)
+ * - Tiered user: checked against getGames() (Free: ['race'], Starter: 4 games, Lifetime: all 7)
  */
 export function canAccessGame(gameId) {
-  if (isPaid()) return true;
   if (isGuestUser()) {
     return String(gameId) === GUEST_GAME_ID;
   }
-  return FREE_GAMES.includes(String(gameId));
+  const allowed = getGames();
+  return Array.isArray(allowed) && allowed.includes(String(gameId));
 }
 
 /**
@@ -103,6 +103,28 @@ export function canAccessGame(gameId) {
  */
 export function canGuestAccessGame(gameId) {
   return canAccessGame(gameId);
+}
+
+/**
+ * Authoritative lesson access check:
+ * - Guest: only Lesson 1 allowed
+ * - Tiered user: bounded by getMaxLesson() (Free: 1, Starter: 6, Lifetime: 11)
+ */
+export function canAccessLesson(lessonId) {
+  const n = Number(lessonId);
+  if (isNaN(n) || n < 1) return false;
+  if (isGuestUser()) return n === 1;
+  return n <= getMaxLesson();
+}
+
+/**
+ * Authoritative Free Play access check:
+ * - Guest: locked
+ * - Tiered user: checked against canAccessFreePlay() (Free: locked, Starter: open, Lifetime: open)
+ */
+export function canAccessFreePlayMode() {
+  if (isGuestUser()) return false;
+  return canAccessFreePlay();
 }
 
 /**
@@ -163,7 +185,7 @@ export function renderEmailAuthView({ container, initialMode = 'login', onSucces
       <div class="auth-form-card">
         <h3 class="auth-form-title">${isLogin ? '🔐 Account Login' : '✨ Create Free Account'}</h3>
         <p class="muted center tiny" style="margin-bottom:14px;">
-          ${isLogin ? 'Enter your details to sign in and restore your child’s progress.' : 'Create your free account to unlock Levels 1–3 and all games.'}
+          ${isLogin ? 'Enter your details to sign in and restore your child’s progress.' : 'Create your free account to save your progress.'}
         </p>
 
         <div id="emailAuthError" class="auth-error" style="display:none;" role="alert"></div>
@@ -338,23 +360,43 @@ export function showConversionPrompt(options = {}) {
   modal.setAttribute('aria-modal', 'true');
 
   function renderPromptContent() {
+    const isTa = (() => {
+      try {
+        const raw = localStorage.getItem('abacus-kids-v3');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return parsed.profile?.lang === 'ta';
+        }
+      } catch {}
+      return false;
+    })();
+
+    const titleText = isTa ? 'இது கட்டண திட்டத்தின் ஒரு பகுதி.' : 'This is part of a paid plan.';
+    const descText = isTa ? 'ஸ்டார்ட்டர் Rs 99 (30 நாட்கள்) அல்லது ஒரே முறை கட்டணம் Rs 499. தேர்வு செய்ய Google மூலம் உள்நுழையவும்.' : 'Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose.';
+    const googleBtnText = isTa ? 'Google மூலம் உள்நுழையவும்' : 'Sign in with Google';
+    const emailBtnText = isTa ? '✉️ மின்னஞ்சல் மூலம் உள்நுழைக' : '✉️ Sign in with Email';
+    const plansBtnText = isTa ? 'திட்டங்களைக் காண்க' : 'See plans';
+    const notNowBtnText = isTa ? 'இப்போது வேண்டாம்' : 'Not now';
+
     modal.innerHTML = `
       <div class="conversion-modal-card">
         <div style="font-size:38px;margin-bottom:6px;">🔒</div>
-        <h2 class="conversion-modal-title">More Abacus adventures are waiting!</h2>
-        <p class="conversion-modal-desc">Create your free account to continue.</p>
+        <h2 class="conversion-modal-title">${titleText}</h2>
+        <p class="conversion-modal-desc">${descText}</p>
 
         <div class="auth-actions">
           <button type="button" class="btn wide auth-btn-google" id="modalGoogleBtn">
             ${GOOGLE_SVG}
-            Continue with Google
+            ${googleBtnText}
           </button>
           <button type="button" class="btn wide auth-btn-email" id="modalEmailBtn">
-            ✉️ Login with Email
+            ${emailBtnText}
           </button>
-          <div class="auth-divider">─── or ───</div>
-          <button type="button" class="btn wide auth-btn-guest" id="modalGuestBtn">
-            🎮 Continue as Guest
+          <button type="button" class="btn ghost wide" id="modalPlansBtn" style="margin-top:4px;min-height:44px;">
+            ${plansBtnText}
+          </button>
+          <button type="button" class="btn wide auth-btn-guest" id="modalGuestBtn" data-btn="modalNotNowBtn" style="margin-top:4px;min-height:44px;">
+            ${notNowBtnText}
           </button>
         </div>
       </div>
@@ -362,10 +404,19 @@ export function showConversionPrompt(options = {}) {
 
     const googleBtn = modal.querySelector('#modalGoogleBtn');
     const emailBtn = modal.querySelector('#modalEmailBtn');
-    const guestBtn = modal.querySelector('#modalGuestBtn');
+    const plansBtn = modal.querySelector('#modalPlansBtn');
+    const notNowBtn = modal.querySelector('#modalGuestBtn') || modal.querySelector('#modalNotNowBtn');
 
-    if (guestBtn) {
-      guestBtn.onclick = () => {
+    if (plansBtn) {
+      plansBtn.onclick = async () => {
+        modal.remove();
+        const { go } = await import('./ui.js');
+        go('#/starter');
+      };
+    }
+
+    if (notNowBtn) {
+      notNowBtn.onclick = () => {
         modal.remove();
         if (options.onContinueGuest) options.onContinueGuest();
       };
@@ -374,7 +425,7 @@ export function showConversionPrompt(options = {}) {
     if (googleBtn) {
       googleBtn.onclick = async () => {
         googleBtn.disabled = true;
-        googleBtn.textContent = 'Connecting to Google…';
+        googleBtn.textContent = isTa ? 'Google உள்நுழைகிறது…' : 'Connecting to Google…';
         try {
           const cred = await signInWithGoogle();
           if (cred?.user) {
@@ -388,7 +439,7 @@ export function showConversionPrompt(options = {}) {
           }
         } catch (err) {
           googleBtn.disabled = false;
-          googleBtn.innerHTML = `${GOOGLE_SVG} Continue with Google`;
+          googleBtn.innerHTML = `${GOOGLE_SVG} ${googleBtnText}`;
           alert(formatAuthError(err));
         }
       };
