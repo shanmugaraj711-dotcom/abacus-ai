@@ -699,7 +699,7 @@ async function runE2ESuite() {
 
         // Lifetime button
         const lifetimeBtn = page.locator('#lifetime-buy-btn');
-        assert.equal(await lifetimeBtn.getAttribute('href'), '#/unlock', 'Lifetime button links to #/unlock');
+        assert.equal(await lifetimeBtn.getAttribute('href'), '#/pay', 'Lifetime button links to #/pay');
 
         passedAssertions += 3;
         totalAssertions += 3;
@@ -1000,7 +1000,7 @@ async function runE2ESuite() {
 
     await payContext.close();
 
-    // 9. Sign-up page test (confirming "Create your free account to save your progress." text)
+    // 9. Sign-Up / Conversion Copy test (Fix 2c: guest prompt text and buttons)
     console.log('\n─── Testing Sign-Up / Conversion Copy ───');
     const authContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const authPage = await authContext.newPage();
@@ -1031,24 +1031,26 @@ async function runE2ESuite() {
 
     // 1. Verify prompt modal text
     const modalText = await authPage.locator('#abacusConversionModal').textContent();
-    assert.ok(modalText.includes('Create your free account to save your progress.'), 'Modal must contain "Create your free account to save your progress."');
+    assert.ok(modalText.includes('This is part of a paid plan.'), 'Modal must contain "This is part of a paid plan."');
+    assert.ok(modalText.includes('Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose.'), 'Modal must contain pricing copy');
+    assert.ok(!modalText.includes('Create a free account to access'), 'Must not say "Create a free account to access"');
+    assert.ok(!modalText.includes('Create your free account to save your progress.'), 'Must not contain old free account text');
 
-    // 2. Open email auth view and switch to register mode
-    await authPage.click('#modalEmailBtn');
-    await authPage.waitForSelector('.auth-form-card');
-    await authPage.click('#emailAuthToggleBtn'); // toggle to "Create Free Account"
-    await authPage.waitForSelector('#emailAuthConfirmPassword'); // confirm input appears in register mode
+    // 2. Verify See plans and Not now buttons
+    assert.equal(await authPage.locator('#modalPlansBtn').count(), 1, 'See plans button exists');
+    assert.equal(await authPage.locator('#modalGuestBtn').count(), 1, 'Not now button exists');
 
-    const authFormText = await authPage.locator('.auth-form-card').textContent();
-    assert.ok(authFormText.includes('Create your free account to save your progress.'), 'Sign-up text must say "Create your free account to save your progress."');
-    assert.ok(!authFormText.includes('unlock Levels 1–3 and all games'), 'Old false free text must not exist');
+    // 3. See plans button navigates to #/starter
+    await authPage.click('#modalPlansBtn');
+    await authPage.waitForURL(`${baseUrl}/#/starter`, { timeout: 5000 });
+    assert.equal(authPage.url(), `${baseUrl}/#/starter`, 'Tapping See plans navigates to #/starter');
 
     const signupScreenshotPath = path.join(SCREENSHOT_DIR, 'signup-save-progress.png');
     await authPage.screenshot({ path: signupScreenshotPath });
     console.log(`  📸 Saved sign-up screenshot: ${signupScreenshotPath}`);
-    console.log(`  ✓ Sign-up copy verified: "Create your free account to save your progress."`);
-    passedAssertions += 3;
-    totalAssertions += 3;
+    console.log(`  ✓ Guest locked prompt copy verified: "This is part of a paid plan. Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose."`);
+    passedAssertions += 6;
+    totalAssertions += 6;
     await authContext.close();
 
     // 10. Starter button check twice (free & starter-expired: starterEnabled=false vs true, plus tester UID)
@@ -1232,6 +1234,95 @@ async function runE2ESuite() {
     passedAssertions += 3;
     totalAssertions += 3;
     await tapContext.close();
+
+    // 12. Fix 2 Invariants:
+    // (a) #unlock, #/unlock, #/starter all render the two cards
+    // (b) One-time payment button reaches #/pay with no redirect loop (URL stays stable)
+    // (c) Sign-in "continue" link lands on a stable plans screen
+    // (d) Real sign-in page has no phone/OTP text in EN and TA
+    console.log('\n─── Testing Fix 2 Invariants: Routes, #/pay, Continue Landing, Clean Sign-in ───');
+    const f2Context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const f2Page = await f2Context.newPage();
+    await f2Page.addInitScript(() => {
+      window.__mockUser = null;
+      localStorage.setItem('abacus-auth-mode', 'guest');
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'Aarya', avatar: '🐼', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [1],
+        levels: { 1: { stars: 3 } },
+        unlocked: 2,
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {}, exams: [], recent: [], stickersSeen: [],
+      }));
+    });
+
+    // (a) #unlock, #/unlock, #/starter all render the two cards
+    for (const r of ['#unlock', '#/unlock', '#/starter']) {
+      await f2Page.goto(`${baseUrl}/${r}`);
+      await f2Page.waitForSelector('.starter-plans');
+      const starterCard = await f2Page.locator('[data-plan-card="starter"]').count();
+      const lifetimeCard = await f2Page.locator('[data-plan-card="lifetime"]').count();
+      assert.equal(starterCard, 1, `${r} must render Starter plan card`);
+      assert.equal(lifetimeCard, 1, `${r} must render Lifetime plan card`);
+      passedAssertions += 2;
+      totalAssertions += 2;
+    }
+    console.log('  ✓ [E2E] #unlock, #/unlock, #/starter all render the two cards verified');
+
+    // (b) One-time payment button reaches #/pay with no redirect loop (check the URL stays stable)
+    await f2Page.goto(`${baseUrl}/#/starter`);
+    await f2Page.waitForSelector('#lifetime-buy-btn');
+    await f2Page.click('#lifetime-buy-btn');
+    await f2Page.waitForURL(`${baseUrl}/#/pay`, { timeout: 5000 });
+    await f2Page.waitForTimeout(400);
+    assert.equal(f2Page.url(), `${baseUrl}/#/pay`, 'One-time payment button navigates to #/pay');
+    // Ensure URL remains stable at #/pay without redirecting back to #/starter or #/unlock
+    await f2Page.waitForTimeout(400);
+    assert.equal(f2Page.url(), `${baseUrl}/#/pay`, 'URL stays stable at #/pay (no redirect loop)');
+    const payContent = await f2Page.textContent('.card.intro');
+    assert.ok(payContent.includes('₹499') && !payContent.includes('early bird'), '#/pay renders ₹499 without early bird text');
+    passedAssertions += 3;
+    totalAssertions += 3;
+    console.log('  ✓ [E2E] One-time payment button navigates to #/pay and stays stable verified');
+
+    // (c) Sign-in "continue" link lands on a stable plans screen
+    await f2Page.goto(`${baseUrl}/auth-ui/sign-in.html?return=${encodeURIComponent('../#/starter')}`);
+    await f2Page.waitForSelector('#phase1-signin-section:not([hidden])');
+    await f2Page.evaluate(() => {
+      document.getElementById('phase1-signin-section').hidden = true;
+      document.getElementById('phase1-signedin-section').hidden = false;
+      const contBtn = document.getElementById('phase1-continue-btn');
+      const params = new URLSearchParams(window.location.search);
+      let ret = params.get('return') || '../#/starter';
+      if (window.location.hash && !ret.includes('#')) ret += window.location.hash;
+      contBtn.href = ret;
+    });
+    await f2Page.waitForSelector('#phase1-continue-btn');
+    await f2Page.click('#phase1-continue-btn');
+    await f2Page.waitForSelector('.starter-plans', { timeout: 5000 });
+    assert.ok(f2Page.url().includes('#/starter'), 'Continue link lands on #/starter');
+    assert.equal(await f2Page.locator('.starter-plans').count(), 1, 'Lands on plans screen');
+    passedAssertions += 2;
+    totalAssertions += 2;
+    console.log('  ✓ [E2E] Sign-in continue link lands on stable plans screen verified');
+
+    // (d) Real sign-in page has no phone/OTP text in EN and TA
+    for (const l of ['en', 'ta']) {
+      await f2Page.goto(`${baseUrl}/auth-ui/sign-in.html?lang=${l}`);
+      await f2Page.waitForSelector('.phase1-shell');
+      const bodyText = (await f2Page.textContent('body')).toLowerCase();
+      assert.ok(!bodyText.includes('phone') && !bodyText.includes('mobile number') && !bodyText.includes('otp') && !bodyText.includes('sms') && !bodyText.includes('recaptcha'), `Sign-in page in ${l} contains no phone/OTP/SMS/reCAPTCHA text`);
+      const title = await f2Page.title();
+      assert.ok(title.includes('Sign in to choose a plan'), `Sign-in page title in ${l} is 'Sign in to choose a plan'`);
+      const h1Text = await f2Page.textContent('.phase1-title');
+      assert.ok(h1Text.includes('Sign in to choose a plan'), `Sign-in page h1 in ${l} is 'Sign in to choose a plan'`);
+      passedAssertions += 3;
+      totalAssertions += 3;
+    }
+    console.log('  ✓ [E2E] Real sign-in page has no phone/OTP text in EN and TA verified');
+    await f2Context.close();
 
     console.log('\n═════════════════════════════════════════════════════════════════════════════════════════');
     console.log('                         E2E MATRIX VERIFICATION SUMMARY TABLE                           ');

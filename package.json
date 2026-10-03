@@ -5,7 +5,7 @@
   "scripts": {
     "test:engine": "node tests/engine.test.mjs",
     "test:owner": "node tests/owner-control-center.test.mjs",
-    "test:all": "node tests/engine.test.mjs && node tests/owner-control-center.test.mjs && node tests/sound.test.mjs && node tests/coupons.test.mjs && node tests/tiers.test.mjs && node tests/starter-payment.test.mjs && node tests/audio-tamil.test.mjs",
+    "test:all": "node tests/engine.test.mjs && node tests/owner-control-center.test.mjs && node tests/sound.test.mjs && node tests/coupons.test.mjs && node tests/tiers.test.mjs && node tests/starter-payment.test.mjs && node tests/audio-tamil.test.mjs && node tests/qa-sweep-script.mjs",
     "syntax": "node --check js/app.js js/starter.js js/admin.js js/config.js js/payments.js js/engine.js js/store.js worker.js js/tiers.js js/games.js js/access.js",
     "test:sound": "node tests/sound.test.mjs",
     "test:coupons": "node tests/coupons.test.mjs",

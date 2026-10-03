@@ -57,11 +57,16 @@ export const levelAllowed = id => id >= 1 && canAccessLevel(id);
 export const maxLessonAllowed = () => (isGuestUser() ? 1 : getMaxLesson());
 export const lessonAllowed = id => canAccessLesson(id);
 
-function unlock() {
+function pay() {
+  const tier = getTier();
+  if (tier === 'lifetime' || (isPaid() && tier !== 'starter')) {
+    go('#/home', { replace: true });
+    return;
+  }
   const signedIn = (() => { try { return getAuthInstance().currentUser; } catch { return null; } })();
   const isTa = lang() === 'ta';
   const ctaText = isTa ? 'Google மூலம் தொடங்க உள்நுழையவும்' : 'Sign in to unlock with Google';
-  shell({ title: isTa ? 'லெவல்கள் 2–15 திறக்கவும்' : 'Unlock Levels 2–15', back: '#/practice', body: `
+  shell({ title: isTa ? 'லெவல்கள் 2–15 திறக்கவும்' : 'Unlock Levels 2–15', back: '#/starter', body: `
     <section class="card intro">
       ${babi('happy', 'big bob')}
       <p class="eyebrow">${isTa ? 'அபாகஸ் பட்டி ஒரே முறை கட்டணம்' : 'Abacus Buddy One-time payment'}</p>
@@ -77,12 +82,12 @@ function unlock() {
         <div class="stack">
           <label for="couponCode"><b>${isTa ? 'கூப்பன் குறியீடு' : 'Coupon code'}</b></label>
           <div class="row">
-            <input id="couponCode" maxlength="40" autocomplete="off" placeholder="EARLYBIRD" style="flex:1;">
+            <input id="couponCode" maxlength="40" autocomplete="off" placeholder="COUPON" style="flex:1;">
             <button class="btn" id="applyCoupon" type="button">Apply</button>
           </div>
           <button class="btn primary wide" id="buy">Pay ₹499 & Unlock</button>
         </div>` : `
-        <div class="stack"><a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#unlock">${ctaText}</a></div>`}
+        <div class="stack"><a class="btn primary wide" id="signin-btn" href="./auth-ui/sign-in.html?return=../#/pay">${ctaText}</a></div>`}
       <p class="muted tiny center" id="coupon-status"></p>
       <p class="muted tiny center" id="pay-status"></p>
       <a class="btn ghost wide" href="#/starter">${isTa ? '← அனைத்து திட்டங்களையும் காண்க' : '← View all plans'}</a>
@@ -95,7 +100,7 @@ function unlock() {
       try {
         signinBtn.textContent = isTa ? 'Google உள்நுழைகிறது…' : 'Connecting to Google…';
         const cred = await signInWithGoogle();
-        if (cred?.user) { e.preventDefault(); pingVisit(cred.user.uid).catch(() => {}); unlock(); return; }
+        if (cred?.user) { e.preventDefault(); pingVisit(cred.user.uid).catch(() => {}); pay(); return; }
       } catch (err) { console.warn('[Unlock] Popup sign-in fallback:', err); }
     }
   };
@@ -877,7 +882,7 @@ function dashboard() {
       <h3>${isGuestUser() ? (isTa ? '🎮 விருந்தினர் பயன்முறை' : '🎮 Guest Mode') : (isTa ? '👤 கணக்கு நிலை' : '👤 Account Status')}</h3>
       <p class="plan-line" style="margin:6px 0 10px;font-size:15px;"><b>${isTa ? 'உங்கள் திட்டம்' : 'Your plan'}:</b> <span id="parents-user-plan">${getPlanDescription(isTa)}</span></p>
       <div id="parents-plan-actions" style="margin:6px 0 12px;display:flex;gap:8px;flex-wrap:wrap;">${getPlanActionsHtml(isTa)}</div>
-      <p class="muted tiny">${isGuestUser() ? (isTa ? 'நீங்கள் விருந்தினராக பயன்படுத்துகிறீர்கள். குழந்தையின் முன்னேற்றத்தை சேமிக்க கணக்கை தொடங்குங்கள்.' : 'You are exploring Abacus as a guest. Create a free account or sign in to save your child’s progress across devices and unlock more levels & games.') : (isTa ? 'முன்னேற்றம் இணைக்கப்பட்ட கணக்கில் உள்நுழைந்துள்ளீர்கள்.' : 'Logged in with linked progress.')}</p>
+      <p class="muted tiny">${isGuestUser() ? (isTa ? 'நீங்கள் விருந்தினராக பயன்படுத்துகிறீர்கள். குழந்தையின் முன்னேற்றத்தை சேமிக்க உள்நுழையவும்.' : 'You are exploring Abacus as a guest. Sign in to save your child’s progress across devices.') : (isTa ? 'முன்னேற்றம் இணைக்கப்பட்ட கணக்கில் உள்நுழைந்துள்ளீர்கள்.' : 'Logged in with linked progress.')}</p>
       ${isGuestUser() ? `<button type="button" class="btn primary small" id="parentsAccountBtn">${isTa ? 'கணக்கு தொடங்கு / உள்நுழை' : 'Create Account / Sign In'}</button>` : ''}
     </section>
     <p class="muted center tiny">Everything is saved only on this device. No accounts, no ads.</p>` });
@@ -930,7 +935,8 @@ function route() {
     },
     learn: () => (isOn('learn') ? learnMap() : home()),
     practice: () => (isOn('practice') ? practiceMap() : home()),
-    unlock,
+    unlock: starterScreen,
+    pay,
     play: () => (isOn('play') ? playRoom() : home()),
     lesson: () => {
       if (isNaN(n) || !lessonAllowed(n)) {

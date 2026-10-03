@@ -201,8 +201,8 @@ test('Audio & Tamil verification suite', async (tSuite) => {
       assert.match(homeText, /சுய பயிற்சி/, 'Free play tile label');
       assert.match(homeText, /பெற்றோருக்கான பகுதி/, 'Grown-ups corner link in Tamil');
 
-      // 3. Test Unlock Screen in Tamil
-      await page.goto(`${baseUrl}/#/unlock`);
+      // 3. Test Unlock / Pay Screen in Tamil
+      await page.goto(`${baseUrl}/#/pay`);
       await page.waitForSelector('.card.intro');
       const unlockText = await page.locator('.card.intro').textContent();
       assert.match(unlockText, /அபாகஸ் பட்டி ஒரே முறை கட்டணம்/, 'Unlock eyebrow in Tamil');

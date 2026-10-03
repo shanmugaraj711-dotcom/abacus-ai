@@ -487,6 +487,208 @@ async function runQASweep() {
       console.log('  ✓ Data integrity verified: progress, stats, and scores are never deleted on expiry');
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // SECTION 5: START TWICE IN A ROW & RAPID DOUBLE-TAP GUARDS
+    // ══════════════════════════════════════════════════════════════════
+    console.log('\n─── 5. Testing Start Twice in a Row & Double-Tap Protection ───');
+    {
+      currentApiStatus = {
+        paid: true,
+        tier: 'lifetime',
+        maxLevel: 15,
+        maxLesson: 11,
+        games: ['race', 'mystery', 'match', 'flash', 'speed', 'friend', 'ladder'],
+        starterEnabled: true
+      };
+
+      const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const page = await context.newPage();
+
+      // Configure lifetime user so all 7 games and levels are unlocked
+      await page.addInitScript(() => {
+        window.__mockUser = { uid: 'lifetime-tester-doubletap', getIdToken: async () => 'test-token' };
+        localStorage.setItem('abacus-auth-mode', 'registered');
+        localStorage.setItem('abacus-kids-v3', JSON.stringify({
+          v: 3,
+          profile: { name: 'SuperKid', avatar: '🦁', experience: 'known', lang: 'en', voiceLang: 'en' },
+          unlocked: 15,
+          levels: { 1: { stars: 3 } },
+          lessonsDone: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+          stats: { answered: 10, correct: 10, streak: 5 },
+          games: {}
+        }));
+        localStorage.setItem('abacus-entitlement-v1', JSON.stringify({
+          uid: 'lifetime-tester-doubletap',
+          paid: true,
+          tier: 'lifetime'
+        }));
+      });
+
+      await page.goto(`${baseUrl}/#/level/1`);
+      await page.waitForSelector('[data-start]');
+      
+      // First start
+      await page.click('[data-start]');
+      await page.waitForTimeout(200);
+      assert.ok(await page.locator('[data-abacus], [data-check], [data-eq]').count() > 0, 'First level start works');
+
+      // Second start
+      await page.goto(`${baseUrl}/#/practice`);
+      await page.waitForTimeout(100);
+      await page.goto(`${baseUrl}/#/level/1`);
+      await page.waitForSelector('[data-start]');
+      assert.equal(await page.locator('[data-start]').isDisabled(), false, 'Start button is re-enabled on second visit');
+      await page.click('[data-start]');
+      await page.waitForTimeout(200);
+      assert.ok(await page.locator('[data-abacus], [data-check], [data-eq]').count() > 0, 'Second level start works');
+
+      // Double-tap on level start
+      await page.goto(`${baseUrl}/#/practice`);
+      await page.waitForTimeout(100);
+      await page.goto(`${baseUrl}/#/level/1`);
+      await page.waitForSelector('[data-start]');
+      const doubleTapResult = await page.evaluate(() => {
+        const btn = document.querySelector('[data-start]');
+        let count = 0;
+        const orig = btn.onclick;
+        btn.onclick = function(e) {
+          if (!this.disabled) {
+            count++;
+            orig.call(this, e);
+          }
+        };
+        btn.click();
+        btn.click();
+        return count;
+      });
+      assert.equal(doubleTapResult, 1, 'Rapid double-tap on level start button only fires once (disabled immediately)');
+
+      // 2. Each game twice in a row + rapid double-tap
+      const allGames = ['race', 'mystery', 'match', 'flash', 'speed', 'friend', 'ladder'];
+      for (const gid of allGames) {
+        // First start
+        await page.goto(`${baseUrl}/#/play`);
+        await page.waitForTimeout(100);
+        await page.goto(`${baseUrl}/#/game/${gid}`);
+        await page.waitForSelector('[data-mode]');
+        await page.locator('[data-mode]').first().click();
+        await page.waitForTimeout(200);
+        assert.equal(await page.locator('[data-mode]').count(), 0, `Game ${gid} first start leaves mode picker`);
+
+        // Second start
+        await page.goto(`${baseUrl}/#/play`);
+        await page.waitForTimeout(100);
+        await page.goto(`${baseUrl}/#/game/${gid}`);
+        await page.waitForSelector('[data-mode]');
+        assert.equal(await page.locator('[data-mode]').first().isDisabled(), false, `Game ${gid} mode button is enabled on second visit`);
+        await page.locator('[data-mode]').first().click();
+        await page.waitForTimeout(200);
+        assert.equal(await page.locator('[data-mode]').count(), 0, `Game ${gid} second start leaves mode picker`);
+
+        // Rapid double-tap
+        await page.goto(`${baseUrl}/#/play`);
+        await page.waitForTimeout(100);
+        await page.goto(`${baseUrl}/#/game/${gid}`);
+        await page.waitForSelector('[data-mode]');
+        const gameDoubleTap = await page.evaluate(() => {
+          const btn = document.querySelector('[data-mode]');
+          let count = 0;
+          const orig = btn.onclick;
+          btn.onclick = function(e) {
+            if (!this.disabled) {
+              count++;
+              orig.call(this, e);
+            }
+          };
+          btn.click();
+          btn.click();
+          return count;
+        });
+        assert.equal(gameDoubleTap, 1, `Game ${gid} rapid double-tap fires once (disabled immediately)`);
+      }
+
+      await context.close();
+      console.log('  ✓ Level and all 7 games verified: start twice in a row works, rapid double-tap starts only once');
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // SECTION 6: POST-SIGN-IN LANDING & STABILITY (NO LOOP)
+    // ══════════════════════════════════════════════════════════════════
+    console.log('\n─── 6. Testing Post-Sign-In Landing & Stability (No Redirect Loops) ───');
+    {
+      const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const page = await context.newPage();
+
+      // Case 1: Post-sign-in landing from locked prompt
+      await page.goto(`${baseUrl}/`);
+      await page.waitForSelector('#authGateGuestBtn');
+      await page.click('#authGateGuestBtn');
+      await page.waitForSelector('#kidName');
+      await page.fill('#kidName', 'GuestPrompt');
+      await page.click('[data-avatar="🐼"]');
+      await page.click('[data-exp="new"]');
+      await page.click('#start');
+      await page.waitForURL(`${baseUrl}/#/home`);
+
+      // Trigger locked prompt by accessing level 2
+      await page.goto(`${baseUrl}/#/practice`);
+      await page.waitForSelector('.levels');
+      const lvl2 = page.locator('.levels a.level').nth(1);
+      await lvl2.click();
+      await page.waitForSelector('#abacusConversionModal');
+
+      // Click Google Sign-in in modal
+      await page.evaluate(() => {
+        window.__mockUser = { uid: 'user_prompt_signin', getIdToken: async () => 'tok' };
+        localStorage.setItem('abacus-auth-mode', 'registered');
+        localStorage.setItem('abacus-entitlement-v1', JSON.stringify({ uid: 'user_prompt_signin', paid: false, tier: 'free' }));
+      });
+      await page.click('#modalGoogleBtn');
+      await page.waitForTimeout(300);
+      const postPromptHash = await page.evaluate(() => location.hash);
+      assert.ok(postPromptHash === '#/practice' || postPromptHash === '#/starter' || postPromptHash === '#/home', `Post locked prompt sign-in lands stably on ${postPromptHash}`);
+
+      // Case 2: Post-sign-in landing from buy button
+      await page.goto(`${baseUrl}/#/starter`);
+      await page.waitForTimeout(200);
+      // Trigger checkout prompt while unauthenticated
+      await page.evaluate(async () => {
+        window.__mockUser = null;
+        localStorage.setItem('abacus-auth-mode', 'guest');
+        const { startCheckout } = await import('./js/payments.js');
+        await startCheckout('starter');
+      });
+      await page.waitForSelector('#abacusConversionModal');
+      // Sign in from prompt
+      await page.evaluate(() => {
+        window.__mockUser = { uid: 'user_buy_signin', getIdToken: async () => 'tok' };
+        localStorage.setItem('abacus-auth-mode', 'registered');
+      });
+      await page.click('#modalGoogleBtn');
+      await page.waitForTimeout(300);
+      const postBuyHash = await page.evaluate(() => location.hash);
+      assert.equal(postBuyHash, '#/starter', 'Post buy button sign-in lands stably on #/starter (onSuccessAuth preserves starter screen)');
+
+      // Case 3: Post-sign-in landing from plain sign-in page
+      await page.goto(`${baseUrl}/auth-ui/sign-in.html`);
+      await page.waitForSelector('.phase1-shell');
+      const signinUrl1 = page.url();
+      assert.ok(signinUrl1.includes('/auth-ui/sign-in.html'), 'Plain sign-in page loads without loop');
+      // Visiting again does not redirect or loop
+      await page.goto(`${baseUrl}/auth-ui/sign-in.html`);
+      await page.waitForSelector('.phase1-shell');
+      const signinUrl2 = page.url();
+      assert.ok(signinUrl2.includes('/auth-ui/sign-in.html'), 'Plain sign-in page URL is stable');
+
+      // With ?return=../#unlock
+      await page.goto(`${baseUrl}/auth-ui/sign-in.html?return=../#unlock`);
+      await page.waitForSelector('.phase1-shell');
+      assert.ok(page.url().includes('return=..%2F%23unlock') || page.url().includes('return=../#unlock'), 'Sign-in page respects return parameter');
+
+      await context.close();
+      console.log('  ✓ Post-sign-in landing verified for locked prompt, buy button (#/starter), and plain sign-in page (0 loops)');
+    }
+
     console.log('\n══════════════════════════════════════════════════════════════════');
     console.log(`QA SWEEP COMPLETED SUCCESSFULLY!`);
     console.log(`Generated and updated ${screenshotsTaken.length} screenshots in test-results/`);

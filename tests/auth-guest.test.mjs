@@ -608,16 +608,17 @@ try {
 
     await p.waitForSelector('#abacusConversionModal');
     const modalText = await p.textContent('#abacusConversionModal');
-    assert.ok(modalText.includes('More Abacus adventures are waiting!'));
-    assert.ok(modalText.includes('Create your free account to save your progress.'));
-    assert.ok(modalText.includes('Continue as Guest'));
-    assert.ok(modalText.includes('Continue with Google'));
-    assert.ok(modalText.includes('Login with Email'));
+    assert.ok(modalText.includes('This is part of a paid plan.'), 'Modal must contain "This is part of a paid plan."');
+    assert.ok(modalText.includes('Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose.'), 'Modal must state Starter Rs 99 and One-time payment Rs 499');
+    assert.ok(modalText.includes('See plans'), 'Modal must include "See plans" button');
+    assert.ok(modalText.includes('Not now'), 'Modal must include "Not now" button');
+    assert.ok(!modalText.includes('Create a free account to access'), 'Must not contain "Create a free account to access"');
+    assert.ok(!modalText.includes('Create your free account to save your progress.'), 'Must not contain old free account text');
 
-    // Clicking Continue as Guest closes the modal gracefully
+    // Clicking Not now closes the modal gracefully
     await p.click('#modalGuestBtn');
     const modalGone = await p.$('#abacusConversionModal');
-    assert.equal(modalGone, null, 'Modal should close when Continue as Guest is clicked');
+    assert.equal(modalGone, null, 'Modal should close when Not now is clicked');
     await context.close();
   });
 

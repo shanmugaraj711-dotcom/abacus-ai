@@ -1,4 +1,4 @@
-/* auth-ui/auth.css — Phone Auth styles */
+/* auth-ui/auth.css — Parent Auth styles */
 
 /* ── Reset & root ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -175,7 +175,7 @@ html, body {
   color: var(--color-muted);
 }
 
-/* ── OTP input ─────────────────────────────────────────────────────────────── */
+/* ── Verification input ──────────────────────────────────────────────────────── */
 .phase1-otp-input {
   letter-spacing: .25em;
   text-align: center;
@@ -340,7 +340,7 @@ html, body {
   font-size: .82rem;
 }
 
-/* ── OTP section header ────────────────────────────────────────────────────── */
+/* ── Verification section header ────────────────────────────────────────────── */
 .phase1-otp-header {
   margin-bottom: 18px;
 }

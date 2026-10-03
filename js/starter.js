@@ -53,7 +53,7 @@ export function getPlanActionsHtml(isTa = false) {
     if (starterAvail) {
       return `
         <button type="button" class="btn small" id="renew-starter-btn">${isTa ? 'புதுப்பிக்கவும்' : 'Renew'}</button>
-        <a class="btn primary small" href="#/unlock" id="upgrade-lifetime-btn">${isTa ? 'ஒரே முறை கட்டணத்திற்கு மேம்படுத்து' : 'Upgrade to One-time payment'}</a>
+        <a class="btn primary small" href="#/pay" id="upgrade-lifetime-btn">${isTa ? 'ஒரே முறை கட்டணத்திற்கு மேம்படுத்து' : 'Upgrade to One-time payment'}</a>
       `;
     }
     return `<a class="btn small" href="#/starter" id="see-plans-btn">${isTa ? 'திட்டங்களைக் காண்க' : 'See plans'}</a>`;
@@ -145,7 +145,7 @@ export function starterScreen() {
             <div class="plan-action">
               <a
                 class="btn primary wide"
-                href="#/unlock"
+                href="#/pay"
                 id="lifetime-buy-btn"
                 data-plan="lifetime"
               >${isTa ? `₹${lifetimePrice} செலுத்தி திறக்கவும்` : `Pay ₹${lifetimePrice} & Unlock`}</a>

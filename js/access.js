@@ -363,23 +363,22 @@ export function showConversionPrompt(options = {}) {
     modal.innerHTML = `
       <div class="conversion-modal-card">
         <div style="font-size:38px;margin-bottom:6px;">🔒</div>
-        <h2 class="conversion-modal-title">More Abacus adventures are waiting!</h2>
-        <p class="conversion-modal-desc">Create your free account to save your progress.</p>
+        <h2 class="conversion-modal-title">This is part of a paid plan.</h2>
+        <p class="conversion-modal-desc">Starter Rs 99 (30 days) or One-time payment Rs 499. Sign in with Google to choose.</p>
 
         <div class="auth-actions">
           <button type="button" class="btn wide auth-btn-google" id="modalGoogleBtn">
             ${GOOGLE_SVG}
-            Continue with Google
+            Sign in with Google
           </button>
           <button type="button" class="btn wide auth-btn-email" id="modalEmailBtn">
-            ✉️ Login with Email
+            ✉️ Sign in with Email
           </button>
           <button type="button" class="btn ghost wide" id="modalPlansBtn" style="margin-top:4px;min-height:44px;">
             See plans
           </button>
-          <div class="auth-divider">─── or ───</div>
-          <button type="button" class="btn wide auth-btn-guest" id="modalGuestBtn">
-            🎮 Continue as Guest
+          <button type="button" class="btn wide auth-btn-guest" id="modalGuestBtn" data-btn="modalNotNowBtn" style="margin-top:4px;min-height:44px;">
+            Not now
           </button>
         </div>
       </div>
@@ -387,8 +386,8 @@ export function showConversionPrompt(options = {}) {
 
     const googleBtn = modal.querySelector('#modalGoogleBtn');
     const emailBtn = modal.querySelector('#modalEmailBtn');
-    const guestBtn = modal.querySelector('#modalGuestBtn');
     const plansBtn = modal.querySelector('#modalPlansBtn');
+    const notNowBtn = modal.querySelector('#modalGuestBtn') || modal.querySelector('#modalNotNowBtn');
 
     if (plansBtn) {
       plansBtn.onclick = async () => {
@@ -398,8 +397,8 @@ export function showConversionPrompt(options = {}) {
       };
     }
 
-    if (guestBtn) {
-      guestBtn.onclick = () => {
+    if (notNowBtn) {
+      notNowBtn.onclick = () => {
         modal.remove();
         if (options.onContinueGuest) options.onContinueGuest();
       };
@@ -422,7 +421,7 @@ export function showConversionPrompt(options = {}) {
           }
         } catch (err) {
           googleBtn.disabled = false;
-          googleBtn.innerHTML = `${GOOGLE_SVG} Continue with Google`;
+          googleBtn.innerHTML = `${GOOGLE_SVG} Sign in with Google`;
           alert(formatAuthError(err));
         }
       };
