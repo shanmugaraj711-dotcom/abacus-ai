@@ -50,9 +50,9 @@ export function playRoom() {
         return `<a class="game ${g.cls}" href="#/game/${g.id}"><span>${g.emoji}</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>Best: ${bestOf(g.id, 'star') || '—'} ${g.best}</em></a>`;
       }
       if (isGuestUser()) {
-        return `<button type="button" class="game ${g.cls} locked" data-locked-guest-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>Create free account to play</em></button>`;
+        return `<button type="button" class="game ${g.cls} locked" data-locked-guest-game="${g.id}"><span>🔒</span><b>${esc(g.name)}</b><small>Locked in Guest mode</small><em>${lang() === 'ta' ? 'செலுத்தி திற' : 'Pay to unlock'}</em></button>`;
       }
-      return `<a class="game ${g.cls} locked" href="#/starter" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>${lang() === 'ta' ? 'திட்டம் தேர்வு' : 'Choose plan'}</em></a>`;
+      return `<a class="game ${g.cls} locked" href="#/starter" data-locked-game="${g.id}"><span>🔐</span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small><em>${lang() === 'ta' ? 'செலுத்தி திற' : 'Pay to unlock'}</em></a>`;
     }).join('')}</div>
     ${games.length ? '' : '<p class="muted center">Games are switched off right now.</p>'}` });
   $$('[data-locked-guest-game]').forEach(b => {

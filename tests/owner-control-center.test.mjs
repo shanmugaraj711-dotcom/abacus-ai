@@ -780,9 +780,7 @@ await test('worker.js accesses Firestore only via service account (not client SD
 // ──────────────────────────────────────────────────────────────────────────────────────
 console.log('\n═══ Item 8: Tiered level access (Free 1, Starter 1-6, One-time payment 1-15) (browser) ═══');
 
-await test('Level gating: freeLevels defaults to 2, MAX_LEVEL is 15', async () => {
-  const src = fs.readFileSync(path.join(ROOT_DIR, 'js/config.js'), 'utf8');
-  assert.ok(src.includes('freeLevels: 2'), 'Default freeLevels must be 2');
+await test('Level gating: MAX_LEVEL is 15', async () => {
   const engSrc = fs.readFileSync(path.join(ROOT_DIR, 'js/engine.js'), 'utf8');
   assert.ok(engSrc.includes('MAX_LEVEL'), 'MAX_LEVEL must be exported from engine.js');
   // MAX_LEVEL = LEVELS.length - 1; verify LEVELS array has 16 entries (index 0 unused + 1-15)

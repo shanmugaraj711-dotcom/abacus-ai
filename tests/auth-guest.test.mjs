@@ -695,7 +695,7 @@ try {
 
     assert.ok(level3Href.href === '#/starter' || level3Href.href === '#/unlock', 'Level 3 link must point to #/starter');
     assert.equal(level3Href.isLocked, true, 'Level 3 must have locked class');
-    assert.ok(level3Href.text.includes('Choose plan') || level3Href.text.includes('₹499 unlock'), 'Level 3 must show plan/unlock text');
+    assert.ok(level3Href.text.includes('Pay to unlock'), 'Level 3 must show "Pay to unlock" badge');
     await context.close();
   });
 

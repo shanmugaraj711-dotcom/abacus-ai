@@ -219,7 +219,7 @@ test('Audio & Tamil verification suite', async (tSuite) => {
       await page.waitForSelector('.levels');
       const practiceText = await page.locator('#app').textContent();
       assert.match(practiceText, /லெவல் 1\s*சின்ன மணி கூட்டல்/, 'Level 1 card with exact title in Tamil');
-      assert.match(practiceText, /திட்டம் தேர்வு/, 'Paywalled level indicator in Tamil');
+      assert.match(practiceText, /செலுத்தி திற/, 'Paywalled level indicator in Tamil');
 
       // 5. Test Level Intro in Tamil
       await page.goto(`${baseUrl}/#/level/1`);

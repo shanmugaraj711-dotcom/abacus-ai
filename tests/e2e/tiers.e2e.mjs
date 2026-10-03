@@ -1360,6 +1360,86 @@ async function runE2ESuite() {
     console.log('  ✓ [E2E] Real sign-in page has no phone/OTP text in EN and TA verified');
     await f2Context.close();
 
+    // (e) Guest on Practise map sees "Pay to unlock" (EN) / "செலுத்தி திற" (TA) on levels 2-15, and no "Free account" text anywhere
+    const guestPracticeContext = await browser.newContext();
+    const guestPracticePage = await guestPracticeContext.newPage();
+    await guestPracticePage.addInitScript(() => {
+      localStorage.setItem('abacus-auth-mode', 'guest');
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'GuestKid', avatar: '🦁', experience: 'new', lang: 'en', voiceLang: 'en' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [],
+        unlocked: 1,
+        levels: {},
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {},
+        exams: [],
+        recent: [],
+        stickersSeen: [],
+      }));
+    });
+    await guestPracticePage.goto(`${baseUrl}/#/practice`);
+    await guestPracticePage.waitForSelector('.levels a.level');
+    const enPageText = await guestPracticePage.locator('#app').textContent();
+    assert.ok(!enPageText.toLowerCase().includes('free account'), 'EN Practise map has no "Free account" text anywhere');
+    const enLevels = await guestPracticePage.evaluate(() => {
+      return Array.from(document.querySelectorAll('.levels a.level')).map(el => ({
+        text: el.textContent,
+        strong: el.querySelector('strong') ? el.querySelector('strong').textContent : '',
+        isLocked: el.classList.contains('locked'),
+      }));
+    });
+    assert.equal(enLevels.length, 15, 'There are 15 levels on Practise map');
+    for (let i = 2; i <= 15; i++) {
+      const lv = enLevels[i - 1];
+      assert.ok(lv.strong.includes('Pay to unlock'), `Level ${i} (EN) badge must be "Pay to unlock", got "${lv.strong}"`);
+      assert.ok(!lv.text.includes('Free account'), `Level ${i} (EN) must not contain "Free account"`);
+    }
+    passedAssertions += 16;
+    await guestPracticeContext.close();
+
+    // TA Practise map
+    const taPracticeContext = await browser.newContext();
+    const taPracticePage = await taPracticeContext.newPage();
+    await taPracticePage.addInitScript(() => {
+      localStorage.setItem('abacus-auth-mode', 'guest');
+      localStorage.setItem('abacus-kids-v3', JSON.stringify({
+        v: 3,
+        profile: { name: 'GuestKid', avatar: '🦁', experience: 'new', lang: 'ta', voiceLang: 'ta' },
+        settings: { sound: false, voice: false },
+        lessonsDone: [],
+        unlocked: 1,
+        levels: {},
+        stats: { days: [], answered: 0, firstTry: 0, seconds: 0, byRule: {}, mistakes: [] },
+        games: {},
+        exams: [],
+        recent: [],
+        stickersSeen: [],
+      }));
+    });
+    await taPracticePage.goto(`${baseUrl}/#/practice`);
+    await taPracticePage.waitForSelector('.levels a.level');
+    const taPageText = await taPracticePage.locator('#app').textContent();
+    assert.ok(!taPageText.toLowerCase().includes('free account'), 'TA Practise map has no "Free account" text');
+    assert.ok(!taPageText.includes('கணக்கு தொடங்கு'), 'TA Practise map has no old "கணக்கு தொடங்கு" badge');
+    const taLevels = await taPracticePage.evaluate(() => {
+      return Array.from(document.querySelectorAll('.levels a.level')).map(el => ({
+        text: el.textContent,
+        strong: el.querySelector('strong') ? el.querySelector('strong').textContent : '',
+        isLocked: el.classList.contains('locked'),
+      }));
+    });
+    for (let i = 2; i <= 15; i++) {
+      const lv = taLevels[i - 1];
+      assert.ok(lv.strong.includes('செலுத்தி திற'), `Level ${i} (TA) badge must be "செலுத்தி திற", got "${lv.strong}"`);
+      assert.ok(!lv.text.includes('Free account'), `Level ${i} (TA) must not contain "Free account"`);
+    }
+    passedAssertions += 16;
+    totalAssertions += 16;
+    await taPracticeContext.close();
+    console.log('  ✓ [E2E] Guest on Practise map sees "Pay to unlock" / "செலுத்தி திற" on levels 2-15 and no "Free account" text verified');
+
     console.log('\n═════════════════════════════════════════════════════════════════════════════════════════');
     console.log('                         E2E MATRIX VERIFICATION SUMMARY TABLE                           ');
     console.log('═════════════════════════════════════════════════════════════════════════════════════════');

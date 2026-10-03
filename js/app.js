@@ -615,7 +615,7 @@ function practiceMap() {
       }>
         <span class="lv-emoji">${open ? L.emoji : guestLocked || paywall ? '🔐' : '🔒'}</span>
         <span class="lv-body"><small>${isTa ? `லெவல் ${L.id}` : `Level ${L.id}`}</small><b>${esc(lvName(L))}</b><em>${esc(lvTip(L))}</em></span>
-        ${guestLocked ? `<strong>${isTa ? 'கணக்கு தொடங்கு' : 'Free account'}</strong>` : paywall ? `<strong>${isTa ? 'திட்டம் தேர்வு' : 'Choose plan'}</strong>` : stars(rec?.stars || 0)}
+        ${guestLocked || paywall ? `<strong>${isTa ? 'செலுத்தி திற' : 'Pay to unlock'}</strong>` : stars(rec?.stars || 0)}
       </a>`;
     }).join('')}</div>` });
 

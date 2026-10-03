@@ -397,9 +397,9 @@ test('27. Router and parents dashboard incorporate #/starter and Your plan line'
   assert.ok(appSrc.includes('getPlanDescription'), 'Dashboard must call getPlanDescription');
 });
 
-test('28. Service worker bumps cache to v10 and caches ./js/starter.js', () => {
+test('28. Service worker bumps cache to v12 and caches ./js/starter.js', () => {
   const swSrc = readFileSync(resolve(ROOT, 'sw.js'), 'utf8');
-  assert.ok(swSrc.includes("const CACHE = 'abacus-buddy-v11';") || swSrc.includes("const CACHE = 'abacus-buddy-v10';") || swSrc.includes("const CACHE = 'abacus-buddy-v9';"), 'sw.js cache must be bumped');
+  assert.ok(swSrc.includes("const CACHE = 'abacus-buddy-v12';"), 'sw.js cache must be abacus-buddy-v12');
   assert.ok(swSrc.includes("'./js/starter.js'"), 'sw.js SHELL must include ./js/starter.js');
 });
 
